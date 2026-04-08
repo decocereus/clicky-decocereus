@@ -9,18 +9,28 @@
 
 import ServiceManagement
 import SwiftUI
-import Sparkle
 
 @main
 struct leanring_buddyApp: App {
     @NSApplicationDelegateAdaptor(CompanionAppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // The app lives entirely in the menu bar panel managed by the AppDelegate.
-        // This empty Settings scene satisfies SwiftUI's requirement for at least
-        // one scene but is never shown (LSUIElement=true removes the app menu).
         Settings {
-            EmptyView()
+            CompanionStudioView(companionManager: appDelegate.companionManager)
+                .frame(minWidth: 980, minHeight: 680)
+        }
+        .commands {
+            CommandMenu("Clicky") {
+                Button("Open Companion Panel") {
+                    NotificationCenter.default.post(name: .clickyShowPanel, object: nil)
+                }
+                .keyboardShortcut("k", modifiers: [.command, .shift])
+
+                SettingsLink {
+                    Text("Open Studio")
+                }
+                .keyboardShortcut(",", modifiers: [.command, .shift])
+            }
         }
     }
 }
@@ -30,17 +40,23 @@ struct leanring_buddyApp: App {
 @MainActor
 final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarPanelManager: MenuBarPanelManager?
-    private let companionManager = CompanionManager()
+    let companionManager = CompanionManager()
     private var sparkleUpdaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🎯 Clicky: Starting...")
         print("🎯 Clicky: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
+        terminateOtherRunningClickyInstances()
+
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
 
         ClickyAnalytics.configure()
         ClickyAnalytics.trackAppOpened()
+
+        #if DEBUG
+        NSApp.setActivationPolicy(.regular)
+        #endif
 
         menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
         companionManager.start()
@@ -49,6 +65,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         if !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted {
             menuBarPanelManager?.showPanelOnLaunch()
         }
+        #if DEBUG
+        menuBarPanelManager?.showStudioOnLaunch()
+        #endif
         registerAsLoginItemIfNeeded()
         // startSparkleUpdater()
     }
@@ -84,6 +103,21 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             try updaterController.updater.start()
         } catch {
             print("⚠️ Clicky: Sparkle updater failed to start: \(error)")
+        }
+    }
+
+    private func terminateOtherRunningClickyInstances() {
+        guard let currentBundleIdentifier = Bundle.main.bundleIdentifier else { return }
+
+        let currentProcessIdentifier = ProcessInfo.processInfo.processIdentifier
+        let otherRunningClickyApplications = NSWorkspace.shared.runningApplications.filter { runningApplication in
+            runningApplication.bundleIdentifier == currentBundleIdentifier
+                && runningApplication.processIdentifier != currentProcessIdentifier
+        }
+
+        for runningApplication in otherRunningClickyApplications {
+            print("🎯 Clicky: Terminating duplicate instance pid=\(runningApplication.processIdentifier)")
+            _ = runningApplication.terminate()
         }
     }
 }

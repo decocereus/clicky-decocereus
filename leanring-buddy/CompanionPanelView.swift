@@ -12,7 +12,7 @@ import SwiftUI
 
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
-    @State private var emailInput: String = ""
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -29,7 +29,23 @@ struct CompanionPanelView: View {
                 Spacer()
                     .frame(height: 12)
 
+                agentBackendPickerRow
+                    .padding(.horizontal, 16)
+            }
+
+            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted && companionManager.selectedAgentBackend == .claude {
+                Spacer()
+                    .frame(height: 12)
+
                 modelPickerRow
+                    .padding(.horizontal, 16)
+            }
+
+            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted && companionManager.selectedAgentBackend == .openClaw {
+                Spacer()
+                    .frame(height: 12)
+
+                openClawGatewaySettingsSection
                     .padding(.horizontal, 16)
             }
 
@@ -104,6 +120,21 @@ struct CompanionPanelView: View {
                 .foregroundColor(DS.Colors.textTertiary)
 
             Button(action: {
+                openStudio()
+            }) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .frame(width: 20, height: 20)
+                    .background(
+                        Circle()
+                            .fill(Color.white.opacity(0.08))
+                    )
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+
+            Button(action: {
                 NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
             }) {
                 Image(systemName: "xmark")
@@ -131,16 +162,6 @@ struct CompanionPanelView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else if companionManager.allPermissionsGranted && !companionManager.hasSubmittedEmail {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Drop your email to get started.")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-                Text("If I keep building this, I'll keep you in the loop.")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         } else if companionManager.allPermissionsGranted {
             Text("You're all set. Hit Start to meet Clicky.")
                 .font(.system(size: 12, weight: .medium))
@@ -179,64 +200,26 @@ struct CompanionPanelView: View {
         }
     }
 
-    // MARK: - Email + Start Button
+    // MARK: - Start Button
 
     @ViewBuilder
     private var startButton: some View {
         if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            if !companionManager.hasSubmittedEmail {
-                VStack(spacing: 8) {
-                    TextField("Enter your email", text: $emailInput)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                                .fill(Color.white.opacity(0.08))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-                        )
-
-                    Button(action: {
-                        companionManager.submitEmail(emailInput)
-                    }) {
-                        Text("Submit")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(DS.Colors.textOnAccent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                                    .fill(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                          ? DS.Colors.accent.opacity(0.4)
-                                          : DS.Colors.accent)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .disabled(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            } else {
-                Button(action: {
-                    companionManager.triggerOnboarding()
-                }) {
-                    Text("Start")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                                .fill(DS.Colors.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
+            Button(action: {
+                companionManager.triggerOnboarding()
+            }) {
+                Text("Start")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DS.Colors.textOnAccent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                            .fill(DS.Colors.accent)
+                    )
             }
+            .buttonStyle(.plain)
+            .pointerCursor()
         }
     }
 
@@ -622,6 +605,49 @@ struct CompanionPanelView: View {
         .padding(.vertical, 4)
     }
 
+    private var agentBackendPickerRow: some View {
+        HStack {
+            Text("Agent")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(DS.Colors.textSecondary)
+
+            Spacer()
+
+            HStack(spacing: 0) {
+                agentBackendOptionButton(label: "Claude", backend: .claude)
+                agentBackendOptionButton(label: "OpenClaw", backend: .openClaw)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+            )
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func agentBackendOptionButton(label: String, backend: CompanionAgentBackend) -> some View {
+        let isSelected = companionManager.selectedAgentBackend == backend
+        return Button(action: {
+            companionManager.setSelectedAgentBackend(backend)
+        }) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(isSelected ? Color.white.opacity(0.1) : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
     private func modelOptionButton(label: String, modelID: String) -> some View {
         let isSelected = companionManager.selectedModel == modelID
         return Button(action: {
@@ -639,6 +665,70 @@ struct CompanionPanelView: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
+    }
+
+    private var openClawGatewaySettingsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("OpenClaw")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(DS.Colors.textSecondary)
+
+            openClawTextField(
+                title: "Gateway URL",
+                text: Binding(
+                    get: { companionManager.openClawGatewayURL },
+                    set: { companionManager.openClawGatewayURL = $0 }
+                ),
+                placeholder: "ws://127.0.0.1:18789"
+            )
+
+            openClawTextField(
+                title: "Agent ID",
+                text: Binding(
+                    get: { companionManager.openClawAgentIdentifier },
+                    set: { companionManager.openClawAgentIdentifier = $0 }
+                ),
+                placeholder: "Optional OpenClaw agent id"
+            )
+
+            openClawTextField(
+                title: "Session Key",
+                text: Binding(
+                    get: { companionManager.openClawSessionKey },
+                    set: { companionManager.openClawSessionKey = $0 }
+                ),
+                placeholder: "clicky-companion"
+            )
+
+            Text("The first pass auto-reads the local Gateway token from `~/.openclaw/openclaw.json`.")
+                .font(.system(size: 10))
+                .foregroundColor(DS.Colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func openClawTextField(title: String, text: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundColor(DS.Colors.textTertiary)
+
+            TextField(placeholder, text: text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+                )
+        }
     }
 
     // MARK: - DM Farza Button
@@ -681,24 +771,40 @@ struct CompanionPanelView: View {
     // MARK: - Footer
 
     private var footerSection: some View {
-        HStack {
-            Button(action: {
-                NSApp.terminate(nil)
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "power")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("Quit Clicky")
-                        .font(.system(size: 12, weight: .medium))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Button(action: {
+                    NSApp.terminate(nil)
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "power")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Quit Clicky")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(DS.Colors.textTertiary)
                 }
-                .foregroundColor(DS.Colors.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
+                .buttonStyle(.plain)
+                .pointerCursor()
 
-            if companionManager.hasCompletedOnboarding {
                 Spacer()
 
+                Button(action: {
+                    openStudio()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Open Studio")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(DS.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+
+            if companionManager.hasCompletedOnboarding {
                 Button(action: {
                     companionManager.replayOnboarding()
                 }) {
@@ -734,7 +840,7 @@ struct CompanionPanelView: View {
             return DS.Colors.success
         case .listening:
             return DS.Colors.blue400
-        case .processing, .responding:
+        case .transcribing, .thinking, .responding:
             return DS.Colors.blue400
         }
     }
@@ -751,11 +857,18 @@ struct CompanionPanelView: View {
             return "Active"
         case .listening:
             return "Listening"
-        case .processing:
-            return "Processing"
+        case .transcribing:
+            return "Transcribing"
+        case .thinking:
+            return "Thinking"
         case .responding:
             return "Responding"
         }
+    }
+
+    private func openStudio() {
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+        openSettings()
     }
 
 }

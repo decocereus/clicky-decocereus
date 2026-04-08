@@ -16,6 +16,10 @@ import SwiftUI
 
 extension Notification.Name {
     static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
+    static let clickyOpenStudio = Notification.Name("clickyOpenStudio")
+    static let clickyShowPanel = Notification.Name("clickyShowPanel")
+    static let clickyStudioDidAppear = Notification.Name("clickyStudioDidAppear")
+    static let clickyStudioDidDisappear = Notification.Name("clickyStudioDidDisappear")
 }
 
 /// Custom NSPanel subclass that can become the key window even with
@@ -30,6 +34,8 @@ final class MenuBarPanelManager: NSObject {
     private var panel: NSPanel?
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
+    private var openStudioObserver: NSObjectProtocol?
+    private var showPanelObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
     private let panelWidth: CGFloat = 320
@@ -47,6 +53,23 @@ final class MenuBarPanelManager: NSObject {
         ) { [weak self] _ in
             self?.hidePanel()
         }
+
+        openStudioObserver = NotificationCenter.default.addObserver(
+            forName: .clickyOpenStudio,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.hidePanel()
+            self?.openStudioWindow()
+        }
+
+        showPanelObserver = NotificationCenter.default.addObserver(
+            forName: .clickyShowPanel,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.showPanel()
+        }
     }
 
     deinit {
@@ -56,17 +79,27 @@ final class MenuBarPanelManager: NSObject {
         if let observer = dismissPanelObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = openStudioObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = showPanelObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     // MARK: - Status Item
 
     private func createStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem?.isVisible = true
 
         guard let button = statusItem?.button else { return }
 
         button.image = makeClickyMenuBarIcon()
         button.image?.isTemplate = true
+        button.imagePosition = .imageOnly
+        button.title = ""
+        button.toolTip = "Clicky"
         button.action = #selector(statusItemClicked)
         button.target = self
     }
@@ -116,6 +149,17 @@ final class MenuBarPanelManager: NSObject {
         }
     }
 
+    func showStudioOnLaunch() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            self.openStudioWindow()
+        }
+    }
+
+    private func openStudioWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
+
     @objc private func statusItemClicked() {
         if let panel, panel.isVisible {
             hidePanel()
@@ -131,6 +175,7 @@ final class MenuBarPanelManager: NSObject {
             createPanel()
         }
 
+        NSApp.activate(ignoringOtherApps: true)
         positionPanelBelowStatusItem()
 
         panel?.makeKeyAndOrderFront(nil)
@@ -187,9 +232,25 @@ final class MenuBarPanelManager: NSObject {
         let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: panelWidth, height: panelHeight)
         let actualPanelHeight = fittingSize.height
 
-        // Horizontally center the panel beneath the status item icon
-        let panelOriginX = statusItemFrame.midX - (panelWidth / 2)
-        let panelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar
+        // Status item window coordinates can occasionally be stale or far offscreen
+        // during first launch on menu bar-only apps. Clamp the final panel frame to
+        // a visible display so onboarding never opens outside the user's desktop.
+        let fallbackScreen = buttonWindow.screen
+            ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
+            ?? NSScreen.main
+        let fallbackVisibleFrame = fallbackScreen?.visibleFrame
+            ?? CGRect(x: 0, y: 0, width: panelWidth, height: actualPanelHeight)
+
+        // Horizontally center the panel beneath the status item icon, then clamp.
+        let unclampedPanelOriginX = statusItemFrame.midX - (panelWidth / 2)
+        let unclampedPanelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar
+        let minimumPanelOriginX = fallbackVisibleFrame.minX
+        let maximumPanelOriginX = max(fallbackVisibleFrame.maxX - panelWidth, minimumPanelOriginX)
+        let minimumPanelOriginY = fallbackVisibleFrame.minY
+        let maximumPanelOriginY = max(fallbackVisibleFrame.maxY - actualPanelHeight, minimumPanelOriginY)
+
+        let panelOriginX = min(max(unclampedPanelOriginX, minimumPanelOriginX), maximumPanelOriginX)
+        let panelOriginY = min(max(unclampedPanelOriginY, minimumPanelOriginY), maximumPanelOriginY)
 
         panel.setFrame(
             NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight),

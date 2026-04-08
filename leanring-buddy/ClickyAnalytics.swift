@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import PostHog
 
 enum ClickyAnalytics {
 

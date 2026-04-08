@@ -7,6 +7,7 @@
 //  playback begins before the full audio has been generated.
 //
 
+import AppKit
 import AVFoundation
 import Foundation
 
@@ -18,6 +19,8 @@ final class ElevenLabsTTSClient {
     /// The audio player for the current TTS playback. Kept alive so the
     /// audio finishes playing even if the caller doesn't hold a reference.
     private var audioPlayer: AVAudioPlayer?
+    private var systemSpeechSynthesizer: NSSpeechSynthesizer?
+    private var systemSpeechDelegate: SystemSpeechDelegate?
 
     init(proxyURL: String) {
         self.proxyURL = URL(string: proxyURL)!
@@ -31,6 +34,11 @@ final class ElevenLabsTTSClient {
     /// Sends `text` to ElevenLabs TTS and plays the resulting audio.
     /// Throws on network or decoding errors. Cancellation-safe.
     func speakText(_ text: String) async throws {
+        if !CompanionRuntimeConfiguration.isWorkerConfigured {
+            await speakTextWithSystemSpeech(text)
+            return
+        }
+
         var request = URLRequest(url: proxyURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -68,14 +76,57 @@ final class ElevenLabsTTSClient {
         print("🔊 ElevenLabs TTS: playing \(data.count / 1024)KB audio")
     }
 
+    private func speakTextWithSystemSpeech(_ text: String) async {
+        let speechSynthesizer = NSSpeechSynthesizer()
+        let systemSpeechDelegate = SystemSpeechDelegate()
+
+        self.systemSpeechSynthesizer = speechSynthesizer
+        self.systemSpeechDelegate = systemSpeechDelegate
+        speechSynthesizer.delegate = systemSpeechDelegate
+        speechSynthesizer.startSpeaking(text)
+        print("🔊 System TTS: speaking local fallback audio")
+
+        await systemSpeechDelegate.waitUntilFinishedSpeaking()
+
+        if self.systemSpeechSynthesizer === speechSynthesizer {
+            self.systemSpeechSynthesizer = nil
+            self.systemSpeechDelegate = nil
+        }
+    }
+
     /// Whether TTS audio is currently playing back.
     var isPlaying: Bool {
-        audioPlayer?.isPlaying ?? false
+        (audioPlayer?.isPlaying ?? false) || (systemSpeechSynthesizer?.isSpeaking ?? false)
     }
 
     /// Stops any in-progress playback immediately.
     func stopPlayback() {
         audioPlayer?.stop()
         audioPlayer = nil
+        systemSpeechSynthesizer?.stopSpeaking()
+        systemSpeechDelegate?.cancel()
+        systemSpeechSynthesizer = nil
+        systemSpeechDelegate = nil
+    }
+}
+
+@MainActor
+private final class SystemSpeechDelegate: NSObject, NSSpeechSynthesizerDelegate {
+    private var finishedSpeakingContinuation: CheckedContinuation<Void, Never>?
+
+    func waitUntilFinishedSpeaking() async {
+        await withCheckedContinuation { continuation in
+            finishedSpeakingContinuation = continuation
+        }
+    }
+
+    func cancel() {
+        finishedSpeakingContinuation?.resume()
+        finishedSpeakingContinuation = nil
+    }
+
+    func speechSynthesizer(_ sender: NSSpeechSynthesizer, didFinishSpeaking finishedSpeaking: Bool) {
+        finishedSpeakingContinuation?.resume()
+        finishedSpeakingContinuation = nil
     }
 }

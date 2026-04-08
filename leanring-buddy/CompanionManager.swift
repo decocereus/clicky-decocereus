@@ -10,15 +10,22 @@
 import AVFoundation
 import Combine
 import Foundation
-import PostHog
 import ScreenCaptureKit
 import SwiftUI
 
 enum CompanionVoiceState {
     case idle
     case listening
-    case processing
+    case transcribing
+    case thinking
     case responding
+}
+
+enum OpenClawConnectionStatus {
+    case idle
+    case testing
+    case connected(summary: String)
+    case failed(message: String)
 }
 
 @MainActor
@@ -68,16 +75,14 @@ final class CompanionManager: ObservableObject {
     // Response text is now displayed inline on the cursor overlay via
     // streamingResponseText, so no separate response overlay manager is needed.
 
-    /// Base URL for the Cloudflare Worker proxy. All API requests route
-    /// through this so keys never ship in the app binary.
-    private static let workerBaseURL = "https://your-worker-name.your-subdomain.workers.dev"
-
     private lazy var claudeAPI: ClaudeAPI = {
-        return ClaudeAPI(proxyURL: "\(Self.workerBaseURL)/chat", model: selectedModel)
+        return ClaudeAPI(proxyURL: "\(CompanionRuntimeConfiguration.workerBaseURL)/chat", model: selectedModel)
     }()
 
+    private let openClawGatewayCompanionAgent = OpenClawGatewayCompanionAgent()
+
     private lazy var elevenLabsTTSClient: ElevenLabsTTSClient = {
-        return ElevenLabsTTSClient(proxyURL: "\(Self.workerBaseURL)/tts")
+        return ElevenLabsTTSClient(proxyURL: "\(CompanionRuntimeConfiguration.workerBaseURL)/tts")
     }()
 
     /// Conversation history so Claude remembers prior exchanges within a session.
@@ -110,10 +115,99 @@ final class CompanionManager: ObservableObject {
     /// The Claude model used for voice responses. Persisted to UserDefaults.
     @Published var selectedModel: String = UserDefaults.standard.string(forKey: "selectedClaudeModel") ?? "claude-sonnet-4-6"
 
+    /// The active agent backend driving the companion response pipeline.
+    /// Claude remains the default, but OpenClaw can be selected for local
+    /// Gateway-backed agent runs.
+    @Published var selectedAgentBackend: CompanionAgentBackend = CompanionAgentBackend(
+        rawValue: UserDefaults.standard.string(forKey: "selectedCompanionAgentBackend") ?? ""
+    ) ?? (CompanionRuntimeConfiguration.isWorkerConfigured ? .claude : .openClaw) {
+        didSet {
+            UserDefaults.standard.set(selectedAgentBackend.rawValue, forKey: "selectedCompanionAgentBackend")
+        }
+    }
+
+    /// Connection details for the OpenClaw Gateway backend. These are kept
+    /// lightweight for the first integration pass so the app can target a
+    /// local Gateway quickly while still allowing remote/tunneled setups.
+    @Published var openClawGatewayURL: String = UserDefaults.standard.string(forKey: "openClawGatewayURL") ?? "ws://127.0.0.1:18789" {
+        didSet {
+            UserDefaults.standard.set(openClawGatewayURL, forKey: "openClawGatewayURL")
+            openClawConnectionStatus = .idle
+        }
+    }
+
+    @Published var openClawAgentIdentifier: String = UserDefaults.standard.string(forKey: "openClawAgentIdentifier") ?? "" {
+        didSet {
+            UserDefaults.standard.set(openClawAgentIdentifier, forKey: "openClawAgentIdentifier")
+        }
+    }
+
+    @Published var openClawGatewayAuthToken: String = UserDefaults.standard.string(forKey: "openClawGatewayAuthToken") ?? "" {
+        didSet {
+            UserDefaults.standard.set(openClawGatewayAuthToken, forKey: "openClawGatewayAuthToken")
+            openClawConnectionStatus = .idle
+        }
+    }
+
+    @Published var openClawSessionKey: String = UserDefaults.standard.string(forKey: "openClawSessionKey") ?? "clicky-companion" {
+        didSet {
+            UserDefaults.standard.set(openClawSessionKey, forKey: "openClawSessionKey")
+            openClawConnectionStatus = .idle
+        }
+    }
+
+    @Published private(set) var openClawConnectionStatus: OpenClawConnectionStatus = .idle
+
     func setSelectedModel(_ model: String) {
         selectedModel = model
         UserDefaults.standard.set(model, forKey: "selectedClaudeModel")
         claudeAPI.model = model
+    }
+
+    func setSelectedAgentBackend(_ selectedAgentBackend: CompanionAgentBackend) {
+        self.selectedAgentBackend = selectedAgentBackend
+    }
+
+    var effectiveVoiceOutputDisplayName: String {
+        CompanionRuntimeConfiguration.isWorkerConfigured ? "ElevenLabs" : "System Speech"
+    }
+
+    var openClawGatewayAuthSummary: String {
+        if !openClawGatewayAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Using token from Studio settings"
+        }
+
+        return OpenClawGatewayCompanionAgent.localGatewayAuthTokenSummary()
+    }
+
+    var isOpenClawGatewayRemote: Bool {
+        guard let gatewayURL = URL(string: openClawGatewayURL),
+              let host = gatewayURL.host?.lowercased() else {
+            return false
+        }
+
+        return gatewayURL.scheme == "wss"
+            || !(host == "127.0.0.1" || host == "localhost" || host == "::1")
+    }
+
+    func testOpenClawConnection() {
+        if case .testing = openClawConnectionStatus {
+            return
+        }
+
+        openClawConnectionStatus = .testing
+
+        Task { @MainActor in
+            do {
+                let summary = try await openClawGatewayCompanionAgent.testConnection(
+                    gatewayURLString: openClawGatewayURL,
+                    explicitGatewayAuthToken: openClawGatewayAuthToken
+                )
+                openClawConnectionStatus = .connected(summary: summary)
+            } catch {
+                openClawConnectionStatus = .failed(message: error.localizedDescription)
+            }
+        }
     }
 
     /// User preference for whether the Clicky cursor should be shown.
@@ -146,33 +240,11 @@ final class CompanionManager: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "hasCompletedOnboarding") }
     }
 
-    /// Whether the user has submitted their email during onboarding.
-    @Published var hasSubmittedEmail: Bool = UserDefaults.standard.bool(forKey: "hasSubmittedEmail")
-
-    /// Submits the user's email to FormSpark and identifies them in PostHog.
-    func submitEmail(_ email: String) {
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedEmail.isEmpty else { return }
-
-        hasSubmittedEmail = true
-        UserDefaults.standard.set(true, forKey: "hasSubmittedEmail")
-
-        // Identify user in PostHog
-        PostHogSDK.shared.identify(trimmedEmail, userProperties: [
-            "email": trimmedEmail
-        ])
-
-        // Submit to FormSpark
-        Task {
-            var request = URLRequest(url: URL(string: "https://submit-form.com/RWbGJxmIs")!)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: ["email": trimmedEmail])
-            _ = try? await URLSession.shared.data(for: request)
-        }
-    }
-
     func start() {
+        if !CompanionRuntimeConfiguration.isWorkerConfigured && selectedAgentBackend == .claude {
+            selectedAgentBackend = .openClaw
+        }
+
         refreshAllPermissions()
         print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
@@ -181,7 +253,19 @@ final class CompanionManager: ObservableObject {
         bindShortcutTransitions()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
-        _ = claudeAPI
+        if selectedAgentBackend == .claude {
+            _ = claudeAPI
+        }
+
+        // When the worker is not configured we fall back to Apple Speech,
+        // which needs a separate Speech Recognition permission. Request it
+        // proactively so the user's first push-to-talk press doesn't get
+        // consumed by a permission prompt and feel like a broken hotkey.
+        if buddyDictationManager.needsInitialPermissionPrompt {
+            Task { @MainActor in
+                await buddyDictationManager.requestInitialPushToTalkPermissionsIfNeeded()
+            }
+        }
 
         // If the user already completed onboarding AND all permissions are
         // still granted, show the cursor overlay immediately. If permissions
@@ -436,16 +520,16 @@ final class CompanionManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isRecording, isFinalizing, isPreparing in
                 guard let self else { return }
-                // Don't override .responding — the AI response pipeline
-                // manages that state directly until streaming finishes.
-                guard self.voiceState != .responding else { return }
-
-                if isFinalizing {
-                    self.voiceState = .processing
-                } else if isRecording {
+                // Dictation should always win when the user is actively holding
+                // push-to-talk or the transcript is still being finalized. Once
+                // the transcript is submitted, the AI pipeline owns .thinking
+                // and .responding until it finishes.
+                if isRecording {
                     self.voiceState = .listening
-                } else if isPreparing {
-                    self.voiceState = .processing
+                } else if isFinalizing || isPreparing {
+                    self.voiceState = .transcribing
+                } else if self.voiceState == .thinking || self.voiceState == .responding {
+                    return
                 } else {
                     self.voiceState = .idle
                     // If the user pressed and released the hotkey without
@@ -493,6 +577,7 @@ final class CompanionManager: ObservableObject {
 
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
+            openClawGatewayCompanionAgent.cancelActiveRequest()
             elevenLabsTTSClient.stopPlayback()
             clearDetectedElementLocation()
 
@@ -521,7 +606,7 @@ final class CompanionManager: ObservableObject {
                         self?.lastTranscript = finalTranscript
                         print("🗣️ Companion received transcript: \(finalTranscript)")
                         ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
-                        self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript)
+                        self?.sendTranscriptToSelectedAgentWithScreenshot(transcript: finalTranscript)
                     }
                 )
             }
@@ -583,13 +668,16 @@ final class CompanionManager: ObservableObject {
     /// the spinner/processing state until TTS audio begins playing.
     /// Claude's response may include a [POINT:x,y:label] tag which triggers
     /// the buddy to fly to that element on screen.
-    private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
+    private func sendTranscriptToSelectedAgentWithScreenshot(transcript: String) {
         currentResponseTask?.cancel()
+        openClawGatewayCompanionAgent.cancelActiveRequest()
         elevenLabsTTSClient.stopPlayback()
 
         currentResponseTask = Task {
-            // Stay in processing (spinner) state — no streaming text displayed
-            voiceState = .processing
+            // The voice input is finished. From here on the assistant is
+            // thinking, not transcribing, so the overlay switches to the
+            // dedicated "thinking" treatment.
+            voiceState = .thinking
 
             do {
                 // Capture all connected screens so the AI has full context
@@ -605,20 +693,47 @@ final class CompanionManager: ObservableObject {
                     return (data: capture.imageData, label: capture.label + dimensionInfo)
                 }
 
-                // Pass conversation history so Claude remembers prior exchanges
-                let historyForAPI = conversationHistory.map { entry in
-                    (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
-                }
-
-                let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
-                    images: labeledImages,
-                    systemPrompt: Self.companionVoiceResponseSystemPrompt,
-                    conversationHistory: historyForAPI,
-                    userPrompt: transcript,
-                    onTextChunk: { _ in
-                        // No streaming text display — spinner stays until TTS plays
+                let fullResponseText: String
+                switch selectedAgentBackend {
+                case .claude:
+                    // Pass conversation history so Claude remembers prior exchanges
+                    let historyForAPI = conversationHistory.map { entry in
+                        (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
                     }
-                )
+
+                    let response = try await claudeAPI.analyzeImageStreaming(
+                        images: labeledImages,
+                        systemPrompt: Self.companionVoiceResponseSystemPrompt,
+                        conversationHistory: historyForAPI,
+                        userPrompt: transcript,
+                        onTextChunk: { _ in
+                            // No streaming text display — spinner stays until TTS plays
+                        }
+                    )
+                    fullResponseText = response.text
+                case .openClaw:
+                    let imageAttachments = labeledImages.map { labeledImage in
+                        OpenClawGatewayImageAttachment(
+                            imageData: labeledImage.data,
+                            label: labeledImage.label,
+                            mimeType: "image/jpeg"
+                        )
+                    }
+
+                    let response = try await openClawGatewayCompanionAgent.analyzeImageStreaming(
+                        gatewayURLString: openClawGatewayURL,
+                        explicitGatewayAuthToken: openClawGatewayAuthToken,
+                        configuredAgentIdentifier: openClawAgentIdentifier,
+                        configuredSessionKey: openClawSessionKey,
+                        images: imageAttachments,
+                        systemPrompt: Self.companionVoiceResponseSystemPrompt,
+                        userPrompt: transcript,
+                        onTextChunk: { _ in
+                            // No streaming text display — spinner stays until TTS plays
+                        }
+                    )
+                    fullResponseText = response.text
+                }
 
                 guard !Task.isCancelled else { return }
 
@@ -697,12 +812,12 @@ final class CompanionManager: ObservableObject {
 
                 ClickyAnalytics.trackAIResponseReceived(response: spokenText)
 
-                // Play the response via TTS. Keep the spinner (processing state)
-                // until the audio actually starts playing, then switch to responding.
+                // Play the response via TTS. Keep the thinking treatment until
+                // audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do {
                         try await elevenLabsTTSClient.speakText(spokenText)
-                        // speakText returns after player.play() — audio is now playing
+                        // speakText returns after playback has started — audio is now live.
                         voiceState = .responding
                     } catch {
                         ClickyAnalytics.trackTTSError(error: error.localizedDescription)

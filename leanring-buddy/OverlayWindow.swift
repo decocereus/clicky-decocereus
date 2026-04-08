@@ -294,8 +294,8 @@ struct BlueCursorView: View {
                     }
             }
 
-            // Blue triangle cursor — shown when idle or while TTS is playing (responding).
-            // All three states (triangle, waveform, spinner) stay in the view tree
+            // Blue triangle cursor — shown only when idle.
+            // All cursor treatments stay in the view tree
             // permanently and cross-fade via opacity so SwiftUI doesn't remove/re-insert
             // them (which caused a visible cursor "pop").
             //
@@ -308,7 +308,7 @@ struct BlueCursorView: View {
                 .rotationEffect(.degrees(triangleRotationDegrees))
                 .shadow(color: DS.Colors.overlayCursorBlue, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
-                .opacity(buddyIsVisibleOnThisScreen && (companionManager.voiceState == .idle || companionManager.voiceState == .responding) ? cursorOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .idle ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(
                     buddyNavigationMode == .followingCursor
@@ -322,16 +322,31 @@ struct BlueCursorView: View {
                     value: triangleRotationDegrees
                 )
 
-            // Blue waveform — replaces the triangle while listening
+            // Blue waveform — shown while listening
             BlueCursorWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel)
                 .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .listening ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
 
-            // Blue spinner — shown while the AI is processing (transcription + Claude + waiting for TTS)
+            // Circle spinner — shown while transcription is still finalizing.
             BlueCursorSpinnerView()
-                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .processing ? cursorOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .transcribing ? cursorOpacity : 0)
+                .position(cursorPosition)
+                .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
+                .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
+
+            // Thinking indicator — shown after the transcript is finalized and
+            // the LLM is working on the reply.
+            BlueCursorThinkingView()
+                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .thinking ? cursorOpacity : 0)
+                .position(cursorPosition)
+                .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
+                .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
+
+            // Speaking waveform — shown while the assistant is reading the reply aloud.
+            BlueCursorSpeakingWaveformView()
+                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .responding ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
@@ -739,6 +754,70 @@ private struct BlueCursorWaveformView: View {
         let reactiveHeight = easedAudioPowerLevel * 10 * listeningBarProfile[barIndex]
         let idlePulse = (sin(animationPhase) + 1) / 2 * 1.5
         return 3 + reactiveHeight + idlePulse
+    }
+}
+
+// MARK: - Blue Cursor Thinking
+
+/// A pulsing three-dot indicator used once the user's speech has been
+/// transcribed and the assistant is now thinking about the reply.
+private struct BlueCursorThinkingView: View {
+    private let dotCount = 3
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timelineContext in
+            HStack(spacing: 3) {
+                ForEach(0..<dotCount, id: \.self) { dotIndex in
+                    Circle()
+                        .fill(DS.Colors.overlayCursorBlue)
+                        .frame(width: 4, height: 4)
+                        .scaleEffect(dotScale(for: dotIndex, timelineDate: timelineContext.date))
+                        .opacity(dotOpacity(for: dotIndex, timelineDate: timelineContext.date))
+                }
+            }
+            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.6), radius: 6, x: 0, y: 0)
+        }
+    }
+
+    private func dotScale(for dotIndex: Int, timelineDate: Date) -> CGFloat {
+        let animationPhase = CGFloat(timelineDate.timeIntervalSinceReferenceDate * 3.0) + CGFloat(dotIndex) * 0.45
+        return 0.75 + ((sin(animationPhase) + 1) / 2) * 0.6
+    }
+
+    private func dotOpacity(for dotIndex: Int, timelineDate: Date) -> Double {
+        let animationPhase = CGFloat(timelineDate.timeIntervalSinceReferenceDate * 3.0) + CGFloat(dotIndex) * 0.45
+        return 0.35 + Double((sin(animationPhase) + 1) / 2) * 0.65
+    }
+}
+
+// MARK: - Blue Cursor Speaking
+
+/// A non-reactive waveform used while the assistant is speaking so the
+/// user can see the response is actively being read aloud.
+private struct BlueCursorSpeakingWaveformView: View {
+    private let barCount = 5
+    private let speakingBarProfile: [CGFloat] = [0.55, 0.85, 1.0, 0.85, 0.55]
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timelineContext in
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(0..<barCount, id: \.self) { barIndex in
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(DS.Colors.overlayCursorBlue)
+                        .frame(
+                            width: 2,
+                            height: barHeight(for: barIndex, timelineDate: timelineContext.date)
+                        )
+                }
+            }
+            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.6), radius: 6, x: 0, y: 0)
+        }
+    }
+
+    private func barHeight(for barIndex: Int, timelineDate: Date) -> CGFloat {
+        let animationPhase = CGFloat(timelineDate.timeIntervalSinceReferenceDate * 4.8) + CGFloat(barIndex) * 0.55
+        let speakingPulse = (sin(animationPhase) + 1) / 2
+        return 4 + speakingPulse * 9 * speakingBarProfile[barIndex]
     }
 }
 
