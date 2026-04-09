@@ -33,6 +33,12 @@ Set these as Wrangler secrets or vars before real auth/billing work lands:
 - `POLAR_ACCESS_TOKEN`
 - `POLAR_WEBHOOK_SECRET`
 
+For local development you can start from `.dev.vars.example`:
+
+```bash
+cp .dev.vars.example .dev.vars
+```
+
 The current scaffold exposes:
 
 - health routes
