@@ -17,6 +17,8 @@ npm run db:generate
 npm run typecheck
 ```
 
+By default the backend dev server runs on `http://localhost:8788` so it does not collide with the existing AI proxy worker.
+
 ## Environment
 
 Set these as Wrangler secrets or vars before real auth/billing work lands:
@@ -26,6 +28,8 @@ Set these as Wrangler secrets or vars before real auth/billing work lands:
 - `DATABASE_URL`
 - `WEB_ORIGIN`
 - `MAC_APP_SCHEME`
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
 - `POLAR_ACCESS_TOKEN`
 - `POLAR_WEBHOOK_SECRET`
 

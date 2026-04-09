@@ -1,9 +1,10 @@
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { bearer } from "better-auth/plugins"
+import { bearer, magicLink } from "better-auth/plugins"
 
 import { createDb } from "../db/client"
 import type { Env } from "../env"
+import { sendMagicLinkEmail } from "../email/resend"
 
 function requireValue(value: string | undefined, name: string) {
   if (!value) {
@@ -34,6 +35,11 @@ export function createAuth(env: Env) {
     },
     plugins: [
       bearer(),
+      magicLink({
+        sendMagicLink: async ({ email, url }) => {
+          await sendMagicLinkEmail(env, { email, url })
+        },
+      }),
     ],
   })
 }

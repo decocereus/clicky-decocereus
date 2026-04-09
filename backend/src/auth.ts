@@ -12,6 +12,8 @@ const cliEnv: Env = {
     "postgres://clicky:clicky@localhost:5432/clicky",
   WEB_ORIGIN: process.env.WEB_ORIGIN ?? "http://localhost:5173",
   MAC_APP_SCHEME: process.env.MAC_APP_SCHEME ?? "clicky",
+  RESEND_API_KEY: process.env.RESEND_API_KEY ?? "resend-key-not-configured",
+  RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL ?? "Clicky <signin@example.com>",
 }
 
 export const auth = createAuth(cliEnv)
