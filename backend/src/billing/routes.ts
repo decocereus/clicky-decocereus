@@ -9,6 +9,7 @@ import {
   getMissingCheckoutConfiguration,
 } from "./config"
 import { createPolarClient } from "./polar"
+import { processPolarWebhook } from "./webhooks"
 import { getLaunchEntitlementSnapshot } from "../entitlements/service"
 import type { Env } from "../env"
 
@@ -118,4 +119,26 @@ export function handleBillingCancelCallback(c: Context<{ Bindings: Env }>) {
   )
 
   return c.redirect(callbackUrl, 302)
+}
+
+export async function handlePolarWebhook(c: Context<{ Bindings: Env }>) {
+  const body = await c.req.text()
+
+  try {
+    const result = await processPolarWebhook(c.env, body, c.req.raw.headers)
+
+    return c.json({
+      ok: true,
+      duplicate: result.duplicate,
+      eventType: result.eventType,
+    })
+  } catch (error) {
+    return c.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Polar webhook processing failed.",
+      },
+      400,
+    )
+  }
 }

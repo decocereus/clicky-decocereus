@@ -14,6 +14,7 @@ import {
   handleCreateCheckout,
   handleRestoreBilling,
   handleBillingSuccessCallback,
+  handlePolarWebhook,
 } from "./billing/routes"
 import type { Env } from "./env"
 import {
@@ -82,6 +83,7 @@ app.get("/v1", (c) => {
       "POST /v1/entitlements/refresh",
       "POST /v1/billing/checkout",
       "POST /v1/billing/restore",
+      "POST /v1/webhooks/polar",
       "GET /v1/billing/callback/success",
       "GET /v1/billing/callback/cancel",
       "GET /v1/auth/native/start",
@@ -105,6 +107,7 @@ app.get("/v1/entitlements/me", handleGetEntitlements)
 app.post("/v1/entitlements/refresh", handleRefreshEntitlements)
 app.post("/v1/billing/checkout", handleCreateCheckout)
 app.post("/v1/billing/restore", handleRestoreBilling)
+app.post("/v1/webhooks/polar", handlePolarWebhook)
 app.get("/v1/billing/callback/success", handleBillingSuccessCallback)
 app.get("/v1/billing/callback/cancel", handleBillingCancelCallback)
 
