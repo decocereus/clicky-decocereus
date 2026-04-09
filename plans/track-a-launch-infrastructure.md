@@ -61,6 +61,8 @@ Write and freeze the minimum contract set for launch:
 - offline grace behavior and stale-entitlement behavior
 - free-taste boundary for launch
 
+Initial Phase 0 output lives in `docs/launch-phase-0-contracts.md` and should stay updated as decisions harden.
+
 ### Acceptance criteria
 
 - [ ] Auth/session, purchase, entitlement, and restore states are explicitly documented.
