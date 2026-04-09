@@ -4,8 +4,10 @@ import { cors } from "hono/cors"
 import { createAuth } from "./auth/config"
 import { requireSession } from "./auth/session"
 import {
+  handleBillingCancelCallback,
   handleCreateCheckout,
   handleRestoreBilling,
+  handleBillingSuccessCallback,
 } from "./billing/routes"
 import type { Env } from "./env"
 import {
@@ -69,6 +71,8 @@ app.get("/v1", (c) => {
       "POST /v1/entitlements/refresh",
       "POST /v1/billing/checkout",
       "POST /v1/billing/restore",
+      "GET /v1/billing/callback/success",
+      "GET /v1/billing/callback/cancel",
       "GET /v1/auth/native/start",
       "POST /v1/auth/native/exchange",
     ],
@@ -89,6 +93,8 @@ app.get("/v1/entitlements/me", handleGetEntitlements)
 app.post("/v1/entitlements/refresh", handleRefreshEntitlements)
 app.post("/v1/billing/checkout", handleCreateCheckout)
 app.post("/v1/billing/restore", handleRestoreBilling)
+app.get("/v1/billing/callback/success", handleBillingSuccessCallback)
+app.get("/v1/billing/callback/cancel", handleBillingCancelCallback)
 
 app.get("/v1/auth/native/start", (c) => {
   return c.json(

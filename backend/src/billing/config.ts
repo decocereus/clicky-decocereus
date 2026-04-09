@@ -1,6 +1,8 @@
 import { LAUNCH_PRODUCT_KEY } from "../launch/config"
 import type { Env } from "../env"
 
+type BillingOutcome = "success" | "cancel"
+
 export function getLaunchCheckoutConfig(env: Env) {
   const apiBaseUrl = env.BETTER_AUTH_URL
   const appScheme = env.MAC_APP_SCHEME ?? "clicky"
@@ -13,6 +15,23 @@ export function getLaunchCheckoutConfig(env: Env) {
     nativeSuccessUrl: `${appScheme}://billing/success`,
     nativeCancelUrl: `${appScheme}://billing/cancel`,
   }
+}
+
+export function buildNativeBillingCallbackUrl(
+  env: Env,
+  outcome: BillingOutcome,
+  searchParams?: URLSearchParams,
+) {
+  const appScheme = env.MAC_APP_SCHEME ?? "clicky"
+  const url = new URL(`${appScheme}://billing/${outcome}`)
+
+  if (searchParams) {
+    for (const [key, value] of searchParams.entries()) {
+      url.searchParams.set(key, value)
+    }
+  }
+
+  return url.toString()
 }
 
 export function getMissingCheckoutConfiguration(env: Env) {

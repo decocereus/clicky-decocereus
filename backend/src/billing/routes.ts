@@ -1,7 +1,11 @@
 import type { Context } from "hono"
 
 import { requireSession } from "../auth/session"
-import { getLaunchCheckoutConfig, getMissingCheckoutConfiguration } from "./config"
+import {
+  buildNativeBillingCallbackUrl,
+  getLaunchCheckoutConfig,
+  getMissingCheckoutConfiguration,
+} from "./config"
 import { getLaunchEntitlementSnapshot } from "../entitlements/service"
 import type { Env } from "../env"
 
@@ -54,4 +58,24 @@ export async function handleRestoreBilling(c: Context<{ Bindings: Env }>) {
     restored: false,
     nextStep: "Provider-backed restore is not implemented yet.",
   })
+}
+
+export function handleBillingSuccessCallback(c: Context<{ Bindings: Env }>) {
+  const callbackUrl = buildNativeBillingCallbackUrl(
+    c.env,
+    "success",
+    new URL(c.req.url).searchParams,
+  )
+
+  return c.redirect(callbackUrl, 302)
+}
+
+export function handleBillingCancelCallback(c: Context<{ Bindings: Env }>) {
+  const callbackUrl = buildNativeBillingCallbackUrl(
+    c.env,
+    "cancel",
+    new URL(c.req.url).searchParams,
+  )
+
+  return c.redirect(callbackUrl, 302)
 }
