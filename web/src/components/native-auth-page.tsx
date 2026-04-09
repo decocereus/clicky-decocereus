@@ -1,4 +1,4 @@
-import { startTransition, useMemo, useState } from "react"
+import { startTransition, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { getBackendUrl } from "@/lib/backend"
@@ -6,6 +6,12 @@ import { getBackendUrl } from "@/lib/backend"
 type SubmitState =
   | { status: "idle" }
   | { status: "success"; email: string }
+  | { status: "error"; message: string }
+
+type ExistingSessionState =
+  | { status: "checking" }
+  | { status: "signed-out" }
+  | { status: "signed-in"; email: string }
   | { status: "error"; message: string }
 
 function readSearchParams() {
@@ -25,8 +31,75 @@ export function NativeAuthPage() {
   const [email, setEmail] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitState, setSubmitState] = useState<SubmitState>({ status: "idle" })
+  const [sessionState, setSessionState] = useState<ExistingSessionState>({
+    status: "checking",
+  })
 
   const isValid = state.length > 0 && callbackUrl.length > 0
+
+  useEffect(() => {
+    if (!isValid) {
+      setSessionState({
+        status: "error",
+        message: "Missing native auth state or callback URL.",
+      })
+      return
+    }
+
+    let isCancelled = false
+
+    void (async () => {
+      try {
+        const response = await fetch(`${backendUrl}/v1/me`, {
+          credentials: "include",
+        })
+
+        if (isCancelled) {
+          return
+        }
+
+        if (response.status === 401) {
+          startTransition(() => {
+            setSessionState({ status: "signed-out" })
+          })
+          return
+        }
+
+        if (!response.ok) {
+          throw new Error("Failed to inspect existing session.")
+        }
+
+        const data = (await response.json()) as {
+          user?: { email?: string }
+        }
+
+        startTransition(() => {
+          setSessionState({
+            status: "signed-in",
+            email: data.user?.email ?? "your account",
+          })
+        })
+      } catch (error) {
+        if (isCancelled) {
+          return
+        }
+
+        startTransition(() => {
+          setSessionState({
+            status: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Failed to inspect existing session.",
+          })
+        })
+      }
+    })()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [backendUrl, isValid])
 
   async function requestMagicLink() {
     if (!isValid || !email.trim()) {
@@ -78,6 +151,10 @@ export function NativeAuthPage() {
     }
   }
 
+  function continueWithExistingSession() {
+    window.location.href = callbackUrl
+  }
+
   return (
     <div className="flex min-h-svh items-center justify-center p-6">
       <div className="w-full max-w-xl rounded-3xl border border-border bg-card p-8 shadow-lg">
@@ -101,28 +178,55 @@ export function NativeAuthPage() {
           </div>
         ) : null}
 
-        <div className="space-y-4">
-          <label className="block space-y-2">
-            <span className="text-sm font-medium">Email address</span>
-            <input
-              className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm outline-none transition focus:border-primary"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-              disabled={isSubmitting || !isValid}
-            />
-          </label>
+        {sessionState.status === "checking" ? (
+          <div className="rounded-2xl border border-border bg-muted/50 p-4 text-sm text-muted-foreground">
+            Checking whether this browser is already signed in...
+          </div>
+        ) : null}
 
-          <Button
-            className="w-full"
-            disabled={isSubmitting || !isValid || email.trim().length === 0}
-            onClick={requestMagicLink}
-          >
-            {isSubmitting ? "Sending magic link..." : "Email me a sign-in link"}
-          </Button>
-        </div>
+        {sessionState.status === "signed-in" ? (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4 text-sm text-foreground">
+              This browser is already signed in as <strong>{sessionState.email}</strong>.
+              Continue and we&apos;ll return that session to Clicky.
+            </div>
+
+            <Button className="w-full" disabled={!isValid} onClick={continueWithExistingSession}>
+              Continue to Clicky
+            </Button>
+          </div>
+        ) : null}
+
+        {sessionState.status === "signed-out" || sessionState.status === "error" ? (
+          <div className="space-y-4">
+            {sessionState.status === "error" ? (
+              <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                {sessionState.message}
+              </div>
+            ) : null}
+
+            <label className="block space-y-2">
+              <span className="text-sm font-medium">Email address</span>
+              <input
+                className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm outline-none transition focus:border-primary"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                disabled={isSubmitting || !isValid}
+              />
+            </label>
+
+            <Button
+              className="w-full"
+              disabled={isSubmitting || !isValid || email.trim().length === 0}
+              onClick={requestMagicLink}
+            >
+              {isSubmitting ? "Sending magic link..." : "Email me a sign-in link"}
+            </Button>
+          </div>
+        ) : null}
 
         {submitState.status === "success" ? (
           <div className="mt-6 rounded-2xl border border-primary/30 bg-primary/10 p-4 text-sm text-foreground">
