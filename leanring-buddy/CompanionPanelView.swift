@@ -111,6 +111,9 @@ struct CompanionPanelView: View {
 
             if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
                 panelHairline
+                activePersonaSummary
+
+                panelHairline
                 agentBackendPickerRow
 
                 if companionManager.selectedAgentBackend == .claude {
@@ -693,6 +696,26 @@ struct CompanionPanelView: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
+    }
+
+    private var activePersonaSummary: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                panelSectionEyebrow("Persona")
+                Text(companionManager.activeClickyPersonaLabel)
+                    .font(ClickyTypography.section(size: 22))
+                    .foregroundColor(theme.textPrimary)
+                Text("\(companionManager.effectiveClickyVoicePreset.displayName) voice · \(companionManager.effectiveClickyCursorStyle.displayName) cursor")
+                    .font(ClickyTypography.mono(size: 11, weight: .medium))
+                    .foregroundColor(theme.textMuted)
+            }
+
+            Spacer()
+
+            Circle()
+                .fill(theme.primary)
+                .frame(width: 10, height: 10)
+        }
     }
 
     private func modelOptionButton(label: String, modelID: String) -> some View {

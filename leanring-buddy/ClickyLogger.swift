@@ -12,6 +12,7 @@ import OSLog
 enum ClickyLogCategory: String {
     case app
     case audio
+    case agent
     case gateway
     case plugin
     case ui

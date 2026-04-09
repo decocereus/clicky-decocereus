@@ -24,7 +24,7 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
         case .openClaw:
             return "OpenClaw"
         case .voiceAppearance:
-            return "Voice & Appearance"
+            return "Persona"
         case .integrations:
             return "Integrations"
         case .diagnostics:
@@ -54,7 +54,7 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
         case .openClaw:
             return "Connection and identity"
         case .voiceAppearance:
-            return "Speech and cursor shell"
+            return "Tone, voice, and look"
         case .integrations:
             return "Setup and status"
         case .diagnostics:
@@ -443,28 +443,60 @@ struct CompanionStudioView: View {
 
     private var voiceAppearanceSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            themeCard
+            personaPresetCard
 
-            StudioCard(title: "Voice Pipeline", subtitle: "What handles transcription and playback right now") {
-                VStack(spacing: 12) {
-                    StudioKeyValueRow(label: "Transcription Engine", value: companionManager.buddyDictationManager.transcriptionProviderDisplayName)
-                    StudioKeyValueRow(label: "Speech Output", value: companionManager.effectiveVoiceOutputDisplayName)
-                    StudioKeyValueRow(label: "Voice States", value: "Listening • Transcribing • Thinking • Responding")
-                }
-            }
-
-            StudioCard(title: "Voice Customization", subtitle: "This is where ElevenLabs and other voice packs will land next") {
-                VStack(alignment: .leading, spacing: 10) {
-                    StudioStatusPill(label: "Planned", tone: .warning)
-                    Text("Custom voice selection should be owned here, while the runtime keeps speaking through the currently active output engine.")
-                        .font(ClickyTypography.body(size: 12))
+            StudioCard(title: "Persona Notes", subtitle: "These instructions shape how Clicky speaks inside the app") {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Your upstream OpenClaw identity stays clean. These notes are Clicky-local presentation and tone guidance.")
+                        .font(ClickyTypography.body(size: 13))
                         .foregroundColor(theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    StudioMultilineField(
+                        title: "Tone notes",
+                        text: Binding(
+                            get: { companionManager.clickyPersonaToneInstructions },
+                            set: { companionManager.clickyPersonaToneInstructions = $0 }
+                        ),
+                        placeholder: "Example: sound more encouraging, explain a little slower, and keep the tone grounded."
+                    )
                 }
             }
 
-            StudioCard(title: "Appearance Foundation", subtitle: "Cursor shell controls and future visual identity") {
+            StudioCard(title: "Voice", subtitle: "Choose how the persona should sound") {
                 VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 10) {
+                        ForEach(ClickyVoicePreset.allCases) { preset in
+                            selectionChip(
+                                title: preset.displayName,
+                                subtitle: preset.summary,
+                                isSelected: companionManager.clickyVoicePreset == preset
+                            ) {
+                                companionManager.clickyVoicePreset = preset
+                            }
+                        }
+                    }
+
+                    StudioKeyValueRow(label: "Current output", value: companionManager.effectiveVoiceOutputDisplayName)
+                }
+            }
+
+            themeCard
+
+            StudioCard(title: "Cursor Style", subtitle: "Set the visual personality of the companion shell") {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 10) {
+                        ForEach(ClickyCursorStyle.allCases) { style in
+                            selectionChip(
+                                title: style.displayName,
+                                subtitle: style.summary,
+                                isSelected: companionManager.clickyCursorStyle == style
+                            ) {
+                                companionManager.clickyCursorStyle = style
+                            }
+                        }
+                    }
+
                     Toggle(
                         "Show Clicky cursor overlay",
                         isOn: Binding(
@@ -474,13 +506,37 @@ struct CompanionStudioView: View {
                     )
                     .toggleStyle(.switch)
                     .tint(theme.primary)
+                }
+            }
 
-                    StudioStatusPill(label: "Cursor skins coming next", tone: .warning)
+            StudioCard(title: "Runtime", subtitle: "What handles transcription and playback right now") {
+                VStack(spacing: 12) {
+                    StudioKeyValueRow(label: "Transcription Engine", value: companionManager.buddyDictationManager.transcriptionProviderDisplayName)
+                    StudioKeyValueRow(label: "Speech Output", value: companionManager.effectiveVoiceOutputDisplayName)
+                    StudioKeyValueRow(label: "Voice States", value: "Listening • Transcribing • Thinking • Responding")
+                }
+            }
+        }
+    }
 
-                    Text("The triangle companion stays as the current shell, but this area is now the right home for cursor skins, companion icon variants, and future presence customizations.")
-                        .font(ClickyTypography.body(size: 12))
-                        .foregroundColor(theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+    private var personaPresetCard: some View {
+        StudioCard(title: "Persona Preset", subtitle: "Pick the default personality layer for Clicky") {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(companionManager.activeClickyPersonaSummary)
+                    .font(ClickyTypography.body(size: 13))
+                    .foregroundColor(theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    ForEach(ClickyPersonaPreset.allCases) { preset in
+                        selectionChip(
+                            title: preset.definition.displayName,
+                            subtitle: preset.definition.summary,
+                            isSelected: companionManager.clickyPersonaPreset == preset
+                        ) {
+                            companionManager.setClickyPersonaPreset(preset)
+                        }
+                    }
                 }
             }
         }
@@ -536,6 +592,34 @@ struct CompanionStudioView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(isSelected ? presetTheme.primary.opacity(0.24) : presetTheme.strokeSoft, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    private func selectionChip(title: String, subtitle: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .foregroundColor(theme.textPrimary)
+
+                Text(subtitle)
+                    .font(ClickyTypography.mono(size: 10, weight: .medium))
+                    .foregroundColor(theme.textMuted)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(isSelected ? theme.primary.opacity(0.10) : Color.white.opacity(0.015))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(isSelected ? theme.primary.opacity(0.24) : theme.strokeSoft, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

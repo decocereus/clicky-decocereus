@@ -227,6 +227,38 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    @Published var clickyPersonaPreset: ClickyPersonaPreset = ClickyPersonaPreset(
+        rawValue: UserDefaults.standard.string(forKey: "clickyPersonaPreset") ?? ""
+    ) ?? .guide {
+        didSet {
+            UserDefaults.standard.set(clickyPersonaPreset.rawValue, forKey: "clickyPersonaPreset")
+            refreshClickyShellRegistrationLifecycle()
+        }
+    }
+
+    @Published var clickyPersonaToneInstructions: String = UserDefaults.standard.string(forKey: "clickyPersonaToneInstructions") ?? "" {
+        didSet {
+            UserDefaults.standard.set(clickyPersonaToneInstructions, forKey: "clickyPersonaToneInstructions")
+            refreshClickyShellRegistrationLifecycle()
+        }
+    }
+
+    @Published var clickyVoicePreset: ClickyVoicePreset = ClickyVoicePreset(
+        rawValue: UserDefaults.standard.string(forKey: "clickyVoicePreset") ?? ""
+    ) ?? .balanced {
+        didSet {
+            UserDefaults.standard.set(clickyVoicePreset.rawValue, forKey: "clickyVoicePreset")
+        }
+    }
+
+    @Published var clickyCursorStyle: ClickyCursorStyle = ClickyCursorStyle(
+        rawValue: UserDefaults.standard.string(forKey: "clickyCursorStyle") ?? ""
+    ) ?? .classic {
+        didSet {
+            UserDefaults.standard.set(clickyCursorStyle.rawValue, forKey: "clickyCursorStyle")
+        }
+    }
+
     @Published var clickyThemePreset: ClickyThemePreset = ClickyThemePreset(
         rawValue: UserDefaults.standard.string(forKey: "clickyThemePreset") ?? ""
     ) ?? .dark {
@@ -237,6 +269,41 @@ final class CompanionManager: ObservableObject {
 
     var activeClickyTheme: ClickyTheme {
         clickyThemePreset.theme
+    }
+
+    var activeClickyPersonaDefinition: ClickyPersonaDefinition {
+        clickyPersonaPreset.definition
+    }
+
+    var activeClickyPersonaSummary: String {
+        activeClickyPersonaDefinition.summary
+    }
+
+    var effectiveClickyVoicePreset: ClickyVoicePreset {
+        clickyVoicePreset
+    }
+
+    var effectiveClickyCursorStyle: ClickyCursorStyle {
+        clickyCursorStyle
+    }
+
+    var effectiveClickyPersonaSpeechInstructions: String {
+        let presetGuidance = activeClickyPersonaDefinition.speechGuidance
+        let responseContract = activeClickyPersonaDefinition.responseContract
+        let customTone = clickyPersonaToneInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if customTone.isEmpty {
+            return "\(presetGuidance) \(responseContract)"
+        }
+
+        return "\(presetGuidance) \(responseContract) also follow these clicky-only tone notes: \(customTone)"
+    }
+
+    func setClickyPersonaPreset(_ preset: ClickyPersonaPreset) {
+        clickyPersonaPreset = preset
+        clickyThemePreset = preset.definition.defaultThemePreset
+        clickyVoicePreset = preset.definition.defaultVoicePreset
+        clickyCursorStyle = preset.definition.defaultCursorStyle
     }
 
     func setSelectedModel(_ model: String) {
@@ -252,7 +319,8 @@ final class CompanionManager: ObservableObject {
     }
 
     var effectiveVoiceOutputDisplayName: String {
-        CompanionRuntimeConfiguration.isWorkerConfigured ? "ElevenLabs" : "System Speech"
+        let provider = CompanionRuntimeConfiguration.isWorkerConfigured ? "ElevenLabs" : "System Speech"
+        return "\(provider) · \(effectiveClickyVoicePreset.displayName)"
     }
 
     var openClawGatewayAuthSummary: String {
@@ -417,6 +485,41 @@ final class CompanionManager: ObservableObject {
         case .overrideInClicky:
             return "Override only in Clicky"
         }
+    }
+
+    var activeClickyPersonaLabel: String {
+        activeClickyPersonaDefinition.displayName
+    }
+
+    private func logActivePersonaForRequest(transcript: String, backend: CompanionAgentBackend, systemPrompt: String) {
+        let transcriptPreview = Self.truncatedForLog(transcript, limit: 120)
+        let promptPreview = Self.truncatedForLog(systemPrompt, limit: 220)
+        ClickyLogger.notice(
+            .agent,
+            "request backend=\(backend.displayName) persona=\(activeClickyPersonaLabel) display=\(effectiveClickyPresentationName) voice=\(effectiveClickyVoicePreset.displayName) cursor=\(effectiveClickyCursorStyle.displayName) scope=\(clickyPersonaScopeLabel) transcript=\(transcriptPreview)"
+        )
+        ClickyLogger.debug(
+            .agent,
+            "prompt-preview backend=\(backend.displayName) persona=\(activeClickyPersonaLabel) text=\(promptPreview)"
+        )
+    }
+
+    private func logAgentResponse(_ response: String, backend: CompanionAgentBackend) {
+        let responsePreview = Self.truncatedForLog(response, limit: 300)
+        ClickyLogger.notice(
+            .agent,
+            "response backend=\(backend.displayName) persona=\(activeClickyPersonaLabel) display=\(effectiveClickyPresentationName) voice=\(effectiveClickyVoicePreset.displayName) text=\(responsePreview)"
+        )
+    }
+
+    private static func truncatedForLog(_ text: String, limit: Int) -> String {
+        let singleLine = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard singleLine.count > limit else { return singleLine }
+        return String(singleLine.prefix(limit)) + "..."
     }
 
     func testOpenClawConnection() {
@@ -1118,10 +1221,18 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Companion Prompt
 
-    private static let companionVoiceResponseSystemPrompt = """
-    you're clicky, a friendly always-on companion that lives in the user's menu bar. the user just spoke to you via push-to-talk and you can see their screen(s). your reply will be spoken aloud via text-to-speech, so write the way you'd actually talk. this is an ongoing conversation — you remember everything they've said before.
+    private func companionVoiceResponseSystemPrompt() -> String {
+        let clickyPresentationName = effectiveClickyPresentationName
+        let activePersonaName = activeClickyPersonaDefinition.displayName
+        let personaSpeechInstructions = effectiveClickyPersonaSpeechInstructions
+        let voiceStyle = effectiveClickyVoicePreset.displayName
+        let cursorStyle = effectiveClickyCursorStyle.displayName
+
+        return """
+    you're \(clickyPresentationName), a friendly always-on companion that lives in the user's menu bar inside clicky. the active clicky persona preset is \(activePersonaName). the selected voice style is \(voiceStyle). the selected cursor style is \(cursorStyle). \(personaSpeechInstructions) the user just spoke to you via push-to-talk and you can see their screen(s). your reply will be spoken aloud via text-to-speech, so write the way you'd actually talk. this is an ongoing conversation — you remember everything they've said before.
 
     rules:
+    - embody the active persona quietly. unless the user explicitly asks about your persona, voice, or cursor style, do not mention those settings or explain them.
     - default to one or two sentences. be direct and dense. BUT if the user asks you to explain more, go deeper, or elaborate, then go all out — give a thorough, detailed explanation with no length limit.
     - all lowercase, casual, warm. no emojis.
     - write for the ear, not the eye. short sentences. no lists, bullet points, markdown, or formatting — just natural speech.
@@ -1140,11 +1251,11 @@ final class CompanionManager: ObservableObject {
 
     don't point at things when it would be pointless — like if the user asks a general knowledge question, or the conversation has nothing to do with what's on screen, or you'd just be pointing at something obvious they're already looking at. but if there's a specific UI element, menu, button, or area on screen that's relevant to what you're helping with, point at it.
 
-    when you point, append a coordinate tag at the very end of your response, AFTER your spoken text. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
+    when you point, append exactly one coordinate tag at the very end of your response, AFTER your spoken text. do not include coordinate numbers, point syntax, or screen numbers in the part that gets spoken aloud. keep all coordinates only inside the final tag. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
 
     format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screenshot's coordinate space, and label is a short 1-3 word description of the element (like "search bar" or "save button"). if the element is on the cursor's screen you can omit the screen number. if the element is on a DIFFERENT screen, append :screenN where N is the screen number from the image label (e.g. :screen2). this is important — without the screen number, the cursor will point at the wrong place.
 
-    if pointing wouldn't help, append [POINT:none].
+    choose one best target only. never output multiple point tags. if pointing wouldn't help, append [POINT:none].
 
     examples:
     - user asks how to color grade in final cut: "you'll want to open the color inspector — it's right up in the top right area of the toolbar. click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
@@ -1152,12 +1263,15 @@ final class CompanionManager: ObservableObject {
     - user asks how to commit in xcode: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut. [POINT:285,11:source control]"
     - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
     """
+    }
 
     private func openClawShellScopedSystemPrompt() -> String {
         let upstreamOpenClawAgentName = effectiveOpenClawAgentName
         let clickyPresentationName = effectiveClickyPresentationName
         let localPersonaInstructions = clickyPersonaOverrideInstructions
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let personaSpeechInstructions = effectiveClickyPersonaSpeechInstructions
+        let activePersonaName = activeClickyPersonaDefinition.displayName
 
         let clickyScopedIdentityInstructions: String
         if clickyPersonaScopeMode == .overrideInClicky {
@@ -1174,6 +1288,9 @@ final class CompanionManager: ObservableObject {
         return """
         \(clickyScopedIdentityInstructions)
 
+        the active clicky persona preset is \(activePersonaName). \(personaSpeechInstructions)
+        the selected voice style is \(effectiveClickyVoicePreset.displayName). the selected cursor style is \(effectiveClickyCursorStyle.displayName).
+
         clicky shell capabilities currently available to you:
         - screen context arrives as attached screenshots
         - cursor pointing uses \(ClickyShellCapabilities.cursorPointingProtocol)
@@ -1184,6 +1301,7 @@ final class CompanionManager: ObservableObject {
         the user just spoke to you via push-to-talk and you can see their screen(s). your reply will be spoken aloud via text-to-speech, so write the way you'd actually talk. this is an ongoing conversation — you remember everything they've said before.
 
         rules:
+        - embody the active persona quietly. unless the user explicitly asks about your persona, voice, or cursor style, do not mention those settings or explain them.
         - default to one or two sentences. be direct and dense. BUT if the user asks you to explain more, go deeper, or elaborate, then go all out — give a thorough, detailed explanation with no length limit.
         - all lowercase, casual, warm. no emojis.
         - write for the ear, not the eye. short sentences. no lists, bullet points, markdown, or formatting — just natural speech.
@@ -1202,11 +1320,11 @@ final class CompanionManager: ObservableObject {
 
         don't point at things when it would be pointless — like if the user asks a general knowledge question, or the conversation has nothing to do with what's on screen, or you'd just be pointing at something obvious they're already looking at. but if there's a specific UI element, menu, button, or area on screen that's relevant to what you're helping with, point at it.
 
-        when you point, append a coordinate tag at the very end of your response, AFTER your spoken text. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
+        when you point, append exactly one coordinate tag at the very end of your response, AFTER your spoken text. do not include coordinate numbers, point syntax, or screen numbers in the part that gets spoken aloud. keep all coordinates only inside the final tag. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
 
         format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screenshot's coordinate space, and label is a short 1-3 word description of the element (like "search bar" or "save button"). if the element is on the cursor's screen you can omit the screen number. if the element is on a DIFFERENT screen, append :screenN where N is the screen number from the image label (e.g. :screen2). this is important — without the screen number, the cursor will point at the wrong place.
 
-        if pointing wouldn't help, append [POINT:none].
+        choose one best target only. never output multiple point tags. if pointing wouldn't help, append [POINT:none].
 
         examples:
         - user asks how to color grade in final cut: "you'll want to open the color inspector — it's right up in the top right area of the toolbar. click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
@@ -1251,6 +1369,13 @@ final class CompanionManager: ObservableObject {
                 let fullResponseText: String
                 switch selectedAgentBackend {
                 case .claude:
+                    let systemPrompt = companionVoiceResponseSystemPrompt()
+                    logActivePersonaForRequest(
+                        transcript: transcript,
+                        backend: .claude,
+                        systemPrompt: systemPrompt
+                    )
+
                     // Pass conversation history so Claude remembers prior exchanges
                     let historyForAPI = conversationHistory.map { entry in
                         (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
@@ -1258,7 +1383,7 @@ final class CompanionManager: ObservableObject {
 
                     let response = try await claudeAPI.analyzeImageStreaming(
                         images: labeledImages,
-                        systemPrompt: Self.companionVoiceResponseSystemPrompt,
+                        systemPrompt: systemPrompt,
                         conversationHistory: historyForAPI,
                         userPrompt: transcript,
                         onTextChunk: { _ in
@@ -1267,6 +1392,13 @@ final class CompanionManager: ObservableObject {
                     )
                     fullResponseText = response.text
                 case .openClaw:
+                    let systemPrompt = openClawShellScopedSystemPrompt()
+                    logActivePersonaForRequest(
+                        transcript: transcript,
+                        backend: .openClaw,
+                        systemPrompt: systemPrompt
+                    )
+
                     let imageAttachments = labeledImages.map { labeledImage in
                         OpenClawGatewayImageAttachment(
                             imageData: labeledImage.data,
@@ -1281,7 +1413,7 @@ final class CompanionManager: ObservableObject {
                         configuredAgentIdentifier: openClawAgentIdentifier,
                         configuredSessionKey: openClawSessionKey,
                         images: imageAttachments,
-                        systemPrompt: openClawShellScopedSystemPrompt(),
+                        systemPrompt: systemPrompt,
                         userPrompt: transcript,
                         onTextChunk: { _ in
                             // No streaming text display — spinner stays until TTS plays
@@ -1366,12 +1498,13 @@ final class CompanionManager: ObservableObject {
                 print("🧠 Conversation history: \(conversationHistory.count) exchanges")
 
                 ClickyAnalytics.trackAIResponseReceived(response: spokenText)
+                logAgentResponse(spokenText, backend: selectedAgentBackend)
 
                 // Play the response via TTS. Keep the thinking treatment until
                 // audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do {
-                        try await elevenLabsTTSClient.speakText(spokenText)
+                        try await elevenLabsTTSClient.speakText(spokenText, voicePreset: effectiveClickyVoicePreset)
                         // speakText returns after playback has started — audio is now live.
                         voiceState = .responding
                     } catch {
@@ -1453,17 +1586,30 @@ final class CompanionManager: ObservableObject {
     /// Returns the spoken text (tag removed) and the optional coordinate + label + screen number.
     static func parsePointingCoordinates(from responseText: String) -> PointingParseResult {
         // Match [POINT:none] or [POINT:123,456:label] or [POINT:123,456:label:screen2]
-        let pattern = #"\[POINT:(?:none|(\d+)\s*,\s*(\d+)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?)\]\s*$"#
+        // anywhere in the response so stray or duplicated tags never leak into
+        // spoken output.
+        let pattern = #"\[POINT:(?:none|(\d+)\s*,\s*(\d+)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?)\]"#
 
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-              let match = regex.firstMatch(in: responseText, range: NSRange(responseText.startIndex..., in: responseText)) else {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return PointingParseResult(spokenText: responseText, coordinate: nil, elementLabel: nil, screenNumber: nil)
+        }
+
+        let matches = regex.matches(in: responseText, range: NSRange(responseText.startIndex..., in: responseText))
+        guard let match = matches.first else {
             // No tag found at all
             return PointingParseResult(spokenText: responseText, coordinate: nil, elementLabel: nil, screenNumber: nil)
         }
 
-        // Remove the tag from the spoken text
-        let tagRange = Range(match.range, in: responseText)!
-        let spokenText = String(responseText[..<tagRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Remove every point tag from the spoken text so malformed multi-tag
+        // replies do not read coordinates aloud.
+        let strippedText = regex.stringByReplacingMatches(
+            in: responseText,
+            range: NSRange(responseText.startIndex..., in: responseText),
+            withTemplate: ""
+        )
+        let spokenText = strippedText
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Check if it's [POINT:none]
         guard match.numberOfRanges >= 3,

@@ -33,9 +33,9 @@ final class ElevenLabsTTSClient {
 
     /// Sends `text` to ElevenLabs TTS and plays the resulting audio.
     /// Throws on network or decoding errors. Cancellation-safe.
-    func speakText(_ text: String) async throws {
+    func speakText(_ text: String, voicePreset: ClickyVoicePreset = .balanced) async throws {
         if !CompanionRuntimeConfiguration.isWorkerConfigured {
-            await speakTextWithSystemSpeech(text)
+            await speakTextWithSystemSpeech(text, voicePreset: voicePreset)
             return
         }
 
@@ -48,8 +48,8 @@ final class ElevenLabsTTSClient {
             "text": text,
             "model_id": "eleven_flash_v2_5",
             "voice_settings": [
-                "stability": 0.5,
-                "similarity_boost": 0.75
+                "stability": voicePreset.elevenLabsStability,
+                "similarity_boost": voicePreset.elevenLabsSimilarityBoost
             ]
         ]
 
@@ -76,13 +76,14 @@ final class ElevenLabsTTSClient {
         print("🔊 ElevenLabs TTS: playing \(data.count / 1024)KB audio")
     }
 
-    private func speakTextWithSystemSpeech(_ text: String) async {
+    private func speakTextWithSystemSpeech(_ text: String, voicePreset: ClickyVoicePreset) async {
         let speechSynthesizer = NSSpeechSynthesizer()
         let systemSpeechDelegate = SystemSpeechDelegate()
 
         self.systemSpeechSynthesizer = speechSynthesizer
         self.systemSpeechDelegate = systemSpeechDelegate
         speechSynthesizer.delegate = systemSpeechDelegate
+        speechSynthesizer.rate = voicePreset.systemSpeechRate
         speechSynthesizer.startSpeaking(text)
         print("🔊 System TTS: speaking local fallback audio")
 

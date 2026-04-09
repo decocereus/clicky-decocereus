@@ -129,6 +129,8 @@ struct BlueCursorView: View {
     @State private var bubbleSize: CGSize = .zero
     @State private var bubbleOpacity: Double = 1.0
     @State private var cursorOpacity: Double = 0.0
+    @State private var pulseCursorIsExpanded: Bool = false
+    @State private var haloLoadingExpanded: Bool = false
 
     // MARK: - Buddy Navigation State
 
@@ -195,8 +197,8 @@ struct BlueCursorView: View {
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(DS.Colors.overlayCursorBlue)
-                            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.5), radius: 6, x: 0, y: 0)
+                            .fill(cursorAccentColor)
+                            .shadow(color: cursorAccentColor.opacity(0.5), radius: 6, x: 0, y: 0)
                     )
                     .fixedSize()
                     .overlay(
@@ -239,8 +241,8 @@ struct BlueCursorView: View {
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(DS.Colors.overlayCursorBlue)
-                            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.5), radius: 6, x: 0, y: 0)
+                            .fill(cursorAccentColor)
+                            .shadow(color: cursorAccentColor.opacity(0.5), radius: 6, x: 0, y: 0)
                     )
                     .fixedSize()
                     .overlay(
@@ -269,9 +271,9 @@ struct BlueCursorView: View {
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(DS.Colors.overlayCursorBlue)
+                            .fill(cursorAccentColor)
                             .shadow(
-                                color: DS.Colors.overlayCursorBlue.opacity(0.5 + (1.0 - navigationBubbleScale) * 1.0),
+                                color: cursorAccentColor.opacity(0.5 + (1.0 - navigationBubbleScale) * 1.0),
                                 radius: 6 + (1.0 - navigationBubbleScale) * 16,
                                 x: 0, y: 0
                             )
@@ -302,12 +304,7 @@ struct BlueCursorView: View {
             // During cursor following: fast spring animation for snappy tracking.
             // During navigation: NO implicit animation — the frame-by-frame bezier
             // timer controls position directly at 60fps for a smooth arc flight.
-            Triangle()
-                .fill(DS.Colors.overlayCursorBlue)
-                .frame(width: 16, height: 16)
-                .rotationEffect(.degrees(triangleRotationDegrees))
-                .shadow(color: DS.Colors.overlayCursorBlue, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
-                .scaleEffect(buddyFlightScale)
+            personaCursorIdleView
                 .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .idle ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(
@@ -322,30 +319,29 @@ struct BlueCursorView: View {
                     value: triangleRotationDegrees
                 )
 
-            // Blue waveform — shown while listening
-            BlueCursorWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel)
+            // Style-aware listening indicator
+            listeningIndicatorView
                 .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .listening ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
 
-            // Circle spinner — shown while transcription is still finalizing.
-            BlueCursorSpinnerView()
+            // Style-aware transcribing indicator
+            transcribingIndicatorView
                 .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .transcribing ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
 
-            // Thinking indicator — shown after the transcript is finalized and
-            // the LLM is working on the reply.
-            BlueCursorThinkingView()
+            // Style-aware thinking indicator
+            thinkingIndicatorView
                 .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .thinking ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
 
-            // Speaking waveform — shown while the assistant is reading the reply aloud.
-            BlueCursorSpeakingWaveformView()
+            // Style-aware responding indicator
+            respondingIndicatorView
                 .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .responding ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
@@ -377,6 +373,17 @@ struct BlueCursorView: View {
             } else {
                 self.cursorOpacity = 1.0
             }
+
+            if companionManager.effectiveClickyCursorStyle == .pulse {
+                withAnimation(.easeOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                    pulseCursorIsExpanded = true
+                }
+            }
+            if companionManager.effectiveClickyCursorStyle == .halo {
+                withAnimation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true)) {
+                    haloLoadingExpanded = true
+                }
+            }
         }
         .onDisappear {
             timer?.invalidate()
@@ -398,6 +405,105 @@ struct BlueCursorView: View {
             }
 
             startNavigatingToElement(screenLocation: screenLocation)
+        }
+    }
+
+    private var cursorAccentColor: Color {
+        companionManager.activeClickyTheme.primary
+    }
+
+    @ViewBuilder
+    private var listeningIndicatorView: some View {
+        switch companionManager.effectiveClickyCursorStyle {
+        case .classic:
+            BlueCursorWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel, accentColor: cursorAccentColor)
+        case .halo:
+            HaloActivityIndicatorView(accentColor: cursorAccentColor, activityLevel: companionManager.currentAudioPowerLevel, isExpanded: haloLoadingExpanded)
+        case .pulse:
+            PulsingOrbIndicatorView(accentColor: cursorAccentColor, activityLevel: companionManager.currentAudioPowerLevel, mode: .listening)
+        }
+    }
+
+    @ViewBuilder
+    private var transcribingIndicatorView: some View {
+        switch companionManager.effectiveClickyCursorStyle {
+        case .classic:
+            BlueCursorSpinnerView(accentColor: cursorAccentColor)
+        case .halo:
+            HaloSpinnerIndicatorView(accentColor: cursorAccentColor, isExpanded: haloLoadingExpanded)
+        case .pulse:
+            PulsingOrbIndicatorView(accentColor: cursorAccentColor, activityLevel: 0.52, mode: .transcribing)
+        }
+    }
+
+    @ViewBuilder
+    private var thinkingIndicatorView: some View {
+        switch companionManager.effectiveClickyCursorStyle {
+        case .classic:
+            BlueCursorThinkingView(accentColor: cursorAccentColor)
+        case .halo:
+            HaloThinkingIndicatorView(accentColor: cursorAccentColor, isExpanded: haloLoadingExpanded)
+        case .pulse:
+            PulsingOrbIndicatorView(accentColor: cursorAccentColor, activityLevel: 0.76, mode: .thinking)
+        }
+    }
+
+    @ViewBuilder
+    private var respondingIndicatorView: some View {
+        switch companionManager.effectiveClickyCursorStyle {
+        case .classic:
+            BlueCursorSpeakingWaveformView(accentColor: cursorAccentColor)
+        case .halo:
+            HaloSpeakingIndicatorView(accentColor: cursorAccentColor, isExpanded: haloLoadingExpanded)
+        case .pulse:
+            PulsingOrbIndicatorView(accentColor: cursorAccentColor, activityLevel: 0.92, mode: .responding)
+        }
+    }
+
+    @ViewBuilder
+    private var personaCursorIdleView: some View {
+        switch companionManager.effectiveClickyCursorStyle {
+        case .classic:
+            Triangle()
+                .fill(cursorAccentColor)
+                .frame(width: 16, height: 16)
+                .rotationEffect(.degrees(triangleRotationDegrees))
+                .shadow(color: cursorAccentColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
+                .scaleEffect(buddyFlightScale)
+        case .halo:
+            ZStack {
+                Circle()
+                    .stroke(cursorAccentColor.opacity(0.55), lineWidth: 1.5)
+                    .frame(width: 26, height: 26)
+                    .shadow(color: cursorAccentColor.opacity(0.32), radius: 10, x: 0, y: 0)
+
+                Triangle()
+                    .fill(cursorAccentColor)
+                    .frame(width: 14, height: 14)
+                    .rotationEffect(.degrees(triangleRotationDegrees))
+            }
+            .scaleEffect(buddyFlightScale)
+        case .pulse:
+            ZStack {
+                Circle()
+                    .fill(cursorAccentColor.opacity(0.16))
+                    .frame(width: 28, height: 28)
+                    .scaleEffect(pulseCursorIsExpanded ? 1.35 : 0.92)
+                    .opacity(pulseCursorIsExpanded ? 0.10 : 0.42)
+
+                Circle()
+                    .stroke(cursorAccentColor.opacity(0.45), lineWidth: 1.2)
+                    .frame(width: 24, height: 24)
+                    .scaleEffect(pulseCursorIsExpanded ? 1.22 : 0.96)
+                    .opacity(pulseCursorIsExpanded ? 0.14 : 0.62)
+
+                Triangle()
+                    .fill(cursorAccentColor)
+                    .frame(width: 14, height: 14)
+                    .rotationEffect(.degrees(triangleRotationDegrees))
+                    .shadow(color: cursorAccentColor.opacity(0.42), radius: 12, x: 0, y: 0)
+            }
+            .scaleEffect(buddyFlightScale)
         }
     }
 
@@ -723,6 +829,7 @@ struct BlueCursorView: View {
 /// the user is holding the push-to-talk shortcut and speaking.
 private struct BlueCursorWaveformView: View {
     let audioPowerLevel: CGFloat
+    let accentColor: Color
 
     private let barCount = 5
     private let listeningBarProfile: [CGFloat] = [0.4, 0.7, 1.0, 0.7, 0.4]
@@ -732,7 +839,7 @@ private struct BlueCursorWaveformView: View {
             HStack(alignment: .center, spacing: 2) {
                 ForEach(0..<barCount, id: \.self) { barIndex in
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(DS.Colors.overlayCursorBlue)
+                        .fill(accentColor)
                         .frame(
                             width: 2,
                             height: barHeight(
@@ -742,7 +849,7 @@ private struct BlueCursorWaveformView: View {
                         )
                 }
             }
-            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.6), radius: 6, x: 0, y: 0)
+            .shadow(color: accentColor.opacity(0.6), radius: 6, x: 0, y: 0)
             .animation(.linear(duration: 0.08), value: audioPowerLevel)
         }
     }
@@ -762,6 +869,7 @@ private struct BlueCursorWaveformView: View {
 /// A pulsing three-dot indicator used once the user's speech has been
 /// transcribed and the assistant is now thinking about the reply.
 private struct BlueCursorThinkingView: View {
+    let accentColor: Color
     private let dotCount = 3
 
     var body: some View {
@@ -769,13 +877,13 @@ private struct BlueCursorThinkingView: View {
             HStack(spacing: 3) {
                 ForEach(0..<dotCount, id: \.self) { dotIndex in
                     Circle()
-                        .fill(DS.Colors.overlayCursorBlue)
+                        .fill(accentColor)
                         .frame(width: 4, height: 4)
                         .scaleEffect(dotScale(for: dotIndex, timelineDate: timelineContext.date))
                         .opacity(dotOpacity(for: dotIndex, timelineDate: timelineContext.date))
                 }
             }
-            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.6), radius: 6, x: 0, y: 0)
+            .shadow(color: accentColor.opacity(0.6), radius: 6, x: 0, y: 0)
         }
     }
 
@@ -795,6 +903,7 @@ private struct BlueCursorThinkingView: View {
 /// A non-reactive waveform used while the assistant is speaking so the
 /// user can see the response is actively being read aloud.
 private struct BlueCursorSpeakingWaveformView: View {
+    let accentColor: Color
     private let barCount = 5
     private let speakingBarProfile: [CGFloat] = [0.55, 0.85, 1.0, 0.85, 0.55]
 
@@ -803,14 +912,14 @@ private struct BlueCursorSpeakingWaveformView: View {
             HStack(alignment: .center, spacing: 2) {
                 ForEach(0..<barCount, id: \.self) { barIndex in
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(DS.Colors.overlayCursorBlue)
+                        .fill(accentColor)
                         .frame(
                             width: 2,
                             height: barHeight(for: barIndex, timelineDate: timelineContext.date)
                         )
                 }
             }
-            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.6), radius: 6, x: 0, y: 0)
+            .shadow(color: accentColor.opacity(0.6), radius: 6, x: 0, y: 0)
         }
     }
 
@@ -826,6 +935,7 @@ private struct BlueCursorSpeakingWaveformView: View {
 /// A small blue spinning indicator that replaces the triangle cursor
 /// while the AI is processing a voice input.
 private struct BlueCursorSpinnerView: View {
+    let accentColor: Color
     @State private var isSpinning = false
 
     var body: some View {
@@ -834,8 +944,8 @@ private struct BlueCursorSpinnerView: View {
             .stroke(
                 AngularGradient(
                     colors: [
-                        DS.Colors.overlayCursorBlue.opacity(0.0),
-                        DS.Colors.overlayCursorBlue
+                        accentColor.opacity(0.0),
+                        accentColor
                     ],
                     center: .center
                 ),
@@ -843,12 +953,179 @@ private struct BlueCursorSpinnerView: View {
             )
             .frame(width: 14, height: 14)
             .rotationEffect(.degrees(isSpinning ? 360 : 0))
-            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.6), radius: 6, x: 0, y: 0)
+            .shadow(color: accentColor.opacity(0.6), radius: 6, x: 0, y: 0)
             .onAppear {
                 withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
                     isSpinning = true
                 }
             }
+    }
+}
+
+private struct HaloActivityIndicatorView: View {
+    let accentColor: Color
+    let activityLevel: CGFloat
+    let isExpanded: Bool
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(accentColor.opacity(0.22), lineWidth: 1.2)
+                .frame(width: 24, height: 24)
+                .scaleEffect(isExpanded ? 1.12 : 0.96)
+
+            Circle()
+                .trim(from: 0.18, to: 0.82)
+                .stroke(accentColor.opacity(0.75), style: StrokeStyle(lineWidth: 2.0, lineCap: .round))
+                .frame(width: 18 + activityLevel * 5, height: 18 + activityLevel * 5)
+                .rotationEffect(.degrees(isExpanded ? 180 : 20))
+
+            Circle()
+                .fill(accentColor)
+                .frame(width: 5, height: 5)
+        }
+        .shadow(color: accentColor.opacity(0.35), radius: 8, x: 0, y: 0)
+    }
+}
+
+private struct HaloSpinnerIndicatorView: View {
+    let accentColor: Color
+    let isExpanded: Bool
+    @State private var isRotating = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(accentColor.opacity(0.18), lineWidth: 1.0)
+                .frame(width: 24, height: 24)
+                .scaleEffect(isExpanded ? 1.08 : 0.96)
+
+            Circle()
+                .trim(from: 0.12, to: 0.56)
+                .stroke(accentColor, style: StrokeStyle(lineWidth: 2.1, lineCap: .round))
+                .frame(width: 20, height: 20)
+                .rotationEffect(.degrees(isRotating ? 360 : 0))
+        }
+        .shadow(color: accentColor.opacity(0.32), radius: 8, x: 0, y: 0)
+        .onAppear {
+            withAnimation(.linear(duration: 0.85).repeatForever(autoreverses: false)) {
+                isRotating = true
+            }
+        }
+    }
+}
+
+private struct HaloThinkingIndicatorView: View {
+    let accentColor: Color
+    let isExpanded: Bool
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(accentColor.opacity(0.20), lineWidth: 1.0)
+                .frame(width: 24, height: 24)
+                .scaleEffect(isExpanded ? 1.1 : 0.95)
+
+            HStack(spacing: 3) {
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(accentColor)
+                        .frame(width: 3.5, height: 3.5)
+                        .opacity(index == 1 ? 1.0 : 0.55)
+                }
+            }
+        }
+        .shadow(color: accentColor.opacity(0.30), radius: 8, x: 0, y: 0)
+    }
+}
+
+private struct HaloSpeakingIndicatorView: View {
+    let accentColor: Color
+    let isExpanded: Bool
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(accentColor.opacity(0.18), lineWidth: 1.0)
+                .frame(width: 24, height: 24)
+                .scaleEffect(isExpanded ? 1.08 : 0.96)
+
+            HStack(spacing: 2) {
+                ForEach(0..<3, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 1.4, style: .continuous)
+                        .fill(accentColor)
+                        .frame(width: 2.6, height: index == 1 ? 11 : 7)
+                }
+            }
+        }
+        .shadow(color: accentColor.opacity(0.32), radius: 8, x: 0, y: 0)
+    }
+}
+
+private enum PulsingOrbMode {
+    case listening
+    case transcribing
+    case thinking
+    case responding
+}
+
+private struct PulsingOrbIndicatorView: View {
+    let accentColor: Color
+    let activityLevel: CGFloat
+    let mode: PulsingOrbMode
+    @State private var isExpanded = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(accentColor.opacity(0.18))
+                .frame(width: 26, height: 26)
+                .scaleEffect(isExpanded ? 1.28 : 0.92)
+                .opacity(isExpanded ? 0.16 : 0.42)
+
+            Circle()
+                .fill(coreFill)
+                .frame(width: 14 + activityLevel * 4, height: 14 + activityLevel * 4)
+
+            if mode == .responding || mode == .listening {
+                Circle()
+                    .stroke(accentColor.opacity(0.55), lineWidth: 1.4)
+                    .frame(width: 20, height: 20)
+                    .scaleEffect(isExpanded ? 1.16 : 0.95)
+            }
+        }
+        .shadow(color: accentColor.opacity(0.38), radius: 10, x: 0, y: 0)
+        .onAppear {
+            withAnimation(.easeInOut(duration: animationDuration).repeatForever(autoreverses: true)) {
+                isExpanded = true
+            }
+        }
+    }
+
+    private var animationDuration: Double {
+        switch mode {
+        case .listening:
+            return 0.62
+        case .transcribing:
+            return 0.82
+        case .thinking:
+            return 1.0
+        case .responding:
+            return 0.58
+        }
+    }
+
+    private var coreFill: Color {
+        switch mode {
+        case .listening:
+            return accentColor
+        case .transcribing:
+            return accentColor.opacity(0.88)
+        case .thinking:
+            return accentColor.opacity(0.70)
+        case .responding:
+            return accentColor
+        }
     }
 }
 
