@@ -1,10 +1,9 @@
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
-import { bearer, magicLink } from "better-auth/plugins"
+import { bearer } from "better-auth/plugins"
 
 import { createDb } from "../db/client"
 import type { Env } from "../env"
-import { sendMagicLinkEmail } from "../email/resend"
 
 function requireValue(value: string | undefined, name: string) {
   if (!value) {
@@ -30,16 +29,17 @@ export function createAuth(env: Env) {
     database: drizzleAdapter(createDb(env), {
       provider: "pg",
     }),
+    socialProviders: {
+      google: {
+        clientId: requireValue(env.GOOGLE_CLIENT_ID, "GOOGLE_CLIENT_ID"),
+        clientSecret: requireValue(env.GOOGLE_CLIENT_SECRET, "GOOGLE_CLIENT_SECRET"),
+      },
+    },
     emailAndPassword: {
       enabled: false,
     },
     plugins: [
       bearer(),
-      magicLink({
-        sendMagicLink: async ({ email, url }) => {
-          await sendMagicLinkEmail(env, { email, url })
-        },
-      }),
     ],
   })
 }

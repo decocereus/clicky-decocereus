@@ -5,8 +5,8 @@ export interface Env {
   DATABASE_URL?: string
   WEB_ORIGIN?: string
   MAC_APP_SCHEME?: string
-  RESEND_API_KEY?: string
-  RESEND_FROM_EMAIL?: string
+  GOOGLE_CLIENT_ID?: string
+  GOOGLE_CLIENT_SECRET?: string
   POLAR_ACCESS_TOKEN?: string
   POLAR_LAUNCH_PRODUCT_ID?: string
   POLAR_WEBHOOK_SECRET?: string

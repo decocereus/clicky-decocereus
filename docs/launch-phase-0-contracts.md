@@ -65,8 +65,8 @@ These are the defaults I recommend unless we explicitly change them:
 
 ## User-facing auth methods
 
-- Launch with email magic link as the default.
-- Keep social sign-in optional for a later phase.
+- Launch with Google sign-in as the default.
+- Keep magic-link or other email-based auth as a later option if needed.
 - Do not require sign-in before the free taste.
 - Require sign-in before purchase and before cross-device restore.
 
@@ -260,6 +260,6 @@ We do **not** add a device licensing table at launch.
 ## Open assumptions to validate during implementation
 
 - `clicky://` custom URL scheme is the native callback path.
-- Email magic link is good enough for launch auth.
+- Google sign-in is the default launch auth method.
 - The free taste is measured by successful cloud-backed requests, not wall-clock time.
 - The 30-day offline unlock grace window is acceptable for a one-time purchase launch.
