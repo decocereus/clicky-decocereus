@@ -284,6 +284,77 @@ struct CompanionStudioView: View {
                 }
             }
 
+            StudioCard(title: "Account & Launch Access", subtitle: "Connect the app to the launch backend and restore your access") {
+                VStack(alignment: .leading, spacing: 14) {
+                    StudioKeyValueRow(label: "Backend URL", value: companionManager.clickyBackendStatusLabel)
+                    StudioKeyValueRow(label: "Account", value: companionManager.clickyLaunchAuthStatusLabel)
+
+                    StudioTextField(
+                        title: "Launch backend URL",
+                        text: Binding(
+                            get: { companionManager.clickyBackendBaseURL },
+                            set: { companionManager.clickyBackendBaseURL = $0 }
+                        ),
+                        placeholder: "https://api.clicky.app"
+                    )
+
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            companionManager.startClickyLaunchSignIn()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "person.crop.circle.badge.plus")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Sign In")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+
+                        Button(action: {
+                            companionManager.signOutClickyLaunchSession()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "person.crop.circle.badge.xmark")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Sign Out")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+                    }
+
+                    Text("The Mac app opens the browser for sign-in, then stores the returned session token in Keychain on this Mac.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
         }
     }
 
