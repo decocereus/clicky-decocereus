@@ -360,6 +360,7 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var speechPreviewStatus: ClickySpeechPreviewStatus = .idle
     @Published private(set) var lastSpeechFallbackMessage: String?
     @Published private(set) var clickyLaunchAuthState: ClickyLaunchAuthState = .signedOut
+    @Published private(set) var clickyLaunchEntitlementStatusLabel: String = "Unknown"
     @Published var clickyBackendBaseURL: String = UserDefaults.standard.string(forKey: "clickyBackendBaseURL") ?? CompanionRuntimeConfiguration.defaultBackendBaseURL {
         didSet {
             UserDefaults.standard.set(clickyBackendBaseURL, forKey: "clickyBackendBaseURL")
@@ -618,6 +619,7 @@ final class CompanionManager: ObservableObject {
     func signOutClickyLaunchSession() {
         ClickyAuthSessionStore.clear()
         clickyLaunchAuthState = .signedOut
+        clickyLaunchEntitlementStatusLabel = "Unknown"
         ClickyLogger.notice(.app, "Cleared Clicky launch auth session")
     }
 
@@ -641,17 +643,26 @@ final class CompanionManager: ObservableObject {
             do {
                 let exchangePayload = try await clickyBackendAuthClient.exchangeNativeCode(exchangeCode)
                 let sessionPayload = try await clickyBackendAuthClient.fetchCurrentSession(sessionToken: exchangePayload.sessionToken)
+                let entitlementSnapshot = ClickyLaunchEntitlementSnapshot(
+                    productKey: exchangePayload.entitlement.productKey,
+                    status: exchangePayload.entitlement.status,
+                    hasAccess: exchangePayload.entitlement.hasAccess,
+                    gracePeriodEndsAt: exchangePayload.entitlement.gracePeriodEndsAt
+                )
                 let snapshot = ClickyAuthSessionSnapshot(
                     sessionToken: exchangePayload.sessionToken,
                     userID: exchangePayload.userID,
-                    email: sessionPayload.user.email
+                    email: sessionPayload.user.email,
+                    entitlement: entitlementSnapshot
                 )
 
                 try ClickyAuthSessionStore.save(snapshot)
                 clickyLaunchAuthState = .signedIn(email: snapshot.email)
+                clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(snapshot.entitlement)
                 ClickyLogger.notice(.app, "Completed Clicky launch auth exchange user=\(snapshot.email)")
             } catch {
                 clickyLaunchAuthState = .failed(message: error.localizedDescription)
+                clickyLaunchEntitlementStatusLabel = "Unknown"
                 ClickyLogger.error(.app, "Failed to complete Clicky launch auth exchange error=\(error.localizedDescription)")
             }
         }
@@ -1570,6 +1581,7 @@ final class CompanionManager: ObservableObject {
     private func restoreClickyLaunchSessionIfPossible() {
         guard let storedSession = ClickyAuthSessionStore.load() else {
             clickyLaunchAuthState = .signedOut
+            clickyLaunchEntitlementStatusLabel = "Unknown"
             return
         }
 
@@ -1578,21 +1590,43 @@ final class CompanionManager: ObservableObject {
         Task { @MainActor in
             do {
                 let sessionPayload = try await clickyBackendAuthClient.fetchCurrentSession(sessionToken: storedSession.sessionToken)
+                let entitlementPayload = try await clickyBackendAuthClient.fetchCurrentEntitlement(sessionToken: storedSession.sessionToken)
                 let refreshedSnapshot = ClickyAuthSessionSnapshot(
                     sessionToken: storedSession.sessionToken,
                     userID: sessionPayload.user.id,
-                    email: sessionPayload.user.email
+                    email: sessionPayload.user.email,
+                    entitlement: ClickyLaunchEntitlementSnapshot(
+                        productKey: entitlementPayload.entitlement.productKey,
+                        status: entitlementPayload.entitlement.status,
+                        hasAccess: entitlementPayload.entitlement.hasAccess,
+                        gracePeriodEndsAt: entitlementPayload.entitlement.gracePeriodEndsAt
+                    )
                 )
 
                 try ClickyAuthSessionStore.save(refreshedSnapshot)
                 clickyLaunchAuthState = .signedIn(email: refreshedSnapshot.email)
+                clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(refreshedSnapshot.entitlement)
                 ClickyLogger.notice(.app, "Restored Clicky launch auth session user=\(refreshedSnapshot.email)")
             } catch {
                 ClickyAuthSessionStore.clear()
                 clickyLaunchAuthState = .signedOut
+                clickyLaunchEntitlementStatusLabel = "Unknown"
                 ClickyLogger.error(.app, "Failed to restore Clicky launch auth session error=\(error.localizedDescription)")
             }
         }
+    }
+
+    private func formatEntitlementStatus(_ entitlement: ClickyLaunchEntitlementSnapshot) -> String {
+        if entitlement.hasAccess {
+            if let gracePeriodEndsAt = entitlement.gracePeriodEndsAt,
+               !gracePeriodEndsAt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "Active · grace until \(gracePeriodEndsAt)"
+            }
+
+            return "Active"
+        }
+
+        return entitlement.status.capitalized
     }
 
     func refreshAllPermissions() {

@@ -288,6 +288,7 @@ struct CompanionStudioView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     StudioKeyValueRow(label: "Backend URL", value: companionManager.clickyBackendStatusLabel)
                     StudioKeyValueRow(label: "Account", value: companionManager.clickyLaunchAuthStatusLabel)
+                    StudioKeyValueRow(label: "Entitlement", value: companionManager.clickyLaunchEntitlementStatusLabel)
 
                     StudioTextField(
                         title: "Launch backend URL",

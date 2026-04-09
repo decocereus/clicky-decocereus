@@ -32,15 +32,34 @@ struct ClickyBackendSessionPayload: Decodable {
     let user: ClickyBackendSessionUserPayload
 }
 
+struct ClickyBackendEntitlementPayload: Decodable {
+    let productKey: String
+    let status: String
+    let hasAccess: Bool
+    let gracePeriodEndsAt: String?
+}
+
+struct ClickyBackendEntitlementEnvelopePayload: Decodable {
+    let userID: String
+    let entitlement: ClickyBackendEntitlementPayload
+
+    private enum CodingKeys: String, CodingKey {
+        case userID = "userId"
+        case entitlement
+    }
+}
+
 struct ClickyBackendNativeAuthExchangePayload: Decodable {
     let tokenType: String
     let sessionToken: String
     let userID: String
+    let entitlement: ClickyBackendEntitlementPayload
 
     private enum CodingKeys: String, CodingKey {
         case tokenType
         case sessionToken
         case userID = "userId"
+        case entitlement
     }
 }
 
@@ -123,6 +142,15 @@ struct ClickyBackendAuthClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try JSONDecoder().decode(ClickyBackendSessionPayload.self, from: data)
+    }
+
+    func fetchCurrentEntitlement(sessionToken: String) async throws -> ClickyBackendEntitlementEnvelopePayload {
+        var request = URLRequest(url: try endpointURL(path: "/v1/entitlements/me"))
+        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(ClickyBackendEntitlementEnvelopePayload.self, from: data)
     }
 
     private func validate(response: URLResponse, data: Data) throws {

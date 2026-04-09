@@ -7,10 +7,18 @@
 
 import Foundation
 
+struct ClickyLaunchEntitlementSnapshot: Codable {
+    let productKey: String
+    let status: String
+    let hasAccess: Bool
+    let gracePeriodEndsAt: String?
+}
+
 struct ClickyAuthSessionSnapshot: Codable {
     let sessionToken: String
     let userID: String
     let email: String
+    let entitlement: ClickyLaunchEntitlementSnapshot
 }
 
 enum ClickyAuthSessionStore {
