@@ -1,4 +1,3 @@
-import { Type } from "@sinclair/typebox";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 
 type ClickyShellRegistration = {
@@ -105,6 +104,18 @@ function serializeShellRegistration(
 
 const clickyShellRegistrationsById = new Map<string, ClickyShellRegistration>();
 const defaultRegistrationTtlMs = 60_000;
+
+// OpenClaw accepts plain JSON Schema objects for tool parameters here, which
+// keeps this local source plugin self-contained when it is loaded in place.
+const clickyStatusToolParameters = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    includeRegistrations: {
+      type: "boolean",
+    },
+  },
+} as const;
 
 function normalizePluginConfig(pluginConfig: Record<string, unknown>) {
   const shellLabel =
@@ -424,9 +435,7 @@ export default definePluginEntry({
     api.registerTool({
       name: "clicky_status",
       description: "Inspect whether a Clicky desktop shell is connected and what shell capabilities it exposes.",
-      parameters: Type.Object({
-        includeRegistrations: Type.Optional(Type.Boolean()),
-      }),
+      parameters: clickyStatusToolParameters,
       async execute(_toolCallId, params) {
         const includeRegistrations = params.includeRegistrations !== false;
         return {
