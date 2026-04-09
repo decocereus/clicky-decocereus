@@ -5,7 +5,7 @@ import { getBackendUrl } from "@/lib/backend"
 
 type SubmitState =
   | { status: "idle" }
-  | { status: "success"; email: string }
+  | { status: "redirecting" }
   | { status: "error"; message: string }
 
 type ExistingSessionState =
@@ -28,7 +28,6 @@ export function NativeAuthPage() {
   const callbackUrl = searchParams.get("callbackUrl")?.trim() ?? ""
   const backendUrl = getBackendUrl()
 
-  const [email, setEmail] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitState, setSubmitState] = useState<SubmitState>({ status: "idle" })
   const [sessionState, setSessionState] = useState<ExistingSessionState>({
@@ -101,11 +100,11 @@ export function NativeAuthPage() {
     }
   }, [backendUrl, isValid])
 
-  async function requestMagicLink() {
-    if (!isValid || !email.trim()) {
+  async function continueWithGoogle() {
+    if (!isValid) {
       setSubmitState({
         status: "error",
-        message: "A valid email, state, and callback URL are required.",
+        message: "A valid native auth state and callback URL are required.",
       })
       return
     }
@@ -113,29 +112,36 @@ export function NativeAuthPage() {
     setIsSubmitting(true)
 
     try {
-      const response = await fetch(`${backendUrl}/api/auth/sign-in/magic-link`, {
+      const response = await fetch(`${backendUrl}/api/auth/sign-in/social`, {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: email.trim(),
+          provider: "google",
+          disableRedirect: true,
           callbackURL: callbackUrl,
         }),
       })
 
       if (!response.ok) {
         const errorText = await response.text()
-        throw new Error(errorText || "Magic link request failed.")
+        throw new Error(errorText || "Google sign-in request failed.")
+      }
+
+      const data = (await response.json()) as { url?: string }
+      if (!data.url) {
+        throw new Error("Google sign-in URL was missing from the backend response.")
       }
 
       startTransition(() => {
         setSubmitState({
-          status: "success",
-          email: email.trim(),
+          status: "redirecting",
         })
       })
+
+      window.location.href = data.url
     } catch (error) {
       startTransition(() => {
         setSubmitState({
@@ -143,7 +149,7 @@ export function NativeAuthPage() {
           message:
             error instanceof Error
               ? error.message
-              : "Magic link request failed.",
+              : "Google sign-in request failed.",
         })
       })
     } finally {
@@ -166,8 +172,8 @@ export function NativeAuthPage() {
             Finish sign-in for the Mac app
           </h1>
           <p className="max-w-lg text-sm leading-6 text-muted-foreground">
-            Enter your email and we&apos;ll send a secure sign-in link. After you open
-            it, this browser will hand the session back to Clicky automatically.
+            Continue with Google in your browser. After Google finishes, this browser
+            will hand the session back to Clicky automatically.
           </p>
         </div>
 
@@ -205,33 +211,19 @@ export function NativeAuthPage() {
               </div>
             ) : null}
 
-            <label className="block space-y-2">
-              <span className="text-sm font-medium">Email address</span>
-              <input
-                className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm outline-none transition focus:border-primary"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
-                disabled={isSubmitting || !isValid}
-              />
-            </label>
-
             <Button
               className="w-full"
-              disabled={isSubmitting || !isValid || email.trim().length === 0}
-              onClick={requestMagicLink}
+              disabled={isSubmitting || !isValid}
+              onClick={continueWithGoogle}
             >
-              {isSubmitting ? "Sending magic link..." : "Email me a sign-in link"}
+              {isSubmitting ? "Redirecting to Google..." : "Continue with Google"}
             </Button>
           </div>
         ) : null}
 
-        {submitState.status === "success" ? (
+        {submitState.status === "redirecting" ? (
           <div className="mt-6 rounded-2xl border border-primary/30 bg-primary/10 p-4 text-sm text-foreground">
-            Check <strong>{submitState.email}</strong> for your Clicky sign-in link.
-            After opening it, this browser will return the session to the Mac app.
+            Redirecting you to Google sign-in...
           </div>
         ) : null}
 
