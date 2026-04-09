@@ -19,6 +19,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Screen Capture**: ScreenCaptureKit (macOS 14.2+), multi-monitor support
 - **Voice Input**: Push-to-talk via `AVAudioEngine` and a pluggable transcription-provider layer
 - **Element Pointing**: Agent replies may include `[POINT:x,y:label:screenN]` tags that drive the blue cursor overlay
+- **Launch Commerce Model**: direct-download website, free download plus in-app taste, in-app paywall, Polar-hosted checkout launched from the Mac app, lightweight auth plus backend-backed entitlement restore
 
 ## Codex Workflow
 
@@ -63,6 +64,7 @@ The Codex app `Run` action is wired through `.codex/environments/environment.tom
 - Do not rename the project directory or scheme. The `leanring` typo is intentional/legacy.
 - Do not try to clean up the known non-blocking warnings unless explicitly asked.
 - Do not use `xcodebuild` from the terminal, even if generic plugin guidance suggests a shell-first macOS workflow.
+- Do not reintroduce website-gated checkout assumptions without explicitly confirming a launch strategy change.
 
 ## Git Workflow
 
