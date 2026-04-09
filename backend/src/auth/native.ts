@@ -66,3 +66,128 @@ export async function getNativeAuthHandoff(env: Env, state: string) {
     where: eq(nativeAuthHandoffs.state, state),
   })
 }
+
+export async function completeNativeAuthHandoff(
+  env: Env,
+  state: string,
+  sessionToken: string,
+  userId: string,
+) {
+  const db = createDb(env)
+  const handoff = await getNativeAuthHandoff(env, state)
+
+  if (!handoff) {
+    return {
+      ok: false as const,
+      error: "Unknown native auth handoff state.",
+      status: 404,
+    }
+  }
+
+  if (handoff.expiresAt <= new Date()) {
+    await db
+      .update(nativeAuthHandoffs)
+      .set({
+        status: "expired",
+      })
+      .where(eq(nativeAuthHandoffs.id, handoff.id))
+
+    return {
+      ok: false as const,
+      error: "Native auth handoff expired.",
+      status: 410,
+    }
+  }
+
+  const code = crypto.randomUUID()
+  const authenticatedAt = new Date()
+
+  await db
+    .update(nativeAuthHandoffs)
+    .set({
+      code,
+      sessionToken,
+      userId,
+      authenticatedAt,
+      status: "authenticated",
+    })
+    .where(eq(nativeAuthHandoffs.id, handoff.id))
+
+  return {
+    ok: true as const,
+    handoff: {
+      ...handoff,
+      code,
+      sessionToken,
+      userId,
+      authenticatedAt,
+      status: "authenticated" as const,
+    },
+  }
+}
+
+export async function exchangeNativeAuthCode(env: Env, code: string) {
+  const db = createDb(env)
+  const handoff = await db.query.nativeAuthHandoffs.findFirst({
+    where: eq(nativeAuthHandoffs.code, code),
+  })
+
+  if (!handoff) {
+    return {
+      ok: false as const,
+      error: "Unknown native auth exchange code.",
+      status: 404,
+    }
+  }
+
+  if (handoff.expiresAt <= new Date()) {
+    await db
+      .update(nativeAuthHandoffs)
+      .set({
+        status: "expired",
+      })
+      .where(eq(nativeAuthHandoffs.id, handoff.id))
+
+    return {
+      ok: false as const,
+      error: "Native auth exchange code expired.",
+      status: 410,
+    }
+  }
+
+  if (handoff.status === "exchanged") {
+    return {
+      ok: false as const,
+      error: "Native auth exchange code already used.",
+      status: 409,
+    }
+  }
+
+  if (handoff.status !== "authenticated" || !handoff.sessionToken || !handoff.userId) {
+    return {
+      ok: false as const,
+      error: "Native auth handoff is not ready for exchange.",
+      status: 409,
+    }
+  }
+
+  const exchangedAt = new Date()
+
+  await db
+    .update(nativeAuthHandoffs)
+    .set({
+      status: "exchanged",
+      exchangedAt,
+      code: null,
+    })
+    .where(eq(nativeAuthHandoffs.id, handoff.id))
+
+  return {
+    ok: true as const,
+    handoff: {
+      ...handoff,
+      exchangedAt,
+      status: "exchanged" as const,
+    },
+  }
+}

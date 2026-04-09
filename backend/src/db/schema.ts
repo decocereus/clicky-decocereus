@@ -118,6 +118,7 @@ export const nativeAuthHandoffs = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     state: text("state").notNull(),
     code: text("code"),
+    sessionToken: text("session_token"),
     status: nativeAuthHandoffStatusEnum("status").default("started").notNull(),
     userId: text("user_id"),
     returnScheme: text("return_scheme").notNull(),

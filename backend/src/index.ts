@@ -2,7 +2,12 @@ import { Hono } from "hono"
 import { cors } from "hono/cors"
 
 import { createAuth } from "./auth/config"
-import { createNativeAuthHandoff, getNativeAuthHandoff } from "./auth/native"
+import {
+  completeNativeAuthHandoff,
+  createNativeAuthHandoff,
+  exchangeNativeAuthCode,
+  getNativeAuthHandoff,
+} from "./auth/native"
 import { requireSession } from "./auth/session"
 import {
   handleBillingCancelCallback,
@@ -15,6 +20,7 @@ import {
   handleGetEntitlements,
   handleRefreshEntitlements,
 } from "./entitlements/routes"
+import { getLaunchEntitlementSnapshot } from "./entitlements/service"
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -140,29 +146,91 @@ app.get("/v1/auth/native/callback", async (c) => {
     )
   }
 
-  return c.json(
-    {
-      error: "Native auth callback completion is not implemented yet.",
-      handoff: {
-        state: handoff.state,
-        status: handoff.status,
-        callbackUrl: handoff.callbackUrl,
-        browserUrl: handoff.browserUrl,
+  const sessionResult = await requireSession(c)
+
+  if (!sessionResult.ok) {
+    return c.json(
+      {
+        error: "Browser auth session is required before completing native handoff.",
+        handoff: {
+          state: handoff.state,
+          status: handoff.status,
+          callbackUrl: handoff.callbackUrl,
+          browserUrl: handoff.browserUrl,
+        },
       },
-      nextStep: "Complete web sign-in handoff and issue one-time exchange codes.",
-    },
-    501,
+      401,
+    )
+  }
+
+  const rawSessionToken = sessionResult.session.session.token
+  const completedHandoff = await completeNativeAuthHandoff(
+    c.env,
+    state,
+    rawSessionToken,
+    sessionResult.session.user.id,
   )
+
+  if (!completedHandoff.ok) {
+    return c.json(
+      {
+        error: completedHandoff.error,
+      },
+      { status: completedHandoff.status as 404 | 410 },
+    )
+  }
+
+  const nativeCallbackUrl = new URL(`${completedHandoff.handoff.returnScheme}://auth/callback`)
+  nativeCallbackUrl.searchParams.set("code", completedHandoff.handoff.code)
+  nativeCallbackUrl.searchParams.set("state", completedHandoff.handoff.state)
+
+  if (c.req.query("mode") === "json") {
+    return c.json({
+      state: completedHandoff.handoff.state,
+      code: completedHandoff.handoff.code,
+      callbackUrl: nativeCallbackUrl.toString(),
+      userId: completedHandoff.handoff.userId,
+    })
+  }
+
+  return c.redirect(nativeCallbackUrl.toString(), 302)
 })
 
-app.post("/v1/auth/native/exchange", (c) => {
-  return c.json(
-    {
-      error: "Native auth code exchange is not implemented yet.",
-      nextStep: "Implement one-time code exchange for bearer session issuance.",
-    },
-    501,
+app.post("/v1/auth/native/exchange", async (c) => {
+  const body = await c.req.json().catch(() => null) as { code?: string } | null
+  const code = body?.code?.trim()
+
+  if (!code) {
+    return c.json(
+      {
+        error: "Native auth exchange code is required.",
+      },
+      400,
+    )
+  }
+
+  const exchangeResult = await exchangeNativeAuthCode(c.env, code)
+
+  if (!exchangeResult.ok) {
+    return c.json(
+      {
+        error: exchangeResult.error,
+      },
+      { status: exchangeResult.status as 404 | 409 | 410 },
+    )
+  }
+
+  const launchEntitlement = await getLaunchEntitlementSnapshot(
+    c.env,
+    exchangeResult.handoff.userId!,
   )
+
+  return c.json({
+    tokenType: "Bearer",
+    sessionToken: exchangeResult.handoff.sessionToken,
+    userId: exchangeResult.handoff.userId,
+    entitlement: launchEntitlement,
+  })
 })
 
 export default app
