@@ -9,5 +9,6 @@ export interface Env {
   GOOGLE_CLIENT_SECRET?: string
   POLAR_ACCESS_TOKEN?: string
   POLAR_LAUNCH_PRODUCT_ID?: string
+  POLAR_LAUNCH_DISCOUNT_ID?: string
   POLAR_WEBHOOK_SECRET?: string
 }

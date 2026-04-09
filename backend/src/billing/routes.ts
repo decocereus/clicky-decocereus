@@ -1,3 +1,5 @@
+import { checkoutSessionAudits } from "../db/schema"
+import { createDb } from "../db/client"
 import type { Context } from "hono"
 
 import { requireSession } from "../auth/session"
@@ -6,6 +8,7 @@ import {
   getLaunchCheckoutConfig,
   getMissingCheckoutConfiguration,
 } from "./config"
+import { createPolarClient } from "./polar"
 import { getLaunchEntitlementSnapshot } from "../entitlements/service"
 import type { Env } from "../env"
 
@@ -30,13 +33,50 @@ export async function handleCreateCheckout(c: Context<{ Bindings: Env }>) {
     )
   }
 
+  const polarClient = createPolarClient(c.env)
+  const db = createDb(c.env)
+  const checkout = await polarClient.checkouts.create({
+    products: [checkoutConfig.polarProductId!],
+    externalCustomerId: sessionResult.session.user.id,
+    customerEmail: sessionResult.session.user.email,
+    successUrl: `${checkoutConfig.successUrl}?checkout_id={CHECKOUT_ID}`,
+    returnUrl: checkoutConfig.cancelUrl,
+    discountId: checkoutConfig.polarDiscountId,
+    allowDiscountCodes: checkoutConfig.polarDiscountId ? false : true,
+    metadata: {
+      userId: sessionResult.session.user.id,
+      productKey: checkoutConfig.productKey,
+    },
+    customerMetadata: {
+      userId: sessionResult.session.user.id,
+    },
+  })
+
+  await db.insert(checkoutSessionAudits).values({
+    userId: sessionResult.session.user.id,
+    provider: "polar",
+    providerCheckoutId: checkout.id,
+    productKey: checkoutConfig.productKey,
+    status: "created",
+    metadata: {
+      checkoutUrl: checkout.url,
+      customerEmail: sessionResult.session.user.email,
+      discountId: checkout.discountId,
+    },
+  })
+
   return c.json(
     {
-      error: "Polar checkout session creation is not implemented yet.",
-      checkout: checkoutConfig,
-      nextStep: "Create a Polar hosted checkout session and persist a checkout audit record.",
+      checkout: {
+        id: checkout.id,
+        url: checkout.url,
+        productKey: checkoutConfig.productKey,
+        productId: checkoutConfig.polarProductId,
+        discountId: checkout.discountId,
+        successUrl: checkout.successUrl,
+        returnUrl: checkout.returnUrl,
+      },
     },
-    501,
   )
 }
 

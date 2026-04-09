@@ -10,6 +10,7 @@ export function getLaunchCheckoutConfig(env: Env) {
   return {
     productKey: LAUNCH_PRODUCT_KEY,
     polarProductId: env.POLAR_LAUNCH_PRODUCT_ID ?? null,
+    polarDiscountId: env.POLAR_LAUNCH_DISCOUNT_ID ?? null,
     successUrl: apiBaseUrl ? `${apiBaseUrl}/v1/billing/callback/success` : null,
     cancelUrl: apiBaseUrl ? `${apiBaseUrl}/v1/billing/callback/cancel` : null,
     nativeSuccessUrl: `${appScheme}://billing/success`,
