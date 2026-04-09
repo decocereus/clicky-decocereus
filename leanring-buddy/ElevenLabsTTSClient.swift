@@ -40,7 +40,7 @@ final class ElevenLabsTTSClient {
     ) async throws {
         switch outputMode {
         case .system:
-            await speakTextWithSystemSpeech(text, voicePreset: voicePreset)
+            try await speakTextWithSystemSpeech(text, voicePreset: voicePreset)
             return
         case .elevenLabsBYO(let configuration):
             try await speakTextDirectlyWithElevenLabs(text, voicePreset: voicePreset, configuration: configuration)
@@ -74,14 +74,20 @@ final class ElevenLabsTTSClient {
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(domain: "ElevenLabsTTS", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Invalid ElevenLabs response"])
+            throw NSError(
+                domain: "ElevenLabsTTS",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Clicky could not read the ElevenLabs audio response."]
+            )
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
             let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "ElevenLabsTTS", code: httpResponse.statusCode,
-                          userInfo: [NSLocalizedDescriptionKey: "ElevenLabs API error (\(httpResponse.statusCode)): \(errorBody)"])
+            throw NSError(
+                domain: "ElevenLabsTTS",
+                code: httpResponse.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: ElevenLabsService.userFacingErrorMessage(statusCode: httpResponse.statusCode, errorBody: errorBody, context: .tts)]
+            )
         }
 
         try Task.checkCancellation()
@@ -89,7 +95,7 @@ final class ElevenLabsTTSClient {
         let player = try AVAudioPlayer(data: data)
         self.audioPlayer = player
         player.play()
-        print("🔊 ElevenLabs BYO TTS: playing \(data.count / 1024)KB audio")
+        ClickyLogger.debug(.audio, "ElevenLabs direct audio prepared sizeKB=\(data.count / 1024)")
     }
 
     func speakTextViaProxy(_ text: String, voicePreset: ClickyVoicePreset = .balanced) async throws {
@@ -112,14 +118,20 @@ final class ElevenLabsTTSClient {
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(domain: "ElevenLabsTTS", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+            throw NSError(
+                domain: "ElevenLabsTTS",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Clicky could not read the proxied ElevenLabs audio response."]
+            )
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
             let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw NSError(domain: "ElevenLabsTTS", code: httpResponse.statusCode,
-                          userInfo: [NSLocalizedDescriptionKey: "TTS API error (\(httpResponse.statusCode)): \(errorBody)"])
+            throw NSError(
+                domain: "ElevenLabsTTS",
+                code: httpResponse.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: ElevenLabsService.userFacingErrorMessage(statusCode: httpResponse.statusCode, errorBody: errorBody, context: .tts)]
+            )
         }
 
         try Task.checkCancellation()
@@ -127,10 +139,10 @@ final class ElevenLabsTTSClient {
         let player = try AVAudioPlayer(data: data)
         self.audioPlayer = player
         player.play()
-        print("🔊 ElevenLabs TTS: playing \(data.count / 1024)KB audio")
+        ClickyLogger.debug(.audio, "ElevenLabs proxy audio prepared sizeKB=\(data.count / 1024)")
     }
 
-    private func speakTextWithSystemSpeech(_ text: String, voicePreset: ClickyVoicePreset) async {
+    private func speakTextWithSystemSpeech(_ text: String, voicePreset: ClickyVoicePreset) async throws {
         let speechSynthesizer = NSSpeechSynthesizer()
         let systemSpeechDelegate = SystemSpeechDelegate()
 
@@ -138,8 +150,14 @@ final class ElevenLabsTTSClient {
         self.systemSpeechDelegate = systemSpeechDelegate
         speechSynthesizer.delegate = systemSpeechDelegate
         speechSynthesizer.rate = voicePreset.systemSpeechRate
-        speechSynthesizer.startSpeaking(text)
-        print("🔊 System TTS: speaking local fallback audio")
+        guard speechSynthesizer.startSpeaking(text) else {
+            throw NSError(
+                domain: "SystemSpeechTTS",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "macOS could not start system speech playback."]
+            )
+        }
+        ClickyLogger.debug(.audio, "System speech started rate=\(Int(voicePreset.systemSpeechRate))")
 
         await systemSpeechDelegate.waitUntilFinishedSpeaking()
 
@@ -162,6 +180,7 @@ final class ElevenLabsTTSClient {
         systemSpeechDelegate?.cancel()
         systemSpeechSynthesizer = nil
         systemSpeechDelegate = nil
+        ClickyLogger.debug(.audio, "Stopped active speech playback")
     }
 }
 

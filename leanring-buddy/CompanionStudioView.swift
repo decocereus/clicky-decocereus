@@ -69,6 +69,7 @@ struct CompanionStudioView: View {
     @State private var selectedSection: CompanionStudioSection = .general
     @State private var isOpenClawTokenVisible = false
     @State private var isElevenLabsAPIKeyVisible = false
+    @State private var isElevenLabsVoiceImportExpanded = false
 
     private var theme: ClickyTheme {
         companionManager.activeClickyTheme
@@ -464,8 +465,8 @@ struct CompanionStudioView: View {
                 }
             }
 
-            StudioCard(title: "Voice", subtitle: "Choose how the persona should sound") {
-                VStack(alignment: .leading, spacing: 14) {
+            StudioCard(title: "Voice", subtitle: "Choose how Clicky speaks and preview it before the next turn") {
+                VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 10) {
                         ForEach(ClickySpeechProviderMode.allCases) { mode in
                             selectionChip(
@@ -478,95 +479,10 @@ struct CompanionStudioView: View {
                         }
                     }
 
-                    Text("Switch to ElevenLabs above to unlock custom voices.")
-                        .font(ClickyTypography.mono(size: 11, weight: .medium))
-                        .foregroundColor(theme.textMuted)
-
-                    if companionManager.clickySpeechProviderMode == .elevenLabsBYO {
-                        HStack(alignment: .center, spacing: 8) {
-                            Text("Bring your own ElevenLabs")
-                                .font(ClickyTypography.body(size: 13, weight: .semibold))
-                                .foregroundColor(theme.textPrimary)
-
-                            Button(action: {}) {
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(theme.textMuted)
-                            }
-                            .buttonStyle(.plain)
-                            .pointerCursor()
-                            .help("Your ElevenLabs API key stays on this Mac. Clicky stores it locally in the Keychain and does not send it to our servers.")
-                        }
-
-                        StudioSecretField(
-                            title: "ElevenLabs API key",
-                            text: Binding(
-                                get: { companionManager.elevenLabsAPIKeyDraft },
-                                set: { companionManager.elevenLabsAPIKeyDraft = $0 }
-                            ),
-                            placeholder: "Paste your ElevenLabs API key",
-                            isRevealed: $isElevenLabsAPIKeyVisible
-                        )
-
-                        HStack(spacing: 10) {
-                            Button(action: {
-                                companionManager.saveElevenLabsAPIKey()
-                            }) {
-                                Text("Save Key")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.plain)
-                            .pointerCursor()
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(theme.primary.opacity(0.10))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(theme.primary.opacity(0.24), lineWidth: 1)
-                            )
-                            .pointerCursor()
-
-                            Button(action: {
-                                companionManager.refreshElevenLabsVoices()
-                            }) {
-                                Text("Load Voices")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.plain)
-                            .pointerCursor()
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(theme.primary.opacity(0.10))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(theme.primary.opacity(0.24), lineWidth: 1)
-                            )
-                            .pointerCursor()
-                        }
-
-                        Text(companionManager.elevenLabsStatusLabel)
-                            .font(ClickyTypography.mono(size: 11, weight: .medium))
-                            .foregroundColor(theme.textMuted)
-
-                        if !companionManager.elevenLabsAvailableVoices.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(companionManager.elevenLabsAvailableVoices.prefix(6)) { voice in
-                                    selectionChip(
-                                        title: voice.name,
-                                        subtitle: voice.displaySubtitle,
-                                        isSelected: companionManager.elevenLabsSelectedVoiceID == voice.id
-                                    ) {
-                                        companionManager.selectElevenLabsVoice(voice)
-                                    }
-                                }
-                            }
-                        }
+                    if companionManager.clickySpeechProviderMode == .system {
+                        systemSpeechPanel
+                    } else {
+                        elevenLabsSpeechPanel
                     }
 
                     HStack(spacing: 10) {
@@ -581,6 +497,7 @@ struct CompanionStudioView: View {
                         }
                     }
 
+                    StudioKeyValueRow(label: "Selected provider", value: companionManager.clickySpeechProviderMode.displayName)
                     StudioKeyValueRow(label: "Current output", value: companionManager.effectiveVoiceOutputDisplayName)
                 }
             }
@@ -610,14 +527,6 @@ struct CompanionStudioView: View {
                     )
                     .toggleStyle(.switch)
                     .tint(theme.primary)
-                }
-            }
-
-            StudioCard(title: "Runtime", subtitle: "What handles transcription and playback right now") {
-                VStack(spacing: 12) {
-                    StudioKeyValueRow(label: "Transcription Engine", value: companionManager.buddyDictationManager.transcriptionProviderDisplayName)
-                    StudioKeyValueRow(label: "Speech Output", value: companionManager.effectiveVoiceOutputDisplayName)
-                    StudioKeyValueRow(label: "Voice States", value: "Listening • Transcribing • Thinking • Responding")
                 }
             }
         }
@@ -730,6 +639,301 @@ struct CompanionStudioView: View {
         .pointerCursor()
     }
 
+    private var systemSpeechPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("System speech is active")
+                        .font(ClickyTypography.body(size: 15, weight: .semibold))
+                        .foregroundColor(theme.textPrimary)
+
+                    Text("The built-in macOS voice on this Mac is handling playback right now.")
+                        .font(ClickyTypography.body(size: 13))
+                        .foregroundColor(theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                StudioStatusPill(label: "Built in", tone: .success)
+            }
+
+            previewVoiceButton
+            speechPreviewFeedbackView
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(theme.primary.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(theme.primary.opacity(0.24), lineWidth: 1)
+        )
+    }
+
+    private var elevenLabsSpeechPanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("ElevenLabs is selected")
+                        .font(ClickyTypography.body(size: 15, weight: .semibold))
+                        .foregroundColor(theme.textPrimary)
+
+                    Text("Bring your own voice, hear it before the next turn, and keep the key local to this Mac.")
+                        .font(ClickyTypography.body(size: 13))
+                        .foregroundColor(theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                StudioStatusPill(label: elevenLabsProviderStatusLabel, tone: elevenLabsProviderStatusTone)
+            }
+
+            StudioCallout(
+                tone: .info,
+                systemImage: "lock.shield",
+                title: "Stored only on this Mac",
+                message: "Your ElevenLabs API key stays in Keychain on this Mac. Clicky does not upload it to us."
+            )
+
+            if let speechFallbackSummary = companionManager.speechFallbackSummary {
+                StudioCallout(
+                    tone: .warning,
+                    systemImage: "speaker.slash",
+                    title: "System fallback active",
+                    message: speechFallbackSummary
+                )
+            }
+
+            if let elevenLabsVoiceLoadIssueMessage {
+                StudioCallout(
+                    tone: .warning,
+                    systemImage: "exclamationmark.triangle",
+                    title: "Voice setup needs attention",
+                    message: elevenLabsVoiceLoadIssueMessage
+                )
+            }
+
+            StudioSecretField(
+                title: "ElevenLabs API key",
+                text: Binding(
+                    get: { companionManager.elevenLabsAPIKeyDraft },
+                    set: { companionManager.elevenLabsAPIKeyDraft = $0 }
+                ),
+                placeholder: "Paste your ElevenLabs API key",
+                isRevealed: $isElevenLabsAPIKeyVisible
+            )
+
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    voiceActionButton(
+                        title: "Save Key",
+                        systemImage: "key.horizontal",
+                        isEnabled: true
+                    ) {
+                        companionManager.saveElevenLabsAPIKey()
+                    }
+
+                    voiceActionButton(
+                        title: isLoadingElevenLabsVoices ? "Loading..." : "Load Voices",
+                        systemImage: "waveform.badge.magnifyingglass",
+                        isEnabled: !isLoadingElevenLabsVoices
+                    ) {
+                        companionManager.refreshElevenLabsVoices()
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    importVoiceToggleButton
+
+                    previewVoiceButton
+                }
+            }
+
+            if isElevenLabsVoiceImportExpanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    StudioTextField(
+                        title: "Import voice by ID",
+                        text: Binding(
+                            get: { companionManager.elevenLabsImportVoiceIDDraft },
+                            set: { companionManager.elevenLabsImportVoiceIDDraft = $0 }
+                        ),
+                        placeholder: "Paste an ElevenLabs voice ID"
+                    )
+
+                    StudioCallout(
+                        tone: .neutral,
+                        systemImage: "square.and.arrow.down",
+                        title: "Bring in a specific voice",
+                        message: "Use this only if your voice does not appear after loading voices. Shared and custom voices usually require a subscriber account and may need to be added to My Voices first."
+                    )
+
+                    voiceActionButton(
+                        title: isImportingElevenLabsVoice ? "Importing..." : "Import Voice",
+                        systemImage: "square.and.arrow.down",
+                        isEnabled: !isImportingElevenLabsVoice
+                    ) {
+                        isElevenLabsVoiceImportExpanded = true
+                        companionManager.importElevenLabsVoiceByID()
+                    }
+                    
+                    importVoiceFeedbackView
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.025))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(theme.strokeSoft, lineWidth: 1)
+                )
+            }
+
+            StudioKeyValueRow(label: "Selected voice", value: companionManager.effectiveSpeechRouting.selectedVoiceNameLabel)
+
+            if !companionManager.elevenLabsAvailableVoices.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Choose a voice")
+                        .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                        .foregroundColor(theme.textMuted)
+
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            ForEach(companionManager.elevenLabsAvailableVoices) { voice in
+                                selectionChip(
+                                    title: voice.name,
+                                    subtitle: voice.displaySubtitle,
+                                    isSelected: companionManager.elevenLabsSelectedVoiceID == voice.id
+                                ) {
+                                    companionManager.selectElevenLabsVoice(voice)
+                                }
+                            }
+                        }
+                        .padding(.trailing, 4)
+                    }
+                    .frame(maxHeight: 320)
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white.opacity(0.025))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(theme.strokeSoft, lineWidth: 1)
+                    )
+                }
+            }
+
+            speechPreviewFeedbackView
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(theme.primary.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(theme.primary.opacity(0.28), lineWidth: 1.2)
+        )
+    }
+
+    private var previewVoiceButton: some View {
+        voiceActionButton(
+            title: companionManager.isSpeechPreviewInFlight ? "Playing..." : "Preview Voice",
+            systemImage: "play.circle",
+            isEnabled: !companionManager.isSpeechPreviewInFlight
+        ) {
+            companionManager.previewCurrentSpeechOutput()
+        }
+    }
+
+    private var importVoiceToggleButton: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                isElevenLabsVoiceImportExpanded.toggle()
+            }
+        }) {
+            HStack(spacing: 8) {
+                Image(systemName: isElevenLabsVoiceImportExpanded ? "chevron.up.circle" : "square.and.arrow.down")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(isElevenLabsVoiceImportExpanded ? "Hide Voice ID Import" : "Import by Voice ID")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+            }
+            .foregroundColor(theme.textPrimary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(theme.strokeSoft, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    @ViewBuilder
+    private var speechPreviewFeedbackView: some View {
+        if let speechPreviewStatusMessage = companionManager.speechPreviewStatusMessage {
+            StudioCallout(
+                tone: speechPreviewStatusTone,
+                systemImage: speechPreviewStatusIcon,
+                title: companionManager.speechPreviewStatusLabel,
+                message: speechPreviewStatusMessage
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var importVoiceFeedbackView: some View {
+        if let elevenLabsImportStatusMessage {
+            StudioCallout(
+                tone: elevenLabsImportStatusTone,
+                systemImage: elevenLabsImportStatusIcon,
+                title: elevenLabsImportStatusTitle,
+                message: elevenLabsImportStatusMessage
+            )
+        }
+    }
+
+    private func voiceActionButton(
+        title: String,
+        systemImage: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+            }
+            .foregroundColor(isEnabled ? theme.textPrimary : theme.textMuted)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(theme.primary.opacity(isEnabled ? 0.10 : 0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(theme.primary.opacity(isEnabled ? 0.24 : 0.14), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .pointerCursor(isEnabled: isEnabled)
+    }
+
     private var integrationsSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
             if shouldShowPluginSetupFlow {
@@ -814,6 +1018,14 @@ struct CompanionStudioView: View {
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
 
+                    StudioKeyValueRow(label: "Speech provider", value: companionManager.clickySpeechProviderMode.displayName)
+                    StudioKeyValueRow(label: "Resolved output", value: companionManager.effectiveVoiceOutputDisplayName)
+                    StudioKeyValueRow(label: "ElevenLabs voice", value: companionManager.effectiveSpeechRouting.selectedVoiceNameLabel)
+                    StudioKeyValueRow(label: "Voice id", value: companionManager.effectiveSpeechRouting.selectedVoiceIDLabel)
+                    StudioKeyValueRow(label: "Voice fetch", value: companionManager.elevenLabsStatusLabel)
+                    StudioKeyValueRow(label: "Voice import", value: elevenLabsImportStatusTitle)
+                    StudioKeyValueRow(label: "Speech fallback", value: companionManager.speechFallbackSummary ?? "No fallback")
+                    StudioKeyValueRow(label: "Voice preview", value: companionManager.speechPreviewStatusLabel)
                     StudioKeyValueRow(label: "OpenClaw agent id", value: companionManager.inferredOpenClawAgentIdentifier ?? "Not detected")
                     StudioKeyValueRow(label: "OpenClaw emoji", value: companionManager.inferredOpenClawAgentIdentityEmojiLabel)
                     StudioKeyValueRow(label: "OpenClaw avatar", value: companionManager.inferredOpenClawAgentIdentityAvatarLabel)
@@ -969,6 +1181,140 @@ struct CompanionStudioView: View {
         }
 
         return "Clicky is using the local OpenClaw Gateway on this Mac. This is the simplest setup and should work automatically once OpenClaw is running."
+    }
+
+    private var isLoadingElevenLabsVoices: Bool {
+        if case .loading = companionManager.elevenLabsVoiceFetchStatus {
+            return true
+        }
+
+        return false
+    }
+
+    private var elevenLabsProviderStatusLabel: String {
+        if isLoadingElevenLabsVoices {
+            return "Loading"
+        }
+
+        if companionManager.speechFallbackSummary != nil {
+            return "Fallback active"
+        }
+
+        if elevenLabsVoiceLoadIssueMessage != nil {
+            return "Needs attention"
+        }
+
+        return companionManager.hasStoredElevenLabsAPIKey ? "Ready" : "Key needed"
+    }
+
+    private var elevenLabsProviderStatusTone: StudioStatusTone {
+        if isLoadingElevenLabsVoices {
+            return .info
+        }
+
+        if companionManager.speechFallbackSummary != nil || elevenLabsVoiceLoadIssueMessage != nil {
+            return .warning
+        }
+
+        return companionManager.hasStoredElevenLabsAPIKey ? .success : .warning
+    }
+
+    private var elevenLabsVoiceLoadIssueMessage: String? {
+        switch companionManager.elevenLabsVoiceFetchStatus {
+        case .failed(let message):
+            return message
+        case .loaded:
+            if companionManager.hasStoredElevenLabsAPIKey && companionManager.elevenLabsAvailableVoices.isEmpty {
+                return "This ElevenLabs account does not have any voices available yet."
+            }
+            return nil
+        case .idle, .loading:
+            return nil
+        }
+    }
+
+    private var isImportingElevenLabsVoice: Bool {
+        if case .importing = companionManager.elevenLabsVoiceImportStatus {
+            return true
+        }
+
+        return false
+    }
+
+    private var elevenLabsImportStatusTitle: String {
+        switch companionManager.elevenLabsVoiceImportStatus {
+        case .idle:
+            return "Import voice"
+        case .importing:
+            return "Importing voice"
+        case .succeeded:
+            return "Voice imported"
+        case .failed:
+            return "Import failed"
+        }
+    }
+
+    private var elevenLabsImportStatusMessage: String? {
+        switch companionManager.elevenLabsVoiceImportStatus {
+        case .idle:
+            return nil
+        case .importing:
+            return "Clicky is fetching that voice from ElevenLabs now."
+        case .succeeded(let message), .failed(let message):
+            return message
+        }
+    }
+
+    private var elevenLabsImportStatusTone: StudioStatusTone {
+        switch companionManager.elevenLabsVoiceImportStatus {
+        case .idle:
+            return .neutral
+        case .importing:
+            return .info
+        case .succeeded:
+            return .success
+        case .failed:
+            return .warning
+        }
+    }
+
+    private var elevenLabsImportStatusIcon: String {
+        switch companionManager.elevenLabsVoiceImportStatus {
+        case .idle:
+            return "square.and.arrow.down"
+        case .importing:
+            return "arrow.down.circle"
+        case .succeeded:
+            return "checkmark.circle"
+        case .failed:
+            return "xmark.octagon"
+        }
+    }
+
+    private var speechPreviewStatusTone: StudioStatusTone {
+        switch companionManager.speechPreviewStatus {
+        case .idle:
+            return .neutral
+        case .previewing:
+            return .info
+        case .succeeded:
+            return companionManager.speechFallbackSummary == nil ? .success : .warning
+        case .failed:
+            return .warning
+        }
+    }
+
+    private var speechPreviewStatusIcon: String {
+        switch companionManager.speechPreviewStatus {
+        case .idle:
+            return "speaker.wave.2"
+        case .previewing:
+            return "speaker.wave.2.fill"
+        case .succeeded:
+            return companionManager.speechFallbackSummary == nil ? "checkmark.circle" : "speaker.slash"
+        case .failed:
+            return "xmark.octagon"
+        }
     }
 
     private var openClawConnectionButtonLabel: String {
@@ -1195,6 +1541,85 @@ private struct StudioStatusPill: View {
             return theme.warning.opacity(0.35)
         case .info:
             return theme.accent.opacity(0.35)
+        }
+    }
+}
+
+private struct StudioCallout: View {
+    @Environment(\.clickyTheme) private var theme
+
+    let tone: StudioStatusTone
+    let systemImage: String
+    let title: String
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(foregroundColor)
+                .frame(width: 16, height: 16)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .foregroundColor(theme.textPrimary)
+
+                Text(message)
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(backgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(borderColor, lineWidth: 1)
+        )
+    }
+
+    private var foregroundColor: Color {
+        switch tone {
+        case .neutral:
+            return theme.textSecondary
+        case .success:
+            return theme.success
+        case .warning:
+            return theme.warning
+        case .info:
+            return theme.accentStrong
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch tone {
+        case .neutral:
+            return Color.white.opacity(0.02)
+        case .success:
+            return theme.success.opacity(0.10)
+        case .warning:
+            return theme.warning.opacity(0.10)
+        case .info:
+            return theme.accent.opacity(0.10)
+        }
+    }
+
+    private var borderColor: Color {
+        switch tone {
+        case .neutral:
+            return theme.strokeSoft
+        case .success:
+            return theme.success.opacity(0.28)
+        case .warning:
+            return theme.warning.opacity(0.28)
+        case .info:
+            return theme.accent.opacity(0.28)
         }
     }
 }

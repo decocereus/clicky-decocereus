@@ -58,6 +58,68 @@ enum ClickySpeechOutputMode {
     case elevenLabsBYO(ElevenLabsDirectConfiguration)
 }
 
+enum ClickySpeechPreviewStatus: Equatable {
+    case idle
+    case previewing
+    case succeeded(message: String)
+    case failed(message: String)
+}
+
+enum ElevenLabsVoiceImportStatus: Equatable {
+    case idle
+    case importing
+    case succeeded(message: String)
+    case failed(message: String)
+}
+
+struct ClickySpeechRouting {
+    let selectedProvider: ClickySpeechProviderMode
+    let outputMode: ClickySpeechOutputMode
+    let selectedVoiceID: String
+    let selectedVoiceName: String
+    let configurationFallbackMessage: String?
+
+    var selectedProviderDisplayName: String {
+        selectedProvider.displayName
+    }
+
+    var resolvedProviderDisplayName: String {
+        switch outputMode {
+        case .system:
+            return "System Speech"
+        case .elevenLabsBYO:
+            return "ElevenLabs"
+        }
+    }
+
+    var didFallbackToSystem: Bool {
+        selectedProvider == .elevenLabsBYO && configurationFallbackMessage != nil
+    }
+
+    var selectedVoiceNameLabel: String {
+        let trimmedName = selectedVoiceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? "No ElevenLabs voice selected" : trimmedName
+    }
+
+    var selectedVoiceIDLabel: String {
+        let trimmedVoiceID = selectedVoiceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedVoiceID.isEmpty ? "No voice id selected" : trimmedVoiceID
+    }
+}
+
+private enum ClickySpeechPlaybackPurpose: String {
+    case preview
+    case assistantResponse = "assistant-response"
+
+    var logLabel: String { rawValue }
+}
+
+private struct ClickySpeechPlaybackOutcome {
+    let finalProviderDisplayName: String
+    let fallbackMessage: String?
+    let encounteredElevenLabsFailure: Bool
+}
+
 @MainActor
 final class CompanionManager: ObservableObject {
     @Published private(set) var voiceState: CompanionVoiceState = .idle
@@ -276,12 +338,19 @@ final class CompanionManager: ObservableObject {
     ) ?? .system {
         didSet {
             UserDefaults.standard.set(clickySpeechProviderMode.rawValue, forKey: "clickySpeechProviderMode")
+            speechPreviewStatus = .idle
+            lastSpeechFallbackMessage = nil
+            ClickyLogger.notice(.audio, "Speech provider selected provider=\(clickySpeechProviderMode.displayName)")
         }
     }
 
     @Published var elevenLabsAPIKeyDraft: String = ClickySecrets.load(account: "elevenlabs_api_key") ?? ""
+    @Published var elevenLabsImportVoiceIDDraft: String = ""
     @Published private(set) var elevenLabsAvailableVoices: [ElevenLabsVoiceOption] = []
     @Published private(set) var elevenLabsVoiceFetchStatus: ElevenLabsVoiceFetchStatus = .idle
+    @Published private(set) var elevenLabsVoiceImportStatus: ElevenLabsVoiceImportStatus = .idle
+    @Published private(set) var speechPreviewStatus: ClickySpeechPreviewStatus = .idle
+    @Published private(set) var lastSpeechFallbackMessage: String?
     @Published var elevenLabsSelectedVoiceID: String = UserDefaults.standard.string(forKey: "elevenLabsSelectedVoiceID") ?? "" {
         didSet {
             UserDefaults.standard.set(elevenLabsSelectedVoiceID, forKey: "elevenLabsSelectedVoiceID")
@@ -346,22 +415,29 @@ final class CompanionManager: ObservableObject {
 
     func saveElevenLabsAPIKey() {
         let trimmedAPIKey = elevenLabsAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        speechPreviewStatus = .idle
+        lastSpeechFallbackMessage = nil
 
         if trimmedAPIKey.isEmpty {
             ClickySecrets.delete(account: "elevenlabs_api_key")
             elevenLabsAvailableVoices = []
             elevenLabsVoiceFetchStatus = .idle
+            elevenLabsVoiceImportStatus = .idle
             elevenLabsSelectedVoiceID = ""
             elevenLabsSelectedVoiceName = ""
             clickySpeechProviderMode = .system
+            ClickyLogger.notice(.audio, "Removed ElevenLabs API key from local Keychain storage")
             return
         }
 
         do {
             try ClickySecrets.save(key: trimmedAPIKey, account: "elevenlabs_api_key")
             elevenLabsVoiceFetchStatus = .idle
+            elevenLabsVoiceImportStatus = .idle
+            ClickyLogger.notice(.audio, "Saved ElevenLabs API key to local Keychain storage")
         } catch {
             elevenLabsVoiceFetchStatus = .failed(message: "Could not save API key")
+            ClickyLogger.error(.audio, "Failed to save ElevenLabs API key locally error=\(error.localizedDescription)")
         }
     }
 
@@ -369,10 +445,15 @@ final class CompanionManager: ObservableObject {
         let apiKey = (ClickySecrets.load(account: "elevenlabs_api_key") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !apiKey.isEmpty else {
             elevenLabsVoiceFetchStatus = .failed(message: "Add an API key first")
+            ClickyLogger.error(.audio, "Voice refresh blocked because no ElevenLabs API key is saved locally")
             return
         }
 
         elevenLabsVoiceFetchStatus = .loading
+        elevenLabsVoiceImportStatus = .idle
+        speechPreviewStatus = .idle
+        lastSpeechFallbackMessage = nil
+        ClickyLogger.info(.audio, "Refreshing ElevenLabs voice list")
 
         Task { @MainActor in
             do {
@@ -380,14 +461,24 @@ final class CompanionManager: ObservableObject {
                 elevenLabsAvailableVoices = voices
                 elevenLabsVoiceFetchStatus = .loaded
 
-                if elevenLabsSelectedVoiceID.isEmpty, let firstVoice = voices.first {
+                if voices.isEmpty {
+                    elevenLabsSelectedVoiceID = ""
+                    elevenLabsSelectedVoiceName = ""
+                    ClickyLogger.notice(.audio, "ElevenLabs voice refresh succeeded with zero available voices")
+                } else if elevenLabsSelectedVoiceID.isEmpty, let firstVoice = voices.first {
                     elevenLabsSelectedVoiceID = firstVoice.id
                     elevenLabsSelectedVoiceName = firstVoice.name
                 } else if let selectedVoice = voices.first(where: { $0.id == elevenLabsSelectedVoiceID }) {
                     elevenLabsSelectedVoiceName = selectedVoice.name
+                } else if let firstVoice = voices.first {
+                    elevenLabsSelectedVoiceID = firstVoice.id
+                    elevenLabsSelectedVoiceName = firstVoice.name
                 }
+
+                ClickyLogger.notice(.audio, "ElevenLabs voice refresh succeeded count=\(voices.count)")
             } catch {
                 elevenLabsVoiceFetchStatus = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.audio, "ElevenLabs voice refresh failed error=\(error.localizedDescription)")
             }
         }
     }
@@ -395,6 +486,74 @@ final class CompanionManager: ObservableObject {
     func selectElevenLabsVoice(_ voice: ElevenLabsVoiceOption) {
         elevenLabsSelectedVoiceID = voice.id
         elevenLabsSelectedVoiceName = voice.name
+        elevenLabsImportVoiceIDDraft = voice.id
+        speechPreviewStatus = .idle
+        lastSpeechFallbackMessage = nil
+        ClickyLogger.notice(.audio, "Selected ElevenLabs voice name=\(voice.name) id=\(voice.id)")
+    }
+
+    func importElevenLabsVoiceByID() {
+        let apiKey = (ClickySecrets.load(account: "elevenlabs_api_key") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty else {
+            elevenLabsVoiceImportStatus = .failed(message: "Save your ElevenLabs API key first.")
+            ClickyLogger.error(.audio, "Voice import blocked because no ElevenLabs API key is saved locally")
+            return
+        }
+
+        let voiceID = elevenLabsImportVoiceIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !voiceID.isEmpty else {
+            elevenLabsVoiceImportStatus = .failed(message: "Paste a voice ID first.")
+            return
+        }
+
+        elevenLabsVoiceImportStatus = .importing
+        ClickyLogger.info(.audio, "Importing ElevenLabs voice by id=\(voiceID)")
+
+        Task { @MainActor in
+            do {
+                let importedVoice = try await ElevenLabsService.fetchVoice(apiKey: apiKey, voiceID: voiceID)
+                upsertElevenLabsVoice(importedVoice)
+                elevenLabsVoiceFetchStatus = .loaded
+                selectElevenLabsVoice(importedVoice)
+                elevenLabsVoiceImportStatus = .succeeded(message: "Imported \(importedVoice.name).")
+                ClickyLogger.notice(.audio, "Imported ElevenLabs voice name=\(importedVoice.name) id=\(importedVoice.id)")
+            } catch {
+                elevenLabsVoiceImportStatus = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.audio, "Failed to import ElevenLabs voice id=\(voiceID) error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func previewCurrentSpeechOutput() {
+        if case .previewing = speechPreviewStatus {
+            return
+        }
+
+        speechPreviewStatus = .previewing
+        elevenLabsTTSClient.stopPlayback()
+
+        Task { @MainActor in
+            let outcome = await playSpeechText(
+                Self.speechPreviewSampleText,
+                purpose: .preview
+            )
+
+            if outcome.finalProviderDisplayName == "Unavailable" {
+                speechPreviewStatus = .failed(
+                    message: outcome.fallbackMessage ?? "Clicky could not play the preview."
+                )
+                return
+            }
+
+            if let fallbackMessage = outcome.fallbackMessage {
+                speechPreviewStatus = .succeeded(message: fallbackMessage)
+                return
+            }
+
+            speechPreviewStatus = .succeeded(
+                message: "Preview played through \(outcome.finalProviderDisplayName)."
+            )
+        }
     }
 
     func setSelectedModel(_ model: String) {
@@ -410,14 +569,110 @@ final class CompanionManager: ObservableObject {
     }
 
     var effectiveVoiceOutputDisplayName: String {
-        switch clickySpeechProviderMode {
+        switch effectiveSpeechRouting.outputMode {
         case .system:
             return "System Speech · \(effectiveClickyVoicePreset.displayName)"
         case .elevenLabsBYO:
-            let voiceName = elevenLabsSelectedVoiceName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let label = voiceName.isEmpty ? "BYO voice" : voiceName
+            let label = effectiveSpeechRouting.selectedVoiceNameLabel
             return "ElevenLabs · \(label)"
         }
+    }
+
+    var effectiveSpeechRouting: ClickySpeechRouting {
+        let selectedVoiceID = elevenLabsSelectedVoiceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedVoiceName = elevenLabsSelectedVoiceName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch clickySpeechProviderMode {
+        case .system:
+            return ClickySpeechRouting(
+                selectedProvider: .system,
+                outputMode: .system,
+                selectedVoiceID: selectedVoiceID,
+                selectedVoiceName: selectedVoiceName,
+                configurationFallbackMessage: nil
+            )
+        case .elevenLabsBYO:
+            let apiKey = (ClickySecrets.load(account: "elevenlabs_api_key") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if apiKey.isEmpty {
+                return ClickySpeechRouting(
+                    selectedProvider: .elevenLabsBYO,
+                    outputMode: .system,
+                    selectedVoiceID: selectedVoiceID,
+                    selectedVoiceName: selectedVoiceName,
+                    configurationFallbackMessage: "Add your ElevenLabs API key. Clicky stores it only in Keychain on this Mac."
+                )
+            }
+
+            if selectedVoiceID.isEmpty {
+                let message: String
+                if case .loaded = elevenLabsVoiceFetchStatus, elevenLabsAvailableVoices.isEmpty {
+                    message = "This ElevenLabs account does not have any voices available yet."
+                } else {
+                    message = "Load voices and choose the one you want Clicky to use."
+                }
+
+                return ClickySpeechRouting(
+                    selectedProvider: .elevenLabsBYO,
+                    outputMode: .system,
+                    selectedVoiceID: selectedVoiceID,
+                    selectedVoiceName: selectedVoiceName,
+                    configurationFallbackMessage: message
+                )
+            }
+
+            return ClickySpeechRouting(
+                selectedProvider: .elevenLabsBYO,
+                outputMode: .elevenLabsBYO(ElevenLabsDirectConfiguration(apiKey: apiKey, voiceID: selectedVoiceID)),
+                selectedVoiceID: selectedVoiceID,
+                selectedVoiceName: selectedVoiceName,
+                configurationFallbackMessage: nil
+            )
+        }
+    }
+
+    var speechFallbackSummary: String? {
+        if let lastSpeechFallbackMessage {
+            return lastSpeechFallbackMessage
+        }
+
+        guard let configurationFallbackMessage = effectiveSpeechRouting.configurationFallbackMessage else {
+            return nil
+        }
+
+        return "ElevenLabs is selected, but Clicky is speaking with System Speech for now. \(configurationFallbackMessage)"
+    }
+
+    var speechPreviewStatusLabel: String {
+        switch speechPreviewStatus {
+        case .idle:
+            return "Preview ready"
+        case .previewing:
+            return "Playing preview"
+        case .succeeded:
+            return "Preview played"
+        case .failed:
+            return "Preview failed"
+        }
+    }
+
+    var speechPreviewStatusMessage: String? {
+        switch speechPreviewStatus {
+        case .idle:
+            return nil
+        case .previewing:
+            return "Clicky is playing the current voice sample now."
+        case .succeeded(let message), .failed(let message):
+            return message
+        }
+    }
+
+    var isSpeechPreviewInFlight: Bool {
+        if case .previewing = speechPreviewStatus {
+            return true
+        }
+
+        return false
     }
 
     var openClawGatewayAuthSummary: String {
@@ -595,24 +850,16 @@ final class CompanionManager: ObservableObject {
         case .loading:
             return "Loading voices"
         case .loaded:
-            return "\(elevenLabsAvailableVoices.count) voices available"
+            return elevenLabsAvailableVoices.isEmpty
+                ? "No voices available"
+                : "\(elevenLabsAvailableVoices.count) voices available"
         case .failed(let message):
             return message
         }
     }
 
     var effectiveSpeechOutputMode: ClickySpeechOutputMode {
-        switch clickySpeechProviderMode {
-        case .system:
-            return .system
-        case .elevenLabsBYO:
-            let apiKey = (ClickySecrets.load(account: "elevenlabs_api_key") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let voiceID = elevenLabsSelectedVoiceID.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !apiKey.isEmpty, !voiceID.isEmpty else {
-                return .system
-            }
-            return .elevenLabsBYO(ElevenLabsDirectConfiguration(apiKey: apiKey, voiceID: voiceID))
-        }
+        effectiveSpeechRouting.outputMode
     }
 
     private func logActivePersonaForRequest(transcript: String, backend: CompanionAgentBackend, systemPrompt: String) {
@@ -636,6 +883,106 @@ final class CompanionManager: ObservableObject {
         )
     }
 
+    private func playSpeechText(
+        _ text: String,
+        purpose: ClickySpeechPlaybackPurpose
+    ) async -> ClickySpeechPlaybackOutcome {
+        let routing = effectiveSpeechRouting
+        let selectedVoiceName = routing.selectedVoiceNameLabel
+        let selectedVoiceID = routing.selectedVoiceIDLabel
+        let configurationFallbackMessage = routing.configurationFallbackMessage ?? "none"
+
+        ClickyLogger.info(
+            .audio,
+            "speech-routing purpose=\(purpose.logLabel) selected=\(routing.selectedProviderDisplayName) resolved=\(routing.resolvedProviderDisplayName) voiceName=\(selectedVoiceName) voiceID=\(selectedVoiceID) configFallback=\(configurationFallbackMessage)"
+        )
+
+        do {
+            try await elevenLabsTTSClient.speakText(
+                text,
+                voicePreset: effectiveClickyVoicePreset,
+                outputMode: routing.outputMode
+            )
+
+            if let fallbackMessage = routing.configurationFallbackMessage {
+                let summary = "ElevenLabs is selected, but this \(purpose.logLabel) used System Speech. \(fallbackMessage)"
+                lastSpeechFallbackMessage = summary
+                ClickyLogger.notice(
+                    .audio,
+                    "speech-playback success purpose=\(purpose.logLabel) provider=System Speech reason=config-fallback"
+                )
+                return ClickySpeechPlaybackOutcome(
+                    finalProviderDisplayName: "System Speech",
+                    fallbackMessage: summary,
+                    encounteredElevenLabsFailure: false
+                )
+            }
+
+            lastSpeechFallbackMessage = nil
+            ClickyLogger.notice(
+                .audio,
+                "speech-playback success purpose=\(purpose.logLabel) provider=\(routing.resolvedProviderDisplayName)"
+            )
+            return ClickySpeechPlaybackOutcome(
+                finalProviderDisplayName: routing.resolvedProviderDisplayName,
+                fallbackMessage: nil,
+                encounteredElevenLabsFailure: false
+            )
+        } catch {
+            switch routing.outputMode {
+            case .system:
+                let failureMessage = "Clicky could not play audio. \(error.localizedDescription)"
+                lastSpeechFallbackMessage = failureMessage
+                ClickyLogger.error(
+                    .audio,
+                    "speech-playback failed purpose=\(purpose.logLabel) provider=System Speech error=\(error.localizedDescription)"
+                )
+                return ClickySpeechPlaybackOutcome(
+                    finalProviderDisplayName: "Unavailable",
+                    fallbackMessage: failureMessage,
+                    encounteredElevenLabsFailure: false
+                )
+            case .elevenLabsBYO:
+                let fallbackMessage = "ElevenLabs could not play audio, so Clicky fell back to System Speech. \(error.localizedDescription)"
+                lastSpeechFallbackMessage = fallbackMessage
+                ClickyLogger.error(
+                    .audio,
+                    "speech-playback failed purpose=\(purpose.logLabel) provider=ElevenLabs voiceName=\(selectedVoiceName) voiceID=\(selectedVoiceID) error=\(error.localizedDescription)"
+                )
+
+                do {
+                    try await elevenLabsTTSClient.speakText(
+                        text,
+                        voicePreset: effectiveClickyVoicePreset,
+                        outputMode: .system
+                    )
+                } catch {
+                    let failureMessage = "Clicky could not play audio. \(error.localizedDescription)"
+                    lastSpeechFallbackMessage = failureMessage
+                    ClickyLogger.error(
+                        .audio,
+                        "speech-playback fallback failed purpose=\(purpose.logLabel) error=\(error.localizedDescription)"
+                    )
+                    return ClickySpeechPlaybackOutcome(
+                        finalProviderDisplayName: "Unavailable",
+                        fallbackMessage: failureMessage,
+                        encounteredElevenLabsFailure: true
+                    )
+                }
+
+                ClickyLogger.notice(
+                    .audio,
+                    "speech-playback fallback purpose=\(purpose.logLabel) provider=System Speech reason=elevenlabs-runtime-failure"
+                )
+                return ClickySpeechPlaybackOutcome(
+                    finalProviderDisplayName: "System Speech",
+                    fallbackMessage: fallbackMessage,
+                    encounteredElevenLabsFailure: true
+                )
+            }
+        }
+    }
+
     private static func truncatedForLog(_ text: String, limit: Int) -> String {
         let singleLine = text
             .replacingOccurrences(of: "\n", with: " ")
@@ -644,6 +991,21 @@ final class CompanionManager: ObservableObject {
 
         guard singleLine.count > limit else { return singleLine }
         return String(singleLine.prefix(limit)) + "..."
+    }
+
+    private static let speechPreviewSampleText = "hey, this is clicky. here is how your current voice sounds."
+
+    private func upsertElevenLabsVoice(_ voice: ElevenLabsVoiceOption) {
+        var voicesByID: [String: ElevenLabsVoiceOption] = [:]
+        for existingVoice in elevenLabsAvailableVoices {
+            voicesByID[existingVoice.id] = existingVoice
+        }
+        voicesByID[voice.id] = voice
+
+        let otherVoices = voicesByID.values
+            .filter { $0.id != voice.id }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        elevenLabsAvailableVoices = [voice] + otherVoices
     }
 
     func testOpenClawConnection() {
@@ -1627,18 +1989,22 @@ final class CompanionManager: ObservableObject {
                 // Play the response via TTS. Keep the thinking treatment until
                 // audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    do {
-                        try await elevenLabsTTSClient.speakText(
-                            spokenText,
-                            voicePreset: effectiveClickyVoicePreset,
-                            outputMode: effectiveSpeechOutputMode
-                        )
+                    let playbackOutcome = await playSpeechText(
+                        spokenText,
+                        purpose: .assistantResponse
+                    )
+                    if playbackOutcome.finalProviderDisplayName == "Unavailable" {
+                        if let fallbackMessage = playbackOutcome.fallbackMessage {
+                            ClickyAnalytics.trackTTSError(error: fallbackMessage)
+                        }
+                        speakCreditsErrorFallback()
+                    } else if playbackOutcome.encounteredElevenLabsFailure,
+                              let fallbackMessage = playbackOutcome.fallbackMessage {
+                        ClickyAnalytics.trackTTSError(error: fallbackMessage)
+                        voiceState = .responding
+                    } else {
                         // speakText returns after playback has started — audio is now live.
                         voiceState = .responding
-                    } catch {
-                        ClickyAnalytics.trackTTSError(error: error.localizedDescription)
-                        print("⚠️ ElevenLabs TTS error: \(error)")
-                        speakCreditsErrorFallback()
                     }
                 }
             } catch is CancellationError {
