@@ -31,6 +31,13 @@ export const webhookProcessingStatusEnum = pgEnum("webhook_processing_status", [
   "failed",
 ])
 
+export const nativeAuthHandoffStatusEnum = pgEnum("native_auth_handoff_status", [
+  "started",
+  "authenticated",
+  "exchanged",
+  "expired",
+])
+
 export const polarCustomerLinks = pgTable(
   "polar_customer_link",
   {
@@ -102,5 +109,29 @@ export const checkoutSessionAudits = pgTable(
   },
   (table) => ({
     userCreatedIndex: index("checkout_session_audit_user_created_idx").on(table.userId, table.createdAt),
+  }),
+)
+
+export const nativeAuthHandoffs = pgTable(
+  "native_auth_handoff",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    state: text("state").notNull(),
+    code: text("code"),
+    status: nativeAuthHandoffStatusEnum("status").default("started").notNull(),
+    userId: text("user_id"),
+    returnScheme: text("return_scheme").notNull(),
+    browserUrl: text("browser_url"),
+    callbackUrl: text("callback_url"),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).defaultNow().notNull(),
+    authenticatedAt: timestamp("authenticated_at", { withTimezone: true }),
+    exchangedAt: timestamp("exchanged_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    metadata: jsonb("metadata"),
+  },
+  (table) => ({
+    stateIndex: uniqueIndex("native_auth_handoff_state_idx").on(table.state),
+    codeIndex: uniqueIndex("native_auth_handoff_code_idx").on(table.code),
+    statusIndex: index("native_auth_handoff_status_idx").on(table.status),
   }),
 )
