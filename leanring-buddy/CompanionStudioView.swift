@@ -8,7 +8,7 @@
 import AppKit
 import SwiftUI
 
-private enum CompanionStudioSection: String, CaseIterable, Identifiable {
+private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashable {
     case general
     case openClaw
     case voiceAppearance
@@ -52,13 +52,13 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable {
         case .general:
             return "Runtime and backend"
         case .openClaw:
-            return "Gateway and agent routing"
+            return "Connection and identity"
         case .voiceAppearance:
             return "Speech and cursor shell"
         case .integrations:
-            return "Plugin-ready direction"
+            return "Setup and status"
         case .diagnostics:
-            return "Debug and internal state"
+            return "Internal only"
         }
     }
 }
@@ -69,14 +69,21 @@ struct CompanionStudioView: View {
     @State private var selectedSection: CompanionStudioSection = .general
     @State private var isOpenClawTokenVisible = false
 
+    private var theme: ClickyTheme {
+        companionManager.activeClickyTheme
+    }
+
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-            Divider()
-                .background(DS.Colors.borderSubtle)
-            detailPane
+        ZStack {
+            ClickyAuraBackground()
+            NavigationSplitView {
+                sidebar
+            } detail: {
+                detailPane
+            }
+            .navigationSplitViewStyle(.balanced)
         }
-        .background(DS.Colors.background)
+        .clickyTheme(theme)
         .onAppear {
             NotificationCenter.default.post(name: .clickyStudioDidAppear, object: nil)
         }
@@ -86,128 +93,108 @@ struct CompanionStudioView: View {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [DS.Colors.blue500, DS.Colors.blue700],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 30, height: 30)
-                        .overlay(
-                            Image(systemName: "cursorarrow.motionlines")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white)
-                        )
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("clicky")
+                    .font(ClickyTypography.brand(size: 40))
+                    .foregroundColor(theme.accent)
 
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Clicky Studio")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(DS.Colors.textPrimary)
-                        Text("Companion shell configuration")
-                            .font(.system(size: 11))
-                            .foregroundColor(DS.Colors.textTertiary)
-                    }
-                }
-
-                StudioStatusPill(
-                    label: CompanionRuntimeConfiguration.isWorkerConfigured ? "Cloud Connected" : "Local Fallback",
-                    tone: CompanionRuntimeConfiguration.isWorkerConfigured ? .success : .warning
-                )
+                Text("Studio")
+                    .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                    .foregroundColor(theme.textMuted)
+                    .tracking(1.1)
             }
-            .padding(24)
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
 
-            VStack(spacing: 6) {
+            List {
                 ForEach(CompanionStudioSection.allCases) { section in
                     Button(action: {
                         selectedSection = section
                     }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: section.iconSystemName)
-                                .font(.system(size: 13, weight: .semibold))
-                                .frame(width: 18)
-                                .foregroundColor(selectedSection == section ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(section.title)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(selectedSection == section ? DS.Colors.textPrimary : DS.Colors.textSecondary)
-                                Text(section.subtitle)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(DS.Colors.textTertiary)
-                            }
-
-                            Spacer()
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(selectedSection == section ? DS.Colors.surface2 : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(selectedSection == section ? DS.Colors.borderStrong : Color.clear, lineWidth: 1)
-                        )
+                        studioSidebarRow(for: section)
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
+                        .listRowInsets(EdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
             }
-            .padding(.horizontal, 16)
-
-            Spacer()
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Next Up")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundColor(DS.Colors.textTertiary)
-
-                Text("OpenClaw plugin install flow, remote pairing polish, and custom voice/cursor packs belong here next.")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(20)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(DS.Colors.surface1)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-            )
-            .padding(16)
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
         }
-        .frame(width: 250)
-        .background(DS.Colors.surface1)
+        .frame(minWidth: 240, idealWidth: 260)
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
+        .padding(.top, 12)
     }
 
     private var detailPane: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                sectionHero
-                sectionContent
+            ClickyGlassCluster {
+                VStack(alignment: .leading, spacing: 24) {
+                    sectionHero
+                    sectionContent
+                }
+                .padding(28)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(28)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(DS.Colors.background)
+        .scrollContentBackground(.hidden)
+    }
+
+    private func studioSidebarRow(for section: CompanionStudioSection) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: section.iconSystemName)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 16)
+                .foregroundColor(selectedSection == section ? theme.accent : theme.textMuted)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(section.title)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .foregroundColor(theme.textPrimary)
+
+                Text(section.subtitle)
+                    .font(ClickyTypography.mono(size: 10, weight: .medium))
+                    .foregroundColor(theme.textMuted)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(sidebarRowBackground(isSelected: selectedSection == section))
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func sidebarRowBackground(isSelected: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+
+        if isSelected {
+            if #available(macOS 26.0, *) {
+                shape
+                    .fill(.clear)
+                    .glassEffect(.regular.tint(theme.primary.opacity(0.18)).interactive(), in: shape)
+            } else {
+                shape
+                    .fill(theme.primary.opacity(0.14))
+            }
+        } else {
+            shape
+                .fill(Color.clear)
+        }
     }
 
     private var sectionHero: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(selectedSection.title)
-                .font(.system(size: 30, weight: .semibold))
-                .foregroundColor(DS.Colors.textPrimary)
+                .font(ClickyTypography.display(size: 44))
+                .foregroundColor(theme.textPrimary)
 
             Text(sectionHeroDescription)
-                .font(.system(size: 14))
-                .foregroundColor(DS.Colors.textSecondary)
+                .font(ClickyTypography.mono(size: 14, weight: .medium))
+                .foregroundColor(theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -300,50 +287,21 @@ struct CompanionStudioView: View {
 
     private var openClawSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            StudioCard(title: "Gateway Connection", subtitle: "Supports both local loopback and remote hosted OpenClaw") {
+            StudioCard(title: "Connection", subtitle: "Use your existing OpenClaw agent inside Clicky") {
                 VStack(alignment: .leading, spacing: 14) {
-                    StudioTextField(title: "Gateway URL", text: Binding(
-                        get: { companionManager.openClawGatewayURL },
-                        set: { companionManager.openClawGatewayURL = $0 }
-                    ), placeholder: "ws://127.0.0.1:18789")
-
-                    StudioSecretField(
-                        title: "Gateway Token",
-                        text: Binding(
-                            get: { companionManager.openClawGatewayAuthToken },
-                            set: { companionManager.openClawGatewayAuthToken = $0 }
-                        ),
-                        placeholder: "Leave blank to use local ~/.openclaw token",
-                        isRevealed: $isOpenClawTokenVisible
-                    )
-
                     HStack(spacing: 10) {
+                        StudioStatusPill(
+                            label: openClawConnectionStatusLabel,
+                            tone: openClawConnectionTone
+                        )
+
                         StudioStatusPill(
                             label: companionManager.isOpenClawGatewayRemote ? "Remote Gateway" : "Local Gateway",
                             tone: companionManager.isOpenClawGatewayRemote ? .info : .success
                         )
-
-                        StudioStatusPill(
-                            label: companionManager.openClawGatewayAuthSummary,
-                            tone: companionManager.openClawGatewayAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .neutral : .info
-                        )
                     }
-                }
-            }
 
-            StudioCard(title: "Agent Routing", subtitle: "Control which OpenClaw session and agent handle companion turns") {
-                VStack(alignment: .leading, spacing: 14) {
-                    StudioTextField(title: "Agent ID", text: Binding(
-                        get: { companionManager.openClawAgentIdentifier },
-                        set: { companionManager.openClawAgentIdentifier = $0 }
-                    ), placeholder: "Optional fixed OpenClaw agent id")
-
-                    StudioTextField(title: "Session Key", text: Binding(
-                        get: { companionManager.openClawSessionKey },
-                        set: { companionManager.openClawSessionKey = $0 }
-                    ), placeholder: "clicky-companion")
-
-                    Text("Remote hosted instances should still work as long as the URL is reachable over `ws://` or `wss://` and the token is valid.")
+                    Text(openClawConnectionSummary)
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -425,8 +383,33 @@ struct CompanionStudioView: View {
                 }
             }
 
-            StudioCard(title: "Connection Test", subtitle: "Verify that Clicky can establish a real Gateway session") {
+            StudioCard(title: "Advanced Connection Settings", subtitle: "Only change these when you are pointing Clicky at a different OpenClaw host or debugging setup") {
                 VStack(alignment: .leading, spacing: 14) {
+                    StudioTextField(title: "Gateway URL", text: Binding(
+                        get: { companionManager.openClawGatewayURL },
+                        set: { companionManager.openClawGatewayURL = $0 }
+                    ), placeholder: "ws://127.0.0.1:18789")
+
+                    StudioSecretField(
+                        title: "Gateway Token",
+                        text: Binding(
+                            get: { companionManager.openClawGatewayAuthToken },
+                            set: { companionManager.openClawGatewayAuthToken = $0 }
+                        ),
+                        placeholder: "Leave blank to use local ~/.openclaw token",
+                        isRevealed: $isOpenClawTokenVisible
+                    )
+
+                    StudioTextField(title: "Agent ID", text: Binding(
+                        get: { companionManager.openClawAgentIdentifier },
+                        set: { companionManager.openClawAgentIdentifier = $0 }
+                    ), placeholder: "Optional fixed OpenClaw agent id")
+
+                    StudioTextField(title: "Session Key", text: Binding(
+                        get: { companionManager.openClawSessionKey },
+                        set: { companionManager.openClawSessionKey = $0 }
+                    ), placeholder: "clicky-companion")
+
                     Button(action: {
                         companionManager.testOpenClawConnection()
                     }) {
@@ -460,6 +443,8 @@ struct CompanionStudioView: View {
 
     private var voiceAppearanceSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
+            themeCard
+
             StudioCard(title: "Voice Pipeline", subtitle: "What handles transcription and playback right now") {
                 VStack(spacing: 12) {
                     StudioKeyValueRow(label: "Transcription Engine", value: companionManager.buddyDictationManager.transcriptionProviderDisplayName)
@@ -472,8 +457,8 @@ struct CompanionStudioView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     StudioStatusPill(label: "Planned", tone: .warning)
                     Text("Custom voice selection should be owned here, while the runtime keeps speaking through the currently active output engine.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
+                        .font(ClickyTypography.body(size: 12))
+                        .foregroundColor(theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -488,137 +473,142 @@ struct CompanionStudioView: View {
                         )
                     )
                     .toggleStyle(.switch)
-                    .tint(DS.Colors.accent)
+                    .tint(theme.primary)
 
                     StudioStatusPill(label: "Cursor skins coming next", tone: .warning)
 
                     Text("The triangle companion stays as the current shell, but this area is now the right home for cursor skins, companion icon variants, and future presence customizations.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
+                        .font(ClickyTypography.body(size: 12))
+                        .foregroundColor(theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
     }
 
+    private var themeCard: some View {
+        StudioCard(title: "Theme", subtitle: "This palette drives Studio now and becomes the persona surface later") {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("The UI foundation is now themeable. As persona customization grows, this same layer can drive accent color, glass tint, cursor style, and voice presentation together.")
+                    .font(ClickyTypography.body(size: 13))
+                    .foregroundColor(theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 12) {
+                    ForEach(ClickyThemePreset.allCases) { preset in
+                        themePresetButton(for: preset)
+                    }
+                }
+            }
+        }
+    }
+
+    private func themePresetButton(for preset: ClickyThemePreset) -> some View {
+        let presetTheme = preset.theme
+        let isSelected = companionManager.clickyThemePreset == preset
+
+        return Button(action: {
+            companionManager.clickyThemePreset = preset
+        }) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(presetTheme.primary)
+                        .frame(width: 10, height: 10)
+                    Circle()
+                        .fill(presetTheme.glowA)
+                        .frame(width: 10, height: 10)
+                    Circle()
+                        .fill(presetTheme.glowB)
+                        .frame(width: 10, height: 10)
+                }
+
+                Text(preset.displayName)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .foregroundColor(theme.textPrimary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(isSelected ? presetTheme.primary.opacity(0.10) : Color.white.opacity(0.015))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(isSelected ? presetTheme.primary.opacity(0.24) : presetTheme.strokeSoft, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
     private var integrationsSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            StudioCard(title: "Connect Clicky to OpenClaw", subtitle: "Set up the bridge once, then Clicky can work as your desktop companion shell") {
-                VStack(alignment: .leading, spacing: 12) {
-                    StudioStepRow(
-                        stepNumber: 1,
-                        title: "Install the plugin",
-                        detail: "Run this once from your terminal.",
-                        statusLabel: companionManager.clickyOpenClawPluginStatus == .notConfigured ? "Needed" : "Done",
-                        statusTone: companionManager.clickyOpenClawPluginStatus == .notConfigured ? .warning : .success
-                    )
-
-                    StudioCommandBlock(
-                        title: "Install command",
-                        command: companionManager.clickyOpenClawPluginInstallCommand
-                    )
-
-                    StudioStepRow(
-                        stepNumber: 2,
-                        title: "Enable it in OpenClaw",
-                        detail: "This turns the plugin on and restarts the Gateway.",
-                        statusLabel: companionManager.clickyOpenClawPluginStatus == .enabled ? "Done" : "Needed",
-                        statusTone: companionManager.clickyOpenClawPluginStatus == .enabled ? .success : .warning
-                    )
-
-                    StudioCommandBlock(
-                        title: "Enable + restart",
-                        command: companionManager.clickyOpenClawPluginEnableCommand
-                    )
-
-                    StudioStepRow(
-                        stepNumber: 3,
-                        title: "Register this Clicky shell",
-                        detail: "Once OpenClaw is enabled and the Agent backend is set to OpenClaw, Clicky can identify itself as the live desktop shell.",
-                        statusLabel: companionManager.clickyShellRegistrationStatusLabel,
-                        statusTone: clickyShellRegistrationTone
-                    )
-
-                    Button(action: {
-                        companionManager.registerClickyShellNow()
-                    }) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text("Register Clicky Shell")
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(DS.Colors.surface2)
+            if shouldShowPluginSetupFlow {
+                StudioCard(title: "Set Up the OpenClaw Plugin", subtitle: "This is a one-time setup on this machine") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        StudioStepRow(
+                            stepNumber: 1,
+                            title: "Install the plugin",
+                            detail: "Run this once from your terminal.",
+                            statusLabel: companionManager.clickyOpenClawPluginStatus == .notConfigured ? "Needed" : "Done",
+                            statusTone: companionManager.clickyOpenClawPluginStatus == .notConfigured ? .warning : .success
                         )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+
+                        StudioCommandBlock(
+                            title: "Install command",
+                            command: companionManager.clickyOpenClawPluginInstallCommand
                         )
+
+                        StudioStepRow(
+                            stepNumber: 2,
+                            title: "Enable it in OpenClaw",
+                            detail: "This turns the plugin on and restarts the Gateway.",
+                            statusLabel: companionManager.clickyOpenClawPluginStatus == .enabled ? "Done" : "Needed",
+                            statusTone: companionManager.clickyOpenClawPluginStatus == .enabled ? .success : .warning
+                        )
+
+                        StudioCommandBlock(
+                            title: "Enable + restart",
+                            command: companionManager.clickyOpenClawPluginEnableCommand
+                        )
+
+                        Text("Once that is done, Clicky will reconnect automatically. You should not need to keep running these commands.")
+                            .font(.system(size: 12))
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
+                }
+            } else {
+                StudioCard(title: "OpenClaw Integration", subtitle: "The desktop bridge is ready on this machine") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        StudioStatusPill(label: "Ready", tone: .success)
 
-                    Button(action: {
-                        companionManager.refreshClickyShellStatusNow()
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("Refresh Shell Status")
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(DS.Colors.surface2)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                        )
+                        Text("Clicky is already connected to OpenClaw here. You do not need to run setup commands again unless you reinstall OpenClaw or move to a different machine.")
+                            .font(.system(size: 12))
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-
-                    shellRegistrationStatusView
                 }
             }
 
-            StudioCard(title: "Connection Summary", subtitle: "What matters to a user right now") {
+            StudioCard(title: "What You Get", subtitle: "What this integration unlocks inside Clicky") {
                 VStack(alignment: .leading, spacing: 12) {
                     StudioStatusPill(
                         label: companionManager.clickyOpenClawPluginStatusLabel,
                         tone: clickyPluginStatusTone
                     )
 
-                    Text("Once this bridge is installed and enabled, Clicky can speak responses, show cursor presence, and stay aligned with your OpenClaw agent while keeping that agent’s core identity intact.")
+                    Text("Clicky can speak responses, stay visually present next to your cursor, and keep your OpenClaw agent feeling native inside the desktop experience without rewriting that agent’s core identity.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            StudioCard(title: "Remote-Ready Setup", subtitle: "This keeps working when OpenClaw is hosted somewhere else") {
+            StudioCard(title: "Remote Support", subtitle: "You can still use this with a hosted OpenClaw instance later") {
                 VStack(alignment: .leading, spacing: 12) {
-                    StudioKeyValueRow(label: "Gateway transport", value: "Clicky connects out over ws:// or wss://")
-                    StudioKeyValueRow(label: "Auth mode", value: "Local token fallback or explicit Studio token")
                     Text(companionManager.clickyOpenClawRemoteReadinessSummary)
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            StudioCard(title: "What Comes Next", subtitle: "The current bridge is working, but the plugin will keep getting richer") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Next we deepen the trust handshake, capability versioning, and session-binding behavior so OpenClaw can treat Clicky as a first-class shell instead of just a generic Gateway client.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -643,6 +633,58 @@ struct CompanionStudioView: View {
                     StudioKeyValueRow(label: "Shell freshness", value: companionManager.clickyShellServerFreshnessLabel)
                     StudioKeyValueRow(label: "Session binding", value: companionManager.clickyShellServerBindingLabel)
                     StudioKeyValueRow(label: "Bound session", value: companionManager.clickyShellServerSessionKeyLabel)
+
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            companionManager.registerClickyShellNow()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Register Shell")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+
+                        Button(action: {
+                            companionManager.refreshClickyShellStatusNow()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Refresh Shell Status")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+                    }
+
+                    shellRegistrationStatusView
 
                     if let clickyShellServerStatusSummary = companionManager.clickyShellServerStatusSummary,
                        !clickyShellServerStatusSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -719,14 +761,26 @@ struct CompanionStudioView: View {
         case .general:
             return "Tune the shell itself: runtime mode, backend routing, and the core companion behavior users feel first."
         case .openClaw:
-            return "Connect local or remote OpenClaw Gateways, control session routing, and verify the link from Clicky's side."
+            return "Connect Clicky to your OpenClaw agent, keep the identity clean, and only touch technical setup when you actually need to."
         case .voiceAppearance:
             return "Own the speech pipeline and visual shell here so later voice packs and cursor skins have a real home."
         case .integrations:
-            return "This is the bridge from app-specific integration to a real Clicky plugin story for OpenClaw and other runtimes."
+            return "Set up the OpenClaw bridge once, then let it fade into the background so the integration feels built in."
         case .diagnostics:
             return "Internal activity, bridge state, and debugging details live here instead of cluttering the normal user flow."
         }
+    }
+
+    private var shouldShowPluginSetupFlow: Bool {
+        companionManager.clickyOpenClawPluginStatus != .enabled
+    }
+
+    private var openClawConnectionSummary: String {
+        if companionManager.isOpenClawGatewayRemote {
+            return "Clicky is pointed at a remote OpenClaw Gateway. As long as the URL is reachable and the token is valid, the desktop shell should behave the same way."
+        }
+
+        return "Clicky is using the local OpenClaw Gateway on this Mac. This is the simplest setup and should work automatically once OpenClaw is running."
     }
 
     private var openClawConnectionButtonLabel: String {
@@ -735,6 +789,32 @@ struct CompanionStudioView: View {
         }
 
         return "Test OpenClaw Connection"
+    }
+
+    private var openClawConnectionStatusLabel: String {
+        switch companionManager.openClawConnectionStatus {
+        case .idle:
+            return "Not checked yet"
+        case .testing:
+            return "Checking connection"
+        case .connected:
+            return "Connected"
+        case .failed:
+            return "Needs attention"
+        }
+    }
+
+    private var openClawConnectionTone: StudioStatusTone {
+        switch companionManager.openClawConnectionStatus {
+        case .idle:
+            return .neutral
+        case .testing:
+            return .info
+        case .connected:
+            return .success
+        case .failed:
+            return .warning
+        }
     }
 
     private var isTestingOpenClawConnection: Bool {
@@ -791,61 +871,11 @@ struct CompanionStudioView: View {
         }
     }
 
-    private var clickyShellRegistrationTone: StudioStatusTone {
-        switch companionManager.clickyShellRegistrationStatus {
-        case .idle:
-            return .neutral
-        case .registering:
-            return .info
-        case .registered:
-            return .success
-        case .failed:
-            return .warning
-        }
-    }
-
-    private var clickyShellTrustTone: StudioStatusTone {
-        switch companionManager.clickyShellServerTrustState {
-        case "trusted-local", "trusted-remote":
-            return .success
-        case nil:
-            return .neutral
-        default:
-            return .warning
-        }
-    }
-
-    private var clickyShellFreshnessTone: StudioStatusTone {
-        switch companionManager.clickyShellServerFreshnessState {
-        case "fresh":
-            return .success
-        case "stale":
-            return .warning
-        case nil:
-            return .neutral
-        default:
-            return .warning
-        }
-    }
-
-    private var clickyShellBindingTone: StudioStatusTone {
-        switch companionManager.clickyShellServerSessionBindingState {
-        case "bound":
-            return .success
-        case "unbound":
-            return .warning
-        case nil:
-            return .neutral
-        default:
-            return .warning
-        }
-    }
-
     @ViewBuilder
     private var shellRegistrationStatusView: some View {
         switch companionManager.clickyShellRegistrationStatus {
         case .idle:
-            Text("OpenClaw will only accept a live Clicky shell registration once the `clicky-shell` plugin is enabled and the app is targeting the OpenClaw backend.")
+            Text("No active shell registration event yet in this app session.")
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -859,20 +889,28 @@ struct CompanionStudioView: View {
                     .foregroundColor(DS.Colors.textSecondary)
             }
         case .registered(let summary):
-            Text(summary)
-                .font(.system(size: 12))
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 8) {
+                StudioStatusPill(label: "Shell registered", tone: .success)
+                Text(summary)
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         case .failed(let message):
-            Text(message)
-                .font(.system(size: 12))
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 8) {
+                StudioStatusPill(label: "Registration issue", tone: .warning)
+                Text(message)
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
 
 private struct StudioCard<Content: View>: View {
+    @Environment(\.clickyTheme) private var theme
+
     let title: String
     let subtitle: String
     @ViewBuilder let content: Content
@@ -881,24 +919,24 @@ private struct StudioCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(DS.Colors.textPrimary)
+                    .font(ClickyTypography.section(size: 23))
+                    .foregroundColor(theme.textPrimary)
                 Text(subtitle)
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .font(ClickyTypography.mono(size: 12, weight: .medium))
+                    .foregroundColor(theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             content
         }
-        .padding(20)
+        .padding(22)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(DS.Colors.surface1)
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(theme.card.opacity(0.88))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .stroke(theme.strokeSoft, lineWidth: 1)
         )
     }
 }
@@ -911,12 +949,14 @@ private enum StudioStatusTone {
 }
 
 private struct StudioStatusPill: View {
+    @Environment(\.clickyTheme) private var theme
+
     let label: String
     let tone: StudioStatusTone
 
     var body: some View {
         Text(label)
-            .font(.system(size: 11, weight: .semibold))
+            .font(ClickyTypography.mono(size: 11, weight: .semibold))
             .foregroundColor(foregroundColor)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -934,63 +974,67 @@ private struct StudioStatusPill: View {
     private var foregroundColor: Color {
         switch tone {
         case .neutral:
-            return DS.Colors.textSecondary
+            return theme.textSecondary
         case .success:
-            return DS.Colors.success
+            return theme.success
         case .warning:
-            return DS.Colors.warningText
+            return theme.warning
         case .info:
-            return DS.Colors.accentText
+            return theme.accentStrong
         }
     }
 
     private var backgroundColor: Color {
         switch tone {
         case .neutral:
-            return DS.Colors.surface2
+            return Color.white.opacity(0.025)
         case .success:
-            return DS.Colors.success.opacity(0.12)
+            return theme.success.opacity(0.12)
         case .warning:
-            return DS.Colors.warning.opacity(0.12)
+            return theme.warning.opacity(0.12)
         case .info:
-            return DS.Colors.blue500.opacity(0.12)
+            return theme.accent.opacity(0.12)
         }
     }
 
     private var borderColor: Color {
         switch tone {
         case .neutral:
-            return DS.Colors.borderSubtle
+            return theme.strokeSoft
         case .success:
-            return DS.Colors.success.opacity(0.35)
+            return theme.success.opacity(0.35)
         case .warning:
-            return DS.Colors.warning.opacity(0.35)
+            return theme.warning.opacity(0.35)
         case .info:
-            return DS.Colors.blue400.opacity(0.35)
+            return theme.accent.opacity(0.35)
         }
     }
 }
 
 private struct StudioKeyValueRow: View {
+    @Environment(\.clickyTheme) private var theme
+
     let label: String
     let value: String
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
+                .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                .foregroundColor(theme.textMuted)
                 .frame(width: 140, alignment: .leading)
 
             Text(value)
-                .font(.system(size: 13))
-                .foregroundColor(DS.Colors.textPrimary)
+                .font(ClickyTypography.body(size: 14, weight: .medium))
+                .foregroundColor(theme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
 
 private struct StudioCommandBlock: View {
+    @Environment(\.clickyTheme) private var theme
+
     let title: String
     let command: String
 
@@ -1000,8 +1044,8 @@ private struct StudioCommandBlock: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                    .foregroundColor(theme.textMuted)
 
                 Spacer()
 
@@ -1019,27 +1063,27 @@ private struct StudioCommandBlock: View {
                         Image(systemName: hasCopied ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 11, weight: .semibold))
                         Text(hasCopied ? "Copied" : "Copy")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(ClickyTypography.mono(size: 11, weight: .semibold))
                     }
-                    .foregroundColor(hasCopied ? DS.Colors.success : DS.Colors.textSecondary)
+                    .foregroundColor(hasCopied ? theme.success : theme.textSecondary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
             }
 
             Text(command)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(DS.Colors.textPrimary)
+                .font(ClickyTypography.mono(size: 12, weight: .medium))
+                .foregroundColor(theme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(DS.Colors.surface2)
+                        .fill(Color.white.opacity(0.02))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                        .stroke(theme.strokeSoft, lineWidth: 1)
                 )
                 .textSelection(.enabled)
         }
@@ -1047,6 +1091,8 @@ private struct StudioCommandBlock: View {
 }
 
 private struct StudioStepRow: View {
+    @Environment(\.clickyTheme) private var theme
+
     let stepNumber: Int
     let title: String
     let detail: String
@@ -1056,26 +1102,26 @@ private struct StudioStepRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             Text("\(stepNumber)")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(DS.Colors.textPrimary)
+                .font(ClickyTypography.mono(size: 12, weight: .semibold))
+                .foregroundColor(theme.textPrimary)
                 .frame(width: 24, height: 24)
                 .background(
                     Circle()
-                        .fill(DS.Colors.surface2)
+                        .fill(Color.white.opacity(0.03))
                 )
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 10) {
                     Text(title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(DS.Colors.textPrimary)
+                        .font(ClickyTypography.body(size: 14, weight: .semibold))
+                        .foregroundColor(theme.textPrimary)
 
                     StudioStatusPill(label: statusLabel, tone: statusTone)
                 }
 
                 Text(detail)
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .font(ClickyTypography.body(size: 13))
+                    .foregroundColor(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -1085,6 +1131,8 @@ private struct StudioStepRow: View {
 }
 
 private struct StudioTextField: View {
+    @Environment(\.clickyTheme) private var theme
+
     let title: String
     @Binding var text: String
     let placeholder: String
@@ -1092,28 +1140,30 @@ private struct StudioTextField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundColor(DS.Colors.textTertiary)
+                .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                .foregroundColor(theme.textMuted)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundColor(DS.Colors.textPrimary)
+                .font(ClickyTypography.body(size: 14))
+                .foregroundColor(theme.textPrimary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(DS.Colors.surface2)
+                        .fill(Color.white.opacity(0.02))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                        .stroke(theme.strokeSoft, lineWidth: 1)
                 )
         }
     }
 }
 
 private struct StudioSecretField: View {
+    @Environment(\.clickyTheme) private var theme
+
     let title: String
     @Binding var text: String
     let placeholder: String
@@ -1122,8 +1172,8 @@ private struct StudioSecretField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundColor(DS.Colors.textTertiary)
+                .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                .foregroundColor(theme.textMuted)
 
             HStack(spacing: 10) {
                 Group {
@@ -1134,15 +1184,15 @@ private struct StudioSecretField: View {
                     }
                 }
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundColor(DS.Colors.textPrimary)
+                .font(ClickyTypography.body(size: 14))
+                .foregroundColor(theme.textPrimary)
 
                 Button(action: {
                     isRevealed.toggle()
                 }) {
                     Image(systemName: isRevealed ? "eye.slash" : "eye")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(DS.Colors.textTertiary)
+                        .foregroundColor(theme.textMuted)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -1151,17 +1201,19 @@ private struct StudioSecretField: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(DS.Colors.surface2)
+                    .fill(Color.white.opacity(0.02))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                    .stroke(theme.strokeSoft, lineWidth: 1)
             )
         }
     }
 }
 
 private struct StudioMultilineField: View {
+    @Environment(\.clickyTheme) private var theme
+
     let title: String
     @Binding var text: String
     let placeholder: String
@@ -1169,21 +1221,21 @@ private struct StudioMultilineField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundColor(DS.Colors.textTertiary)
+                .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                .foregroundColor(theme.textMuted)
 
             ZStack(alignment: .topLeading) {
                 if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(placeholder)
-                        .font(.system(size: 13))
-                        .foregroundColor(DS.Colors.textTertiary)
+                        .font(ClickyTypography.body(size: 13))
+                        .foregroundColor(theme.textMuted)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 14)
                 }
 
                 TextEditor(text: $text)
-                    .font(.system(size: 13))
-                    .foregroundColor(DS.Colors.textPrimary)
+                    .font(ClickyTypography.body(size: 14))
+                    .foregroundColor(theme.textPrimary)
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -1191,11 +1243,11 @@ private struct StudioMultilineField: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(DS.Colors.surface2)
+                    .fill(Color.white.opacity(0.02))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                    .stroke(theme.strokeSoft, lineWidth: 1)
             )
         }
     }

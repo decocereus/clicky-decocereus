@@ -227,6 +227,18 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    @Published var clickyThemePreset: ClickyThemePreset = ClickyThemePreset(
+        rawValue: UserDefaults.standard.string(forKey: "clickyThemePreset") ?? ""
+    ) ?? .dark {
+        didSet {
+            UserDefaults.standard.set(clickyThemePreset.rawValue, forKey: "clickyThemePreset")
+        }
+    }
+
+    var activeClickyTheme: ClickyTheme {
+        clickyThemePreset.theme
+    }
+
     func setSelectedModel(_ model: String) {
         selectedModel = model
         UserDefaults.standard.set(model, forKey: "selectedClaudeModel")

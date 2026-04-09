@@ -52,6 +52,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
 
+        ClickyFontRegistrar.registerBundledFonts()
         ClickyAnalytics.configure()
         ClickyAnalytics.trackAppOpened()
 

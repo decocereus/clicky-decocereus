@@ -14,143 +14,202 @@ struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
     @Environment(\.openSettings) private var openSettings
 
+    private var theme: ClickyTheme {
+        companionManager.activeClickyTheme
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            panelHeader
-            Divider()
-                .background(DS.Colors.borderSubtle)
-                .padding(.horizontal, 16)
+        ZStack {
+            ClickyAuraBackground()
 
-            permissionsCopySection
-                .padding(.top, 16)
-                .padding(.horizontal, 16)
+            VStack(alignment: .leading, spacing: 18) {
+                panelHeader
 
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 12)
+                panelShell
 
-                agentBackendPickerRow
-                    .padding(.horizontal, 16)
+                footerSection
+                    .padding(.top, 4)
             }
-
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted && companionManager.selectedAgentBackend == .claude {
-                Spacer()
-                    .frame(height: 12)
-
-                modelPickerRow
-                    .padding(.horizontal, 16)
-            }
-
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted && companionManager.selectedAgentBackend == .openClaw {
-                Spacer()
-                    .frame(height: 12)
-
-                openClawGatewaySettingsSection
-                    .padding(.horizontal, 16)
-            }
-
-            if !companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 16)
-
-                settingsSection
-                    .padding(.horizontal, 16)
-            }
-
-            if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 16)
-
-                startButton
-                    .padding(.horizontal, 16)
-            }
-
-            // Show Clicky toggle — hidden for now
-            // if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            //     Spacer()
-            //         .frame(height: 16)
-            //
-            //     showClickyCursorToggleRow
-            //         .padding(.horizontal, 16)
-            // }
-
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 16)
-
-                dmFarzaButton
-                    .padding(.horizontal, 16)
-            }
-
-            Spacer()
-                .frame(height: 12)
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-                .padding(.horizontal, 16)
-
-            footerSection
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+            .padding(18)
         }
-        .frame(width: 320)
-        .background(panelBackground)
+        .clickyTheme(theme)
+        .frame(width: 360)
     }
 
     // MARK: - Header
 
     private var panelHeader: some View {
         HStack {
-            HStack(spacing: 8) {
-                // Animated status dot
-                Circle()
-                    .fill(statusDotColor)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: statusDotColor.opacity(0.6), radius: 4)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("clicky")
+                    .font(ClickyTypography.brand(size: 34))
+                    .foregroundColor(theme.accent)
 
-                Text("Clicky")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(DS.Colors.textPrimary)
+                Text(statusText.uppercased())
+                    .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                    .foregroundColor(theme.textMuted)
+                    .tracking(1.2)
             }
 
             Spacer()
-
-            Text(statusText)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
 
             Button(action: {
                 openStudio()
             }) {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 20, height: 20)
-                    .background(
-                        Circle()
-                            .fill(Color.white.opacity(0.08))
-                    )
+                    .foregroundColor(theme.textSecondary)
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .pointerCursor()
+            .modifier(ClickyTinyGlassCircleStyle())
 
             Button(action: {
                 NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
             }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 20, height: 20)
-                    .background(
-                        Circle()
-                            .fill(Color.white.opacity(0.08))
-                    )
+                    .foregroundColor(theme.textSecondary)
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .pointerCursor()
+            .modifier(ClickyTinyGlassCircleStyle())
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private var mainPanelCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            permissionsCopySection
+
+            if !companionManager.allPermissionsGranted {
+                settingsSection
+            }
+
+            if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+                startButton
+            }
+        }
+        .clickyGlassCard(cornerRadius: 28, padding: 18)
+    }
+
+    private var panelShell: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            permissionsCopySection
+
+            if !companionManager.allPermissionsGranted {
+                settingsSection
+            }
+
+            if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+                startButton
+            }
+
+            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+                panelHairline
+                agentBackendPickerRow
+
+                if companionManager.selectedAgentBackend == .claude {
+                    panelHairline
+                    modelPickerRow
+                } else {
+                    panelHairline
+                    openClawInlineSummary
+                }
+
+                panelHairline
+                dmFarzaButton
+            }
+        }
+        .modifier(ClickyPanelShellStyle())
+    }
+
+    private var backendCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            panelSectionEyebrow("Agent")
+            agentBackendPickerRow
+        }
+        .clickyGlassCard(cornerRadius: 28, padding: 18)
+    }
+
+    private var claudeCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            panelSectionEyebrow("Claude")
+            Text("Cloud voice guidance stays available here, while Studio handles deeper model and persona setup.")
+                .font(ClickyTypography.body(size: 13))
+                .foregroundColor(theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            modelPickerRow
+        }
+        .clickyGlassCard(cornerRadius: 28, padding: 18)
+    }
+
+    private var openClawInlineSummary: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            panelSectionEyebrow("OpenClaw")
+
+            HStack {
+                Text(companionManager.effectiveClickyPresentationName)
+                    .font(ClickyTypography.section(size: 24))
+                    .foregroundColor(theme.textPrimary)
+
+                Spacer()
+
+                Circle()
+                    .fill(openClawStatusColor)
+                    .frame(width: 8, height: 8)
+            }
+
+            Text(openClawPanelSummary)
+                .font(ClickyTypography.body(size: 13))
+                .foregroundColor(theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button(action: {
+                openStudio()
+            }) {
+                Text("Connection settings live in Studio")
+                    .frame(maxWidth: .infinity)
+            }
+            .modifier(ClickySecondaryGlassButtonStyle())
+            .pointerCursor()
+        }
+    }
+
+    private var openClawSummaryCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                panelSectionEyebrow("OpenClaw")
+                Spacer()
+                Circle()
+                    .fill(openClawStatusColor)
+                    .frame(width: 8, height: 8)
+            }
+
+            Text(companionManager.effectiveClickyPresentationName)
+                .font(ClickyTypography.section(size: 28))
+                .foregroundColor(theme.textPrimary)
+
+            Text(openClawPanelSummary)
+                .font(ClickyTypography.body(size: 13))
+                .foregroundColor(theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button(action: {
+                openStudio()
+            }) {
+                Text("Open Studio for Connection Settings")
+                    .frame(maxWidth: .infinity)
+            }
+            .modifier(ClickyProminentActionStyle())
+            .pointerCursor()
+        }
+        .clickyGlassCard(cornerRadius: 28, padding: 18)
     }
 
     // MARK: - Permissions Copy
@@ -159,41 +218,36 @@ struct CompanionPanelView: View {
     private var permissionsCopySection: some View {
         if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
             Text("Hold Control+Option to talk.")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
+                .font(ClickyTypography.body(size: 15, weight: .semibold))
+                .foregroundColor(theme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if companionManager.allPermissionsGranted {
             Text("You're all set. Hit Start to meet Clicky.")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
+                .font(ClickyTypography.body(size: 15, weight: .semibold))
+                .foregroundColor(theme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if companionManager.hasCompletedOnboarding {
             // Permissions were revoked after onboarding — tell user to re-grant
             VStack(alignment: .leading, spacing: 6) {
                 Text("Permissions needed")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .font(ClickyTypography.section(size: 22))
+                    .foregroundColor(theme.textPrimary)
 
                 Text("Some permissions were revoked. Grant all four below to keep using Clicky.")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .font(ClickyTypography.body(size: 13))
+                    .foregroundColor(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Hi, I'm Farza. This is Clicky.")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(DS.Colors.textSecondary)
+                Text("Learn with an agent that stays right next to you.")
+                    .font(ClickyTypography.section(size: 24))
+                    .foregroundColor(theme.textPrimary)
 
-                Text("A side project I made for fun to help me learn stuff as I use my computer.")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text("Nothing runs in the background. Clicky will only take a screenshot when you press the hot key. So, you can give that permission in peace. If you are still sus, eh, I can't do much there champ.")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color(red: 0.9, green: 0.4, blue: 0.4))
+                Text("Clicky only looks when you ask it to. Use the hotkey, speak naturally, and let the assistant guide you on top of your real screen.")
+                    .font(ClickyTypography.body(size: 13))
+                    .foregroundColor(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -209,16 +263,9 @@ struct CompanionPanelView: View {
                 companionManager.triggerOnboarding()
             }) {
                 Text("Start")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(DS.Colors.textOnAccent)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                            .fill(DS.Colors.accent)
-                    )
             }
-            .buttonStyle(.plain)
+            .modifier(ClickyProminentActionStyle())
             .pointerCursor()
         }
     }
@@ -228,8 +275,8 @@ struct CompanionPanelView: View {
     private var settingsSection: some View {
         VStack(spacing: 2) {
             Text("PERMISSIONS")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundColor(DS.Colors.textTertiary)
+                .font(ClickyTypography.mono(size: 10, weight: .semibold))
+                .foregroundColor(theme.textMuted)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 6)
 
@@ -584,8 +631,8 @@ struct CompanionPanelView: View {
     private var modelPickerRow: some View {
         HStack {
             Text("Model")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
+                .font(ClickyTypography.body(size: 13, weight: .medium))
+                .foregroundColor(theme.textSecondary)
 
             Spacer()
 
@@ -595,11 +642,11 @@ struct CompanionPanelView: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.white.opacity(0.025))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+                    .stroke(theme.strokeSoft, lineWidth: 0.8)
             )
         }
         .padding(.vertical, 4)
@@ -608,8 +655,8 @@ struct CompanionPanelView: View {
     private var agentBackendPickerRow: some View {
         HStack {
             Text("Agent")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
+                .font(ClickyTypography.body(size: 13, weight: .medium))
+                .foregroundColor(theme.textSecondary)
 
             Spacer()
 
@@ -619,11 +666,11 @@ struct CompanionPanelView: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.white.opacity(0.025))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+                    .stroke(theme.strokeSoft, lineWidth: 0.8)
             )
         }
         .padding(.vertical, 4)
@@ -635,13 +682,13 @@ struct CompanionPanelView: View {
             companionManager.setSelectedAgentBackend(backend)
         }) {
             Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
+                .font(ClickyTypography.body(size: 11, weight: .semibold))
+                .foregroundColor(isSelected ? theme.textPrimary : theme.textMuted)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? Color.white.opacity(0.1) : Color.clear)
+                        .fill(isSelected ? theme.accent.opacity(0.10) : Color.clear)
                 )
         }
         .buttonStyle(.plain)
@@ -654,13 +701,13 @@ struct CompanionPanelView: View {
             companionManager.setSelectedModel(modelID)
         }) {
             Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
+                .font(ClickyTypography.body(size: 11, weight: .semibold))
+                .foregroundColor(isSelected ? theme.textPrimary : theme.textMuted)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? Color.white.opacity(0.1) : Color.clear)
+                        .fill(isSelected ? theme.accent.opacity(0.10) : Color.clear)
                 )
         }
         .buttonStyle(.plain)
@@ -716,17 +763,17 @@ struct CompanionPanelView: View {
 
             TextField(placeholder, text: text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundColor(DS.Colors.textPrimary)
+                .font(ClickyTypography.body(size: 12))
+                .foregroundColor(theme.textPrimary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                        .fill(Color.white.opacity(0.08))
+                        .fill(Color.white.opacity(0.025))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                        .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+                        .stroke(theme.strokeSoft, lineWidth: 0.8)
                 )
         }
     }
@@ -735,7 +782,7 @@ struct CompanionPanelView: View {
 
     private var dmFarzaButton: some View {
         Button(action: {
-            if let url = URL(string: "https://x.com/farzatv") {
+            if let url = URL(string: "https://x.com/decocereus") {
                 NSWorkspace.shared.open(url)
             }
         }) {
@@ -745,24 +792,14 @@ struct CompanionPanelView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Got feedback? DM me")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(ClickyTypography.body(size: 13, weight: .semibold))
                     Text("Bugs, ideas, anything — I read every message.")
-                        .font(.system(size: 10))
-                        .foregroundColor(DS.Colors.textTertiary)
+                        .font(ClickyTypography.mono(size: 10, weight: .medium))
+                        .foregroundColor(theme.textMuted)
                 }
             }
-            .foregroundColor(DS.Colors.textSecondary)
+            .foregroundColor(theme.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
         }
         .buttonStyle(.plain)
         .pointerCursor()
@@ -771,38 +808,20 @@ struct CompanionPanelView: View {
     // MARK: - Footer
 
     private var footerSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Button(action: {
-                    NSApp.terminate(nil)
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "power")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("Quit Clicky")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .foregroundColor(DS.Colors.textTertiary)
+        HStack(spacing: 18) {
+            Button(action: {
+                NSApp.terminate(nil)
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "power")
+                        .font(.system(size: 11, weight: .medium))
+                    Text("Quit Clicky")
+                        .font(ClickyTypography.body(size: 12, weight: .medium))
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-
-                Spacer()
-
-                Button(action: {
-                    openStudio()
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("Open Studio")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .foregroundColor(DS.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
+                .foregroundColor(theme.textSecondary)
             }
+            .buttonStyle(.plain)
+            .pointerCursor()
 
             if companionManager.hasCompletedOnboarding {
                 Button(action: {
@@ -812,36 +831,31 @@ struct CompanionPanelView: View {
                         Image(systemName: "play.circle")
                             .font(.system(size: 11, weight: .medium))
                         Text("Watch Onboarding Again")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(ClickyTypography.body(size: 12, weight: .medium))
                     }
-                    .foregroundColor(DS.Colors.textTertiary)
+                    .foregroundColor(theme.textSecondary)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
             }
+
+            Spacer(minLength: 0)
         }
     }
 
     // MARK: - Visual Helpers
 
-    private var panelBackground: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(DS.Colors.background)
-            .shadow(color: Color.black.opacity(0.5), radius: 20, x: 0, y: 10)
-            .shadow(color: Color.black.opacity(0.3), radius: 4, x: 0, y: 2)
-    }
-
     private var statusDotColor: Color {
         if !companionManager.isOverlayVisible {
-            return DS.Colors.textTertiary
+            return theme.textMuted
         }
         switch companionManager.voiceState {
         case .idle:
-            return DS.Colors.success
+            return theme.success
         case .listening:
-            return DS.Colors.blue400
+            return theme.accent
         case .transcribing, .thinking, .responding:
-            return DS.Colors.blue400
+            return theme.accent
         }
     }
 
@@ -871,4 +885,126 @@ struct CompanionPanelView: View {
         openSettings()
     }
 
+    private func panelSectionEyebrow(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(ClickyTypography.mono(size: 10, weight: .semibold))
+            .foregroundColor(theme.textMuted)
+            .tracking(1.2)
+    }
+
+    private var panelHairline: some View {
+        Rectangle()
+            .fill(theme.strokeSoft)
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
+    }
+
+    private var openClawPanelSummary: String {
+        let gatewayKind = companionManager.isOpenClawGatewayRemote ? "remote" : "local"
+        let currentAgent = companionManager.effectiveOpenClawAgentName
+        return "Connected to your \(gatewayKind) OpenClaw setup. Clicky is currently presenting \(currentAgent) inside the desktop shell."
+    }
+
+    private var openClawStatusColor: Color {
+        switch companionManager.openClawConnectionStatus {
+        case .connected:
+            return theme.success
+        case .failed:
+            return theme.warning
+        case .testing:
+            return theme.accent
+        case .idle:
+            return theme.textMuted
+        }
+    }
+
+}
+
+private struct ClickyProminentActionStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .font(ClickyTypography.body(size: 13, weight: .semibold))
+                .foregroundColor(.black.opacity(0.82))
+                .buttonStyle(.glassProminent)
+                .tint(theme.accent)
+        } else {
+            content
+                .font(ClickyTypography.body(size: 13, weight: .semibold))
+                .foregroundColor(Color.black.opacity(0.82))
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(theme.accent)
+                )
+        }
+    }
+}
+
+private struct ClickySecondaryGlassButtonStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .font(ClickyTypography.body(size: 12, weight: .semibold))
+                .buttonStyle(.glass)
+                .tint(theme.accent.opacity(0.72))
+        } else {
+            content
+                .font(ClickyTypography.body(size: 12, weight: .semibold))
+                .foregroundColor(theme.textPrimary)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.white.opacity(0.03))
+                )
+        }
+    }
+}
+
+private struct ClickyTinyGlassCircleStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(.regular.tint(theme.primary.opacity(0.10)).interactive(), in: Circle())
+        } else {
+            content
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(0.04))
+                )
+        }
+    }
+}
+
+private struct ClickyPanelShellStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 28, style: .continuous)
+
+        if #available(macOS 26.0, *) {
+            content
+                .padding(18)
+                .background(
+                    shape
+                        .fill(.clear)
+                        .glassEffect(.regular.tint(theme.primary.opacity(0.12)).interactive(), in: shape)
+                )
+                .overlay(
+                    shape
+                        .stroke(theme.strokeSoft, lineWidth: 0.9)
+                )
+        } else {
+            content
+                .clickyGlassCard(cornerRadius: 28, padding: 18)
+        }
+    }
 }
