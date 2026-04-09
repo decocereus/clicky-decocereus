@@ -68,6 +68,7 @@ struct CompanionStudioView: View {
 
     @State private var selectedSection: CompanionStudioSection = .general
     @State private var isOpenClawTokenVisible = false
+    @State private var isElevenLabsAPIKeyVisible = false
 
     private var theme: ClickyTheme {
         companionManager.activeClickyTheme
@@ -465,6 +466,109 @@ struct CompanionStudioView: View {
 
             StudioCard(title: "Voice", subtitle: "Choose how the persona should sound") {
                 VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 10) {
+                        ForEach(ClickySpeechProviderMode.allCases) { mode in
+                            selectionChip(
+                                title: mode.displayName,
+                                subtitle: mode == .system ? "Built in on this Mac." : "Bring your own key and voices.",
+                                isSelected: companionManager.clickySpeechProviderMode == mode
+                            ) {
+                                companionManager.clickySpeechProviderMode = mode
+                            }
+                        }
+                    }
+
+                    Text("Switch to ElevenLabs above to unlock custom voices.")
+                        .font(ClickyTypography.mono(size: 11, weight: .medium))
+                        .foregroundColor(theme.textMuted)
+
+                    if companionManager.clickySpeechProviderMode == .elevenLabsBYO {
+                        HStack(alignment: .center, spacing: 8) {
+                            Text("Bring your own ElevenLabs")
+                                .font(ClickyTypography.body(size: 13, weight: .semibold))
+                                .foregroundColor(theme.textPrimary)
+
+                            Button(action: {}) {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(theme.textMuted)
+                            }
+                            .buttonStyle(.plain)
+                            .pointerCursor()
+                            .help("Your ElevenLabs API key stays on this Mac. Clicky stores it locally in the Keychain and does not send it to our servers.")
+                        }
+
+                        StudioSecretField(
+                            title: "ElevenLabs API key",
+                            text: Binding(
+                                get: { companionManager.elevenLabsAPIKeyDraft },
+                                set: { companionManager.elevenLabsAPIKeyDraft = $0 }
+                            ),
+                            placeholder: "Paste your ElevenLabs API key",
+                            isRevealed: $isElevenLabsAPIKeyVisible
+                        )
+
+                        HStack(spacing: 10) {
+                            Button(action: {
+                                companionManager.saveElevenLabsAPIKey()
+                            }) {
+                                Text("Save Key")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.plain)
+                            .pointerCursor()
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(theme.primary.opacity(0.10))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(theme.primary.opacity(0.24), lineWidth: 1)
+                            )
+                            .pointerCursor()
+
+                            Button(action: {
+                                companionManager.refreshElevenLabsVoices()
+                            }) {
+                                Text("Load Voices")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.plain)
+                            .pointerCursor()
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(theme.primary.opacity(0.10))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(theme.primary.opacity(0.24), lineWidth: 1)
+                            )
+                            .pointerCursor()
+                        }
+
+                        Text(companionManager.elevenLabsStatusLabel)
+                            .font(ClickyTypography.mono(size: 11, weight: .medium))
+                            .foregroundColor(theme.textMuted)
+
+                        if !companionManager.elevenLabsAvailableVoices.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(companionManager.elevenLabsAvailableVoices.prefix(6)) { voice in
+                                    selectionChip(
+                                        title: voice.name,
+                                        subtitle: voice.displaySubtitle,
+                                        isSelected: companionManager.elevenLabsSelectedVoiceID == voice.id
+                                    ) {
+                                        companionManager.selectElevenLabsVoice(voice)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     HStack(spacing: 10) {
                         ForEach(ClickyVoicePreset.allCases) { preset in
                             selectionChip(

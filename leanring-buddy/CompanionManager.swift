@@ -46,6 +46,18 @@ enum ClickyPersonaScopeMode: String, CaseIterable {
     case overrideInClicky
 }
 
+enum ElevenLabsVoiceFetchStatus: Equatable {
+    case idle
+    case loading
+    case loaded
+    case failed(message: String)
+}
+
+enum ClickySpeechOutputMode {
+    case system
+    case elevenLabsBYO(ElevenLabsDirectConfiguration)
+}
+
 @MainActor
 final class CompanionManager: ObservableObject {
     @Published private(set) var voiceState: CompanionVoiceState = .idle
@@ -259,6 +271,28 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    @Published var clickySpeechProviderMode: ClickySpeechProviderMode = ClickySpeechProviderMode(
+        rawValue: UserDefaults.standard.string(forKey: "clickySpeechProviderMode") ?? ""
+    ) ?? .system {
+        didSet {
+            UserDefaults.standard.set(clickySpeechProviderMode.rawValue, forKey: "clickySpeechProviderMode")
+        }
+    }
+
+    @Published var elevenLabsAPIKeyDraft: String = ClickySecrets.load(account: "elevenlabs_api_key") ?? ""
+    @Published private(set) var elevenLabsAvailableVoices: [ElevenLabsVoiceOption] = []
+    @Published private(set) var elevenLabsVoiceFetchStatus: ElevenLabsVoiceFetchStatus = .idle
+    @Published var elevenLabsSelectedVoiceID: String = UserDefaults.standard.string(forKey: "elevenLabsSelectedVoiceID") ?? "" {
+        didSet {
+            UserDefaults.standard.set(elevenLabsSelectedVoiceID, forKey: "elevenLabsSelectedVoiceID")
+        }
+    }
+    @Published var elevenLabsSelectedVoiceName: String = UserDefaults.standard.string(forKey: "elevenLabsSelectedVoiceName") ?? "" {
+        didSet {
+            UserDefaults.standard.set(elevenLabsSelectedVoiceName, forKey: "elevenLabsSelectedVoiceName")
+        }
+    }
+
     @Published var clickyThemePreset: ClickyThemePreset = ClickyThemePreset(
         rawValue: UserDefaults.standard.string(forKey: "clickyThemePreset") ?? ""
     ) ?? .dark {
@@ -269,6 +303,10 @@ final class CompanionManager: ObservableObject {
 
     var activeClickyTheme: ClickyTheme {
         clickyThemePreset.theme
+    }
+
+    var hasStoredElevenLabsAPIKey: Bool {
+        !(ClickySecrets.load(account: "elevenlabs_api_key") ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var activeClickyPersonaDefinition: ClickyPersonaDefinition {
@@ -306,6 +344,59 @@ final class CompanionManager: ObservableObject {
         clickyCursorStyle = preset.definition.defaultCursorStyle
     }
 
+    func saveElevenLabsAPIKey() {
+        let trimmedAPIKey = elevenLabsAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmedAPIKey.isEmpty {
+            ClickySecrets.delete(account: "elevenlabs_api_key")
+            elevenLabsAvailableVoices = []
+            elevenLabsVoiceFetchStatus = .idle
+            elevenLabsSelectedVoiceID = ""
+            elevenLabsSelectedVoiceName = ""
+            clickySpeechProviderMode = .system
+            return
+        }
+
+        do {
+            try ClickySecrets.save(key: trimmedAPIKey, account: "elevenlabs_api_key")
+            elevenLabsVoiceFetchStatus = .idle
+        } catch {
+            elevenLabsVoiceFetchStatus = .failed(message: "Could not save API key")
+        }
+    }
+
+    func refreshElevenLabsVoices() {
+        let apiKey = (ClickySecrets.load(account: "elevenlabs_api_key") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty else {
+            elevenLabsVoiceFetchStatus = .failed(message: "Add an API key first")
+            return
+        }
+
+        elevenLabsVoiceFetchStatus = .loading
+
+        Task { @MainActor in
+            do {
+                let voices = try await ElevenLabsService.fetchVoices(apiKey: apiKey)
+                elevenLabsAvailableVoices = voices
+                elevenLabsVoiceFetchStatus = .loaded
+
+                if elevenLabsSelectedVoiceID.isEmpty, let firstVoice = voices.first {
+                    elevenLabsSelectedVoiceID = firstVoice.id
+                    elevenLabsSelectedVoiceName = firstVoice.name
+                } else if let selectedVoice = voices.first(where: { $0.id == elevenLabsSelectedVoiceID }) {
+                    elevenLabsSelectedVoiceName = selectedVoice.name
+                }
+            } catch {
+                elevenLabsVoiceFetchStatus = .failed(message: error.localizedDescription)
+            }
+        }
+    }
+
+    func selectElevenLabsVoice(_ voice: ElevenLabsVoiceOption) {
+        elevenLabsSelectedVoiceID = voice.id
+        elevenLabsSelectedVoiceName = voice.name
+    }
+
     func setSelectedModel(_ model: String) {
         selectedModel = model
         UserDefaults.standard.set(model, forKey: "selectedClaudeModel")
@@ -319,8 +410,14 @@ final class CompanionManager: ObservableObject {
     }
 
     var effectiveVoiceOutputDisplayName: String {
-        let provider = CompanionRuntimeConfiguration.isWorkerConfigured ? "ElevenLabs" : "System Speech"
-        return "\(provider) · \(effectiveClickyVoicePreset.displayName)"
+        switch clickySpeechProviderMode {
+        case .system:
+            return "System Speech · \(effectiveClickyVoicePreset.displayName)"
+        case .elevenLabsBYO:
+            let voiceName = elevenLabsSelectedVoiceName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = voiceName.isEmpty ? "BYO voice" : voiceName
+            return "ElevenLabs · \(label)"
+        }
     }
 
     var openClawGatewayAuthSummary: String {
@@ -489,6 +586,33 @@ final class CompanionManager: ObservableObject {
 
     var activeClickyPersonaLabel: String {
         activeClickyPersonaDefinition.displayName
+    }
+
+    var elevenLabsStatusLabel: String {
+        switch elevenLabsVoiceFetchStatus {
+        case .idle:
+            return hasStoredElevenLabsAPIKey ? "Ready to load voices" : "API key needed"
+        case .loading:
+            return "Loading voices"
+        case .loaded:
+            return "\(elevenLabsAvailableVoices.count) voices available"
+        case .failed(let message):
+            return message
+        }
+    }
+
+    var effectiveSpeechOutputMode: ClickySpeechOutputMode {
+        switch clickySpeechProviderMode {
+        case .system:
+            return .system
+        case .elevenLabsBYO:
+            let apiKey = (ClickySecrets.load(account: "elevenlabs_api_key") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let voiceID = elevenLabsSelectedVoiceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !apiKey.isEmpty, !voiceID.isEmpty else {
+                return .system
+            }
+            return .elevenLabsBYO(ElevenLabsDirectConfiguration(apiKey: apiKey, voiceID: voiceID))
+        }
     }
 
     private func logActivePersonaForRequest(transcript: String, backend: CompanionAgentBackend, systemPrompt: String) {
@@ -1504,7 +1628,11 @@ final class CompanionManager: ObservableObject {
                 // audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do {
-                        try await elevenLabsTTSClient.speakText(spokenText, voicePreset: effectiveClickyVoicePreset)
+                        try await elevenLabsTTSClient.speakText(
+                            spokenText,
+                            voicePreset: effectiveClickyVoicePreset,
+                            outputMode: effectiveSpeechOutputMode
+                        )
                         // speakText returns after playback has started — audio is now live.
                         voiceState = .responding
                     } catch {

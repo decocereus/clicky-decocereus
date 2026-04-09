@@ -33,12 +33,66 @@ final class ElevenLabsTTSClient {
 
     /// Sends `text` to ElevenLabs TTS and plays the resulting audio.
     /// Throws on network or decoding errors. Cancellation-safe.
-    func speakText(_ text: String, voicePreset: ClickyVoicePreset = .balanced) async throws {
-        if !CompanionRuntimeConfiguration.isWorkerConfigured {
+    func speakText(
+        _ text: String,
+        voicePreset: ClickyVoicePreset = .balanced,
+        outputMode: ClickySpeechOutputMode = .system
+    ) async throws {
+        switch outputMode {
+        case .system:
             await speakTextWithSystemSpeech(text, voicePreset: voicePreset)
             return
+        case .elevenLabsBYO(let configuration):
+            try await speakTextDirectlyWithElevenLabs(text, voicePreset: voicePreset, configuration: configuration)
+            return
+        }
+    }
+
+    private func speakTextDirectlyWithElevenLabs(
+        _ text: String,
+        voicePreset: ClickyVoicePreset,
+        configuration: ElevenLabsDirectConfiguration
+    ) async throws {
+        var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/text-to-speech/\(configuration.voiceID)")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue(configuration.apiKey, forHTTPHeaderField: "xi-api-key")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
+
+        let body: [String: Any] = [
+            "text": text,
+            "model_id": "eleven_flash_v2_5",
+            "voice_settings": [
+                "stability": voicePreset.elevenLabsStability,
+                "similarity_boost": voicePreset.elevenLabsSimilarityBoost
+            ]
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "ElevenLabsTTS", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid ElevenLabs response"])
         }
 
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw NSError(domain: "ElevenLabsTTS", code: httpResponse.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: "ElevenLabs API error (\(httpResponse.statusCode)): \(errorBody)"])
+        }
+
+        try Task.checkCancellation()
+
+        let player = try AVAudioPlayer(data: data)
+        self.audioPlayer = player
+        player.play()
+        print("🔊 ElevenLabs BYO TTS: playing \(data.count / 1024)KB audio")
+    }
+
+    func speakTextViaProxy(_ text: String, voicePreset: ClickyVoicePreset = .balanced) async throws {
         var request = URLRequest(url: proxyURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
