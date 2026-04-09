@@ -9,13 +9,24 @@ Durable decisions that apply across this track:
 - **Product role**: Clicky is the desktop shell around an agent, not the agent itself.
 - **Primary interaction model**: Voice-first. The user should be able to speak to Clicky naturally rather than rely on explicit buttons for every step.
 - **Workflow foundation**: A workflow is a structured sequence of visual steps that Clicky can guide, verify, and optionally perform.
+- **Teach-session substrate**: Teach mode should first create a local teach-session draft. That draft is the observation layer between a live demo and a final workflow.
 - **Workflow execution UX**: Clicky speaks, points, and shows tiny contextual hints near the cursor; it does not rely on a button-heavy control bar.
 - **Teach mode**: Teach mode is a first-class shell mode with its own visual state, cursor treatment, overlay behavior, and activation methods.
-- **Focus mode**: Focus mode is a separate accountability mode, not a generic system "do not disturb" toggle.
 - **Tutorial engine**: Tutorials are generated workflows plus lesson structure. Manual teach-mode workflows and AI-generated tutorial workflows should converge on the same underlying model.
-- **YouTube ingestion**: The user provides a video URL, and Clicky derives course/workflow structure from transcript + sampled frames/screenshots. Video playback can appear inline, similar to the onboarding-video presentation model.
+- **Local-first v1**: Teach sessions, workflow drafts, saved workflows, and course progress should live locally first. They do not require a new backend in v1.
+- **Inference routing**: AI-assisted authoring and tutorial generation should route through an existing agent backend rather than introduce a second workflow-specific backend surface.
+- **YouTube ingestion**: The user provides a video URL, and Clicky derives course/workflow structure from transcript + sampled frames/screenshots. Inline video playback already fits the Clicky shell model, but extraction/import should be treated as an external ingestion dependency rather than assumed to exist in this repo today.
 - **Execution safety**: v1 should prefer guide/verify/optional-safe-actions over unrestricted autonomous control.
 - **Provider flexibility**: OpenClaw remains the broadest BYO-agent path; direct provider support can expand later but the workflow system should not depend on one specific model vendor.
+
+---
+
+## Infrastructure shape
+
+- **No new backend required for the local workflow loop**: Teach Mode, teach-session capture, workflow storage, workflow runner, and course progress can all run fully inside the macOS app.
+- **Current Cloudflare Worker remains optional for this track**: It is still the proxy path for the existing Claude + AssemblyAI + ElevenLabs stack, but Track B should not hard-depend on adding new Worker routes just to get teach mode or workflow v1 working.
+- **OpenClaw can power the agent path without the Worker**: If the user runs Clicky against OpenClaw Gateway, the workflow authoring/explanation path can use that backend while local Apple Speech / system speech fallbacks continue covering development scenarios.
+- **YouTube ingestion is the main infra exception**: Importing transcript + sampled frames likely needs an external extraction pipeline or imported prior-project service. If Cloudflare is used here, it should stay a thin auth/proxy layer rather than the heavy video-processing engine.
 
 ---
 
@@ -38,7 +49,26 @@ Add a true Teach Mode to the shell. Entering it changes the cursor treatment, me
 
 ---
 
-## Phase 2: Workflow Data Model And Runner v1
+## Phase 2: Teach Session Capture Substrate
+
+**User stories**:
+- As a user, I can demonstrate a process without manually structuring it in real time.
+- As a user, Clicky preserves enough context from my demo to turn it into a workflow later.
+
+### What to build
+
+Add a local teach-session draft model that sits between live teach mode and a final saved workflow. A teach session should capture observed moments, screenshots or visual anchors, likely app/window context, spoken annotations, candidate targets, and unresolved ambiguities. The capture layer should be append-only during the demo and reviewable afterward.
+
+### Acceptance criteria
+
+- [ ] Starting Teach Mode creates or resumes a local teach-session draft.
+- [ ] A teach session stores a timeline of observed moments rather than only a final summary.
+- [ ] The system can persist candidate targets, app/window context, and user-spoken annotations with confidence or ambiguity markers.
+- [ ] A teach session can be reopened and handed off to workflow authoring later.
+
+---
+
+## Phase 3: Workflow Data Model And Runner v1
 
 **User stories**:
 - As a user, I can save a reusable workflow made of discrete visual steps.
@@ -57,7 +87,7 @@ Define the core workflow object model and build the first local workflow runner.
 
 ---
 
-## Phase 3: AI-Assisted Workflow Authoring
+## Phase 4: AI-Assisted Workflow Authoring
 
 **User stories**:
 - As a user, I do not have to manually fill every workflow field.
@@ -65,33 +95,15 @@ Define the core workflow object model and build the first local workflow runner.
 
 ### What to build
 
-Build an authoring flow where Clicky infers the app, target, action, and likely completion checks from what the user demonstrates. The system should ask for the minimum missing information rather than force form-heavy entry. The output should still be a structured workflow object.
+Build an authoring flow where Clicky converts a teach-session draft into a structured workflow. It should infer the app, target, action, and likely completion checks from captured observations plus user demonstration context. The system should ask for the minimum missing information rather than force form-heavy entry. The output should still be a structured workflow object.
 
 ### Acceptance criteria
 
-- [ ] Teach mode can infer step metadata from observed user actions.
+- [ ] Teach-session drafts can be converted into structured workflow drafts.
+- [ ] Clicky can infer step metadata from observed user actions and captured context.
 - [ ] Clicky asks only for missing or ambiguous details.
 - [ ] The saved result is still a structured workflow, not just a raw event recording.
 - [ ] The authoring flow feels lighter than manual form entry.
-
----
-
-## Phase 4: Focus Mode
-
-**User stories**:
-- As a user, I can tell Clicky what I am supposed to be working on.
-- As a user, Clicky can call me out when I drift away from the intended task.
-
-### What to build
-
-Add Focus Mode as a separate shell behavior. The user defines a work intention or task, and Clicky monitors the visible desktop context for drift. When the user gets distracted, Clicky interrupts with accountability prompts. Tone should be configurable so strict or rude accountability is optional rather than mandatory.
-
-### Acceptance criteria
-
-- [ ] Focus Mode can be started and stopped intentionally.
-- [ ] Clicky can compare current visible activity against the stated task.
-- [ ] Clicky can issue accountability prompts when drift is detected.
-- [ ] Focus Mode tone can be configured without changing the whole app persona.
 
 ---
 
@@ -103,12 +115,12 @@ Add Focus Mode as a separate shell behavior. The user defines a work intention o
 
 ### What to build
 
-Integrate the existing YouTube extraction foundation into Clicky’s workflow system. From a single video URL, derive transcript, sampled frames/screenshots, and lesson structure. Use that material to generate a workflow/lesson draft. Support optional inline playback of the source video in the desktop shell or Studio, similar to the current onboarding-player experience.
+Integrate an external YouTube extraction pipeline into Clicky’s workflow system. From a single video URL, import transcript, sampled frames/screenshots, and lesson structure. Use that material to generate a workflow or lesson draft through the same workflow-authoring path used by teach-session drafts. Support optional inline playback of the source video in the desktop shell or Studio, similar to the current onboarding-player experience.
 
 ### Acceptance criteria
 
 - [ ] User can provide a YouTube URL as tutorial source.
-- [ ] Clicky can extract transcript + representative frames/screens.
+- [ ] Clicky can import transcript + representative frames/screens from the ingestion pipeline.
 - [ ] Clicky can generate a workflow/lesson draft from that source.
 - [ ] Inline video context can be shown during tutorial use when helpful.
 
@@ -149,3 +161,11 @@ Expand the workflow runner so Clicky can optionally perform safe actions like cl
 - [ ] Clicky can perform approved safe actions inside a workflow run.
 - [ ] The same workflow model can be used for repeated UI test flows.
 - [ ] The system keeps clear user control over when actions are executed automatically.
+
+---
+
+## Separate Track
+
+Focus Mode still matters, but it is intentionally split into its own implementation path so the workflow/tutorial track can stay coherent:
+
+- See `plans/focus-mode-implementation-path.md`
