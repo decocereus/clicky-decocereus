@@ -65,6 +65,14 @@ enum ClickySpeechPreviewStatus: Equatable {
     case failed(message: String)
 }
 
+enum ClickyLaunchAuthState: Equatable {
+    case signedOut
+    case restoring
+    case signingIn
+    case signedIn(email: String)
+    case failed(message: String)
+}
+
 enum ElevenLabsVoiceImportStatus: Equatable {
     case idle
     case importing
@@ -351,6 +359,12 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var elevenLabsVoiceImportStatus: ElevenLabsVoiceImportStatus = .idle
     @Published private(set) var speechPreviewStatus: ClickySpeechPreviewStatus = .idle
     @Published private(set) var lastSpeechFallbackMessage: String?
+    @Published private(set) var clickyLaunchAuthState: ClickyLaunchAuthState = .signedOut
+    @Published var clickyBackendBaseURL: String = UserDefaults.standard.string(forKey: "clickyBackendBaseURL") ?? CompanionRuntimeConfiguration.defaultBackendBaseURL {
+        didSet {
+            UserDefaults.standard.set(clickyBackendBaseURL, forKey: "clickyBackendBaseURL")
+        }
+    }
     @Published var elevenLabsSelectedVoiceID: String = UserDefaults.standard.string(forKey: "elevenLabsSelectedVoiceID") ?? "" {
         didSet {
             UserDefaults.standard.set(elevenLabsSelectedVoiceID, forKey: "elevenLabsSelectedVoiceID")
@@ -372,6 +386,26 @@ final class CompanionManager: ObservableObject {
 
     var activeClickyTheme: ClickyTheme {
         clickyThemePreset.theme
+    }
+
+    var clickyBackendStatusLabel: String {
+        let trimmedURL = clickyBackendBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedURL.isEmpty ? "Not configured" : trimmedURL
+    }
+
+    var clickyLaunchAuthStatusLabel: String {
+        switch clickyLaunchAuthState {
+        case .signedOut:
+            return "Signed out"
+        case .restoring:
+            return "Restoring session"
+        case .signingIn:
+            return "Waiting for browser sign-in"
+        case let .signedIn(email):
+            return email
+        case let .failed(message):
+            return message
+        }
     }
 
     var hasStoredElevenLabsAPIKey: Bool {
@@ -560,6 +594,67 @@ final class CompanionManager: ObservableObject {
         selectedModel = model
         UserDefaults.standard.set(model, forKey: "selectedClaudeModel")
         claudeAPI.model = model
+    }
+
+    func startClickyLaunchSignIn() {
+        clickyLaunchAuthState = .signingIn
+        ClickyLogger.notice(.app, "Starting Clicky launch sign-in")
+
+        Task { @MainActor in
+            do {
+                let payload = try await clickyBackendAuthClient.startNativeSignIn()
+                guard let browserURL = URL(string: payload.browserURL) else {
+                    throw ClickyBackendAuthClientError.invalidBackendURL
+                }
+
+                NSWorkspace.shared.open(browserURL)
+            } catch {
+                clickyLaunchAuthState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to start Clicky launch sign-in error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func signOutClickyLaunchSession() {
+        ClickyAuthSessionStore.clear()
+        clickyLaunchAuthState = .signedOut
+        ClickyLogger.notice(.app, "Cleared Clicky launch auth session")
+    }
+
+    func handleClickyLaunchAuthCallback(url: URL) {
+        guard url.scheme?.lowercased() == "clicky",
+              url.host?.lowercased() == "auth",
+              url.path == "/callback" else {
+            return
+        }
+
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let exchangeCode = components.queryItems?.first(where: { $0.name == "code" })?.value,
+              !exchangeCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            clickyLaunchAuthState = .failed(message: ClickyBackendAuthClientError.missingExchangeCode.localizedDescription)
+            return
+        }
+
+        clickyLaunchAuthState = .signingIn
+
+        Task { @MainActor in
+            do {
+                let exchangePayload = try await clickyBackendAuthClient.exchangeNativeCode(exchangeCode)
+                let sessionPayload = try await clickyBackendAuthClient.fetchCurrentSession(sessionToken: exchangePayload.sessionToken)
+                let snapshot = ClickyAuthSessionSnapshot(
+                    sessionToken: exchangePayload.sessionToken,
+                    userID: exchangePayload.userID,
+                    email: sessionPayload.user.email
+                )
+
+                try ClickyAuthSessionStore.save(snapshot)
+                clickyLaunchAuthState = .signedIn(email: snapshot.email)
+                ClickyLogger.notice(.app, "Completed Clicky launch auth exchange user=\(snapshot.email)")
+            } catch {
+                clickyLaunchAuthState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to complete Clicky launch auth exchange error=\(error.localizedDescription)")
+            }
+        }
     }
 
     func setSelectedAgentBackend(_ selectedAgentBackend: CompanionAgentBackend) {
@@ -1321,6 +1416,7 @@ final class CompanionManager: ObservableObject {
             selectedAgentBackend = .openClaw
         }
 
+        restoreClickyLaunchSessionIfPossible()
         refreshAllPermissions()
         print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
@@ -1465,6 +1561,38 @@ final class CompanionManager: ObservableObject {
         audioPowerCancellable?.cancel()
         accessibilityCheckTimer?.invalidate()
         accessibilityCheckTimer = nil
+    }
+
+    private var clickyBackendAuthClient: ClickyBackendAuthClient {
+        ClickyBackendAuthClient(baseURL: clickyBackendBaseURL)
+    }
+
+    private func restoreClickyLaunchSessionIfPossible() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchAuthState = .signedOut
+            return
+        }
+
+        clickyLaunchAuthState = .restoring
+
+        Task { @MainActor in
+            do {
+                let sessionPayload = try await clickyBackendAuthClient.fetchCurrentSession(sessionToken: storedSession.sessionToken)
+                let refreshedSnapshot = ClickyAuthSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    userID: sessionPayload.user.id,
+                    email: sessionPayload.user.email
+                )
+
+                try ClickyAuthSessionStore.save(refreshedSnapshot)
+                clickyLaunchAuthState = .signedIn(email: refreshedSnapshot.email)
+                ClickyLogger.notice(.app, "Restored Clicky launch auth session user=\(refreshedSnapshot.email)")
+            } catch {
+                ClickyAuthSessionStore.clear()
+                clickyLaunchAuthState = .signedOut
+                ClickyLogger.error(.app, "Failed to restore Clicky launch auth session error=\(error.localizedDescription)")
+            }
+        }
     }
 
     func refreshAllPermissions() {
