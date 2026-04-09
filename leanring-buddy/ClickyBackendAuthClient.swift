@@ -63,6 +63,20 @@ struct ClickyBackendNativeAuthExchangePayload: Decodable {
     }
 }
 
+struct ClickyBackendCheckoutPayload: Decodable {
+    let checkout: ClickyBackendCheckoutDetailsPayload
+}
+
+struct ClickyBackendCheckoutDetailsPayload: Decodable {
+    let id: String
+    let url: String
+    let productKey: String
+    let productId: String?
+    let discountId: String?
+    let successUrl: String
+    let returnUrl: String?
+}
+
 enum ClickyBackendAuthClientError: LocalizedError {
     case backendNotConfigured
     case invalidBackendURL
@@ -151,6 +165,18 @@ struct ClickyBackendAuthClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try JSONDecoder().decode(ClickyBackendEntitlementEnvelopePayload.self, from: data)
+    }
+
+    func createCheckoutSession(sessionToken: String) async throws -> ClickyBackendCheckoutPayload {
+        var request = URLRequest(url: try endpointURL(path: "/v1/billing/checkout"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(ClickyBackendCheckoutPayload.self, from: data)
     }
 
     private func validate(response: URLResponse, data: Data) throws {

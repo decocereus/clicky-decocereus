@@ -73,6 +73,15 @@ enum ClickyLaunchAuthState: Equatable {
     case failed(message: String)
 }
 
+enum ClickyLaunchBillingState: Equatable {
+    case idle
+    case openingCheckout
+    case waitingForCompletion
+    case canceled
+    case completed
+    case failed(message: String)
+}
+
 enum ElevenLabsVoiceImportStatus: Equatable {
     case idle
     case importing
@@ -361,6 +370,7 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var lastSpeechFallbackMessage: String?
     @Published private(set) var clickyLaunchAuthState: ClickyLaunchAuthState = .signedOut
     @Published private(set) var clickyLaunchEntitlementStatusLabel: String = "Unknown"
+    @Published private(set) var clickyLaunchBillingState: ClickyLaunchBillingState = .idle
     @Published var clickyBackendBaseURL: String = UserDefaults.standard.string(forKey: "clickyBackendBaseURL") ?? CompanionRuntimeConfiguration.defaultBackendBaseURL {
         didSet {
             UserDefaults.standard.set(clickyBackendBaseURL, forKey: "clickyBackendBaseURL")
@@ -404,6 +414,23 @@ final class CompanionManager: ObservableObject {
             return "Waiting for browser sign-in"
         case let .signedIn(email):
             return email
+        case let .failed(message):
+            return message
+        }
+    }
+
+    var clickyLaunchBillingStatusLabel: String {
+        switch clickyLaunchBillingState {
+        case .idle:
+            return "Idle"
+        case .openingCheckout:
+            return "Opening checkout"
+        case .waitingForCompletion:
+            return "Waiting for purchase"
+        case .canceled:
+            return "Checkout canceled"
+        case .completed:
+            return "Checkout completed"
         case let .failed(message):
             return message
         }
@@ -620,16 +647,89 @@ final class CompanionManager: ObservableObject {
         ClickyAuthSessionStore.clear()
         clickyLaunchAuthState = .signedOut
         clickyLaunchEntitlementStatusLabel = "Unknown"
+        clickyLaunchBillingState = .idle
         ClickyLogger.notice(.app, "Cleared Clicky launch auth session")
     }
 
-    func handleClickyLaunchAuthCallback(url: URL) {
-        guard url.scheme?.lowercased() == "clicky",
-              url.host?.lowercased() == "auth",
-              url.path == "/callback" else {
+    func startClickyLaunchCheckout() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchBillingState = .failed(message: "Sign in before starting checkout.")
             return
         }
 
+        clickyLaunchBillingState = .openingCheckout
+
+        Task { @MainActor in
+            do {
+                let checkoutPayload = try await clickyBackendAuthClient.createCheckoutSession(sessionToken: storedSession.sessionToken)
+                guard let checkoutURL = URL(string: checkoutPayload.checkout.url) else {
+                    throw ClickyBackendAuthClientError.invalidBackendURL
+                }
+
+                NSWorkspace.shared.open(checkoutURL)
+                clickyLaunchBillingState = .waitingForCompletion
+                ClickyLogger.notice(.app, "Opened Polar checkout id=\(checkoutPayload.checkout.id)")
+            } catch {
+                clickyLaunchBillingState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to start Polar checkout error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func refreshClickyLaunchEntitlement() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchAuthState = .signedOut
+            clickyLaunchEntitlementStatusLabel = "Unknown"
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                let entitlementPayload = try await clickyBackendAuthClient.fetchCurrentEntitlement(sessionToken: storedSession.sessionToken)
+                let refreshedSnapshot = ClickyAuthSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    userID: storedSession.userID,
+                    email: storedSession.email,
+                    entitlement: ClickyLaunchEntitlementSnapshot(
+                        productKey: entitlementPayload.entitlement.productKey,
+                        status: entitlementPayload.entitlement.status,
+                        hasAccess: entitlementPayload.entitlement.hasAccess,
+                        gracePeriodEndsAt: entitlementPayload.entitlement.gracePeriodEndsAt
+                    )
+                )
+
+                try ClickyAuthSessionStore.save(refreshedSnapshot)
+                clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(refreshedSnapshot.entitlement)
+                if refreshedSnapshot.entitlement.hasAccess {
+                    clickyLaunchBillingState = .completed
+                }
+            } catch {
+                clickyLaunchBillingState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to refresh Clicky launch entitlement error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func handleClickyLaunchCallback(url: URL) {
+        guard url.scheme?.lowercased() == "clicky" else { return }
+
+        if url.host?.lowercased() == "auth", url.path == "/callback" {
+            handleClickyLaunchAuthCallback(url: url)
+            return
+        }
+
+        if url.host?.lowercased() == "billing", url.path == "/success" {
+            clickyLaunchBillingState = .completed
+            refreshClickyLaunchEntitlement()
+            return
+        }
+
+        if url.host?.lowercased() == "billing", url.path == "/cancel" {
+            clickyLaunchBillingState = .canceled
+        }
+    }
+
+    private func handleClickyLaunchAuthCallback(url: URL) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let exchangeCode = components.queryItems?.first(where: { $0.name == "code" })?.value,
               !exchangeCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

@@ -289,6 +289,7 @@ struct CompanionStudioView: View {
                     StudioKeyValueRow(label: "Backend URL", value: companionManager.clickyBackendStatusLabel)
                     StudioKeyValueRow(label: "Account", value: companionManager.clickyLaunchAuthStatusLabel)
                     StudioKeyValueRow(label: "Entitlement", value: companionManager.clickyLaunchEntitlementStatusLabel)
+                    StudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
 
                     StudioTextField(
                         title: "Launch backend URL",
@@ -331,6 +332,54 @@ struct CompanionStudioView: View {
                                 Image(systemName: "person.crop.circle.badge.xmark")
                                     .font(.system(size: 12, weight: .semibold))
                                 Text("Sign Out")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+
+                        Button(action: {
+                            companionManager.startClickyLaunchCheckout()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "creditcard")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Buy Launch Pass")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+
+                        Button(action: {
+                            companionManager.refreshClickyLaunchEntitlement()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.clockwise.circle")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Refresh Access")
                                     .font(.system(size: 12, weight: .semibold))
                             }
                             .foregroundColor(DS.Colors.textSecondary)
