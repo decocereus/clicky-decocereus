@@ -1,0 +1,104 @@
+import { Hono } from "hono"
+import { cors } from "hono/cors"
+
+import { createAuth } from "./auth/config"
+import type { Env } from "./env"
+
+const app = new Hono<{ Bindings: Env }>()
+
+app.use(
+  "/api/auth/*",
+  cors({
+    origin: (origin, c) => {
+      const allowedOrigins = new Set(
+        [
+          c.env.BETTER_AUTH_URL,
+          c.env.WEB_ORIGIN,
+        ].filter((value): value is string => Boolean(value)),
+      )
+
+      return allowedOrigins.has(origin) ? origin : ""
+    },
+    allowHeaders: ["Content-Type", "Authorization"],
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    exposeHeaders: ["Content-Length", "set-auth-token"],
+    credentials: true,
+    maxAge: 600,
+  }),
+)
+
+app.get("/", (c) => {
+  return c.json({
+    name: c.env.APP_NAME,
+    service: "clicky-backend",
+    status: "ok",
+  })
+})
+
+app.get("/health", (c) => {
+  return c.json({
+    status: "ok",
+    service: "clicky-backend",
+  })
+})
+
+app.on(["GET", "POST"], "/api/auth/*", (c) => {
+  const auth = createAuth(c.env)
+  return auth.handler(c.req.raw)
+})
+
+app.get("/v1", (c) => {
+  return c.json({
+    status: "ok",
+    message: "Clicky backend scaffold is live.",
+    routes: [
+      "GET /health",
+      "GET /v1",
+      "GET|POST /api/auth/*",
+      "GET /v1/me",
+      "GET /v1/auth/native/start",
+      "POST /v1/auth/native/exchange",
+    ],
+  })
+})
+
+app.get("/v1/me", async (c) => {
+  const auth = createAuth(c.env)
+  const session = await auth.api.getSession({
+    headers: c.req.raw.headers,
+  })
+
+  if (!session) {
+    return c.json(
+      {
+        user: null,
+        session: null,
+      },
+      401,
+    )
+  }
+
+  return c.json(session)
+})
+
+app.get("/v1/auth/native/start", (c) => {
+  return c.json(
+    {
+      error: "Native auth browser start is not implemented yet.",
+      nextStep: "Implement browser handoff + one-time exchange flow.",
+    },
+    501,
+  )
+})
+
+app.post("/v1/auth/native/exchange", (c) => {
+  return c.json(
+    {
+      error: "Native auth code exchange is not implemented yet.",
+      nextStep: "Implement one-time code exchange for bearer session issuance.",
+    },
+    501,
+  )
+})
+
+export default app

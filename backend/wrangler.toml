@@ -1,0 +1,7 @@
+name = "clicky-backend"
+main = "src/index.ts"
+compatibility_date = "2025-04-09"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+APP_NAME = "Clicky Backend"
