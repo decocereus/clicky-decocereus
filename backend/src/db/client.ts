@@ -1,7 +1,13 @@
 import { drizzle } from "drizzle-orm/neon-http"
 
+import * as authSchema from "../../auth-schema"
 import type { Env } from "../env"
-import * as schema from "./schema"
+import * as appSchema from "./schema"
+
+const schema = {
+  ...authSchema,
+  ...appSchema,
+}
 
 export function createDb(env: Env) {
   if (!env.DATABASE_URL) {

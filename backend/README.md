@@ -12,6 +12,8 @@ This service is separate from `worker/`:
 ```bash
 npm install
 npm run dev
+npm run auth:generate
+npm run db:generate
 npm run typecheck
 ```
 
@@ -33,3 +35,8 @@ The current scaffold exposes:
 - Better Auth handler routes at `/api/auth/*`
 - session inspection at `/v1/me`
 - placeholder native auth contract routes under `/v1/auth/native/*`
+
+## Schema generation
+
+- `npm run auth:generate` generates the Better Auth-required Drizzle schema using `src/auth.ts`
+- `npm run db:generate` generates app-owned Drizzle SQL migrations from `src/db/schema.ts`
