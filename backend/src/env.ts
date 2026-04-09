@@ -6,5 +6,6 @@ export interface Env {
   WEB_ORIGIN?: string
   MAC_APP_SCHEME?: string
   POLAR_ACCESS_TOKEN?: string
+  POLAR_LAUNCH_PRODUCT_ID?: string
   POLAR_WEBHOOK_SECRET?: string
 }

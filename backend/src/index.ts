@@ -3,8 +3,15 @@ import { cors } from "hono/cors"
 
 import { createAuth } from "./auth/config"
 import { requireSession } from "./auth/session"
-import { getLaunchEntitlementSnapshot } from "./entitlements/service"
+import {
+  handleCreateCheckout,
+  handleRestoreBilling,
+} from "./billing/routes"
 import type { Env } from "./env"
+import {
+  handleGetEntitlements,
+  handleRefreshEntitlements,
+} from "./entitlements/routes"
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -59,6 +66,9 @@ app.get("/v1", (c) => {
       "GET|POST /api/auth/*",
       "GET /v1/me",
       "GET /v1/entitlements/me",
+      "POST /v1/entitlements/refresh",
+      "POST /v1/billing/checkout",
+      "POST /v1/billing/restore",
       "GET /v1/auth/native/start",
       "POST /v1/auth/native/exchange",
     ],
@@ -75,23 +85,10 @@ app.get("/v1/me", async (c) => {
   return c.json(sessionResult.session)
 })
 
-app.get("/v1/entitlements/me", async (c) => {
-  const sessionResult = await requireSession(c)
-
-  if (!sessionResult.ok) {
-    return sessionResult.response
-  }
-
-  const launchEntitlement = await getLaunchEntitlementSnapshot(
-    c.env,
-    sessionResult.session.user.id,
-  )
-
-  return c.json({
-    userId: sessionResult.session.user.id,
-    entitlement: launchEntitlement,
-  })
-})
+app.get("/v1/entitlements/me", handleGetEntitlements)
+app.post("/v1/entitlements/refresh", handleRefreshEntitlements)
+app.post("/v1/billing/checkout", handleCreateCheckout)
+app.post("/v1/billing/restore", handleRestoreBilling)
 
 app.get("/v1/auth/native/start", (c) => {
   return c.json(
