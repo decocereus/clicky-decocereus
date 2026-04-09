@@ -28,6 +28,24 @@ enum OpenClawConnectionStatus {
     case failed(message: String)
 }
 
+enum ClickyOpenClawPluginStatus {
+    case notConfigured
+    case disabled
+    case enabled
+}
+
+enum ClickyShellRegistrationStatus {
+    case idle
+    case registering
+    case registered(summary: String)
+    case failed(message: String)
+}
+
+enum ClickyPersonaScopeMode: String, CaseIterable {
+    case useOpenClawIdentity
+    case overrideInClicky
+}
+
 @MainActor
 final class CompanionManager: ObservableObject {
     @Published private(set) var voiceState: CompanionVoiceState = .idle
@@ -98,6 +116,7 @@ final class CompanionManager: ObservableObject {
     private var audioPowerCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
+    private var clickyShellHeartbeatTimer: Timer?
     /// Scheduled hide for transient cursor mode — cancelled if the user
     /// speaks again before the delay elapses.
     private var transientHideTask: Task<Void, Never>?
@@ -133,12 +152,21 @@ final class CompanionManager: ObservableObject {
         didSet {
             UserDefaults.standard.set(openClawGatewayURL, forKey: "openClawGatewayURL")
             openClawConnectionStatus = .idle
+            refreshClickyShellRegistrationLifecycle()
+            refreshOpenClawAgentIdentity()
         }
     }
 
     @Published var openClawAgentIdentifier: String = UserDefaults.standard.string(forKey: "openClawAgentIdentifier") ?? "" {
         didSet {
             UserDefaults.standard.set(openClawAgentIdentifier, forKey: "openClawAgentIdentifier")
+            refreshOpenClawAgentIdentity()
+        }
+    }
+
+    @Published var openClawAgentName: String = UserDefaults.standard.string(forKey: "openClawAgentName") ?? "" {
+        didSet {
+            UserDefaults.standard.set(openClawAgentName, forKey: "openClawAgentName")
         }
     }
 
@@ -146,6 +174,8 @@ final class CompanionManager: ObservableObject {
         didSet {
             UserDefaults.standard.set(openClawGatewayAuthToken, forKey: "openClawGatewayAuthToken")
             openClawConnectionStatus = .idle
+            refreshClickyShellRegistrationLifecycle()
+            refreshOpenClawAgentIdentity()
         }
     }
 
@@ -153,10 +183,49 @@ final class CompanionManager: ObservableObject {
         didSet {
             UserDefaults.standard.set(openClawSessionKey, forKey: "openClawSessionKey")
             openClawConnectionStatus = .idle
+            if case .registered = clickyShellRegistrationStatus {
+                bindClickyShellSession()
+            } else {
+                refreshClickyShellRegistrationLifecycle()
+            }
+            refreshOpenClawAgentIdentity()
         }
     }
 
     @Published private(set) var openClawConnectionStatus: OpenClawConnectionStatus = .idle
+    @Published private(set) var clickyShellRegistrationStatus: ClickyShellRegistrationStatus = .idle
+    @Published private(set) var clickyShellServerFreshnessState: String?
+    @Published private(set) var clickyShellServerStatusSummary: String?
+    @Published private(set) var clickyShellServerSessionBindingState: String?
+    @Published private(set) var clickyShellServerSessionKey: String?
+    @Published private(set) var clickyShellServerTrustState: String?
+    @Published private(set) var inferredOpenClawAgentIdentityAvatar: String?
+    @Published private(set) var inferredOpenClawAgentIdentityName: String?
+    @Published private(set) var inferredOpenClawAgentIdentityEmoji: String?
+    @Published private(set) var inferredOpenClawAgentIdentifier: String?
+
+    @Published var clickyPersonaScopeMode: ClickyPersonaScopeMode = ClickyPersonaScopeMode(
+        rawValue: UserDefaults.standard.string(forKey: "clickyPersonaScopeMode") ?? ""
+    ) ?? .useOpenClawIdentity {
+        didSet {
+            UserDefaults.standard.set(clickyPersonaScopeMode.rawValue, forKey: "clickyPersonaScopeMode")
+            refreshClickyShellRegistrationLifecycle()
+        }
+    }
+
+    @Published var clickyPersonaOverrideName: String = UserDefaults.standard.string(forKey: "clickyPersonaOverrideName") ?? "" {
+        didSet {
+            UserDefaults.standard.set(clickyPersonaOverrideName, forKey: "clickyPersonaOverrideName")
+            refreshClickyShellRegistrationLifecycle()
+        }
+    }
+
+    @Published var clickyPersonaOverrideInstructions: String = UserDefaults.standard.string(forKey: "clickyPersonaOverrideInstructions") ?? "" {
+        didSet {
+            UserDefaults.standard.set(clickyPersonaOverrideInstructions, forKey: "clickyPersonaOverrideInstructions")
+            refreshClickyShellRegistrationLifecycle()
+        }
+    }
 
     func setSelectedModel(_ model: String) {
         selectedModel = model
@@ -166,6 +235,8 @@ final class CompanionManager: ObservableObject {
 
     func setSelectedAgentBackend(_ selectedAgentBackend: CompanionAgentBackend) {
         self.selectedAgentBackend = selectedAgentBackend
+        refreshClickyShellRegistrationLifecycle()
+        refreshOpenClawAgentIdentity()
     }
 
     var effectiveVoiceOutputDisplayName: String {
@@ -190,6 +261,152 @@ final class CompanionManager: ObservableObject {
             || !(host == "127.0.0.1" || host == "localhost" || host == "::1")
     }
 
+    var clickyOpenClawPluginIdentifier: String {
+        "clicky-shell"
+    }
+
+    var clickyOpenClawPluginStatus: ClickyOpenClawPluginStatus {
+        guard let openClawConfiguration = loadLocalOpenClawConfiguration(),
+              let plugins = openClawConfiguration["plugins"] as? [String: Any],
+              let entries = plugins["entries"] as? [String: Any],
+              let clickyEntry = entries[clickyOpenClawPluginIdentifier] as? [String: Any] else {
+            return .notConfigured
+        }
+
+        let isEnabled = (clickyEntry["enabled"] as? Bool) ?? false
+        return isEnabled ? .enabled : .disabled
+    }
+
+    var clickyOpenClawPluginStatusLabel: String {
+        switch clickyOpenClawPluginStatus {
+        case .enabled:
+            return "Enabled in local OpenClaw config"
+        case .disabled:
+            return "Installed but disabled"
+        case .notConfigured:
+            return "Not configured in local OpenClaw yet"
+        }
+    }
+
+    var clickyOpenClawPluginInstallPathHint: String {
+        #if DEBUG
+        let repositoryRootURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return repositoryRootURL.appendingPathComponent("plugins/openclaw-clicky-shell").path
+        #else
+        return "/path/to/clicky-decocereus/plugins/openclaw-clicky-shell"
+        #endif
+    }
+
+    var clickyOpenClawPluginInstallCommand: String {
+        "openclaw plugins install \(clickyOpenClawPluginInstallPathHint)"
+    }
+
+    var clickyOpenClawPluginEnableCommand: String {
+        "openclaw plugins enable \(clickyOpenClawPluginIdentifier) && openclaw gateway restart"
+    }
+
+    var clickyOpenClawRemoteReadinessSummary: String {
+        if isOpenClawGatewayRemote {
+            if !openClawGatewayAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "Remote Gateway is configured with an explicit Studio token."
+            }
+
+            return "Remote Gateway URL is set. Add a Studio token if the remote host does not share your local ~/.openclaw auth."
+        }
+
+        return "Local Gateway is ready. Remote-ready mode works once you switch the Gateway URL to wss:// and provide a valid token."
+    }
+
+    var clickyShellRegistrationStatusLabel: String {
+        switch clickyShellRegistrationStatus {
+        case .idle:
+            return "Shell not registered yet"
+        case .registering:
+            return "Registering Clicky shell"
+        case .registered:
+            return "Shell registered"
+        case .failed:
+            return "Shell registration failed"
+        }
+    }
+
+    var clickyShellServerSessionKeyLabel: String {
+        clickyShellServerSessionKey ?? "No session bound yet"
+    }
+
+    var clickyShellServerFreshnessLabel: String {
+        clickyShellServerFreshnessState ?? "unknown"
+    }
+
+    var clickyShellServerTrustLabel: String {
+        clickyShellServerTrustState ?? "unknown"
+    }
+
+    var clickyShellServerBindingLabel: String {
+        clickyShellServerSessionBindingState ?? "unknown"
+    }
+
+    var effectiveOpenClawAgentName: String {
+        let manualName = openClawAgentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !manualName.isEmpty {
+            return manualName
+        }
+
+        let inferredName = inferredOpenClawAgentIdentityName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !inferredName.isEmpty {
+            return inferredName
+        }
+
+        return "your OpenClaw agent"
+    }
+
+    var inferredOpenClawAgentIdentityDisplayName: String {
+        let emojiPrefix = inferredOpenClawAgentIdentityEmoji?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let identityName = inferredOpenClawAgentIdentityName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if !emojiPrefix.isEmpty && !identityName.isEmpty {
+            return "\(emojiPrefix) \(identityName)"
+        }
+
+        if !identityName.isEmpty {
+            return identityName
+        }
+
+        return "Not detected yet"
+    }
+
+    var inferredOpenClawAgentIdentityEmojiLabel: String {
+        let emojiValue = inferredOpenClawAgentIdentityEmoji?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return emojiValue.isEmpty ? "No emoji provided by OpenClaw" : emojiValue
+    }
+
+    var inferredOpenClawAgentIdentityAvatarLabel: String {
+        let avatarValue = inferredOpenClawAgentIdentityAvatar?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return avatarValue.isEmpty ? "No avatar provided by OpenClaw" : "Avatar available from OpenClaw"
+    }
+
+    var effectiveClickyPresentationName: String {
+        if clickyPersonaScopeMode == .overrideInClicky {
+            let overrideName = clickyPersonaOverrideName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !overrideName.isEmpty {
+                return overrideName
+            }
+        }
+
+        return effectiveOpenClawAgentName
+    }
+
+    var clickyPersonaScopeLabel: String {
+        switch clickyPersonaScopeMode {
+        case .useOpenClawIdentity:
+            return "Use OpenClaw identity"
+        case .overrideInClicky:
+            return "Override only in Clicky"
+        }
+    }
+
     func testOpenClawConnection() {
         if case .testing = openClawConnectionStatus {
             return
@@ -204,8 +421,266 @@ final class CompanionManager: ObservableObject {
                     explicitGatewayAuthToken: openClawGatewayAuthToken
                 )
                 openClawConnectionStatus = .connected(summary: summary)
+                ClickyLogger.notice(.gateway, "OpenClaw connection test succeeded summary=\(summary)")
+                refreshOpenClawAgentIdentity()
             } catch {
                 openClawConnectionStatus = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.gateway, "OpenClaw connection test failed error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func registerClickyShellNow() {
+        if selectedAgentBackend != .openClaw {
+            clickyShellRegistrationStatus = .failed(message: "Switch the Agent backend to OpenClaw before registering the Clicky shell.")
+            ClickyLogger.error(.plugin, "Shell registration blocked because backend is not OpenClaw")
+            return
+        }
+
+        if openClawGatewayURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            clickyShellRegistrationStatus = .failed(message: "Set an OpenClaw Gateway URL before registering the Clicky shell.")
+            ClickyLogger.error(.plugin, "Shell registration blocked because gateway URL is empty")
+            return
+        }
+
+        if !isOpenClawGatewayRemote && clickyOpenClawPluginStatus != .enabled {
+            clickyShellRegistrationStatus = .failed(message: "Enable the local clicky-shell plugin first, then try registering again.")
+            ClickyLogger.error(.plugin, "Shell registration blocked because clicky-shell plugin is not enabled")
+            return
+        }
+
+        attemptClickyShellRegistration()
+    }
+
+    func refreshClickyShellStatusNow() {
+        fetchClickyShellServerStatus()
+    }
+
+    func refreshOpenClawAgentIdentity() {
+        guard selectedAgentBackend == .openClaw else { return }
+        guard !openClawGatewayURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        Task { @MainActor in
+            do {
+                let agentIdentitySnapshot = try await openClawGatewayCompanionAgent.fetchAgentIdentity(
+                    gatewayURLString: openClawGatewayURL,
+                    explicitGatewayAuthToken: openClawGatewayAuthToken,
+                    agentIdentifier: openClawAgentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : openClawAgentIdentifier,
+                    sessionKey: openClawSessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : openClawSessionKey
+                )
+
+                inferredOpenClawAgentIdentityName = agentIdentitySnapshot.name
+                inferredOpenClawAgentIdentityEmoji = agentIdentitySnapshot.emoji
+                inferredOpenClawAgentIdentityAvatar = agentIdentitySnapshot.avatar
+                inferredOpenClawAgentIdentifier = agentIdentitySnapshot.agentIdentifier
+                ClickyLogger.info(.gateway, "Fetched OpenClaw identity name=\(agentIdentitySnapshot.name ?? "unknown")")
+
+                if openClawAgentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let inferredAgentIdentifier = agentIdentitySnapshot.agentIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !inferredAgentIdentifier.isEmpty {
+                    openClawAgentIdentifier = inferredAgentIdentifier
+                }
+
+                if openClawAgentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let inferredAgentIdentityName = agentIdentitySnapshot.name?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !inferredAgentIdentityName.isEmpty {
+                    openClawAgentName = inferredAgentIdentityName
+                }
+            } catch {
+                inferredOpenClawAgentIdentityAvatar = nil
+                inferredOpenClawAgentIdentifier = nil
+                inferredOpenClawAgentIdentityName = nil
+                inferredOpenClawAgentIdentityEmoji = nil
+            }
+        }
+    }
+
+    private func loadLocalOpenClawConfiguration() -> [String: Any]? {
+        let openClawHomeDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".openclaw", isDirectory: true)
+        let configurationFileURL = openClawHomeDirectoryURL.appendingPathComponent("openclaw.json")
+
+        guard let configurationData = try? Data(contentsOf: configurationFileURL),
+              let configurationJSON = try? JSONSerialization.jsonObject(with: configurationData) as? [String: Any] else {
+            return nil
+        }
+
+        return configurationJSON
+    }
+
+    private var clickyShellIdentifier: String {
+        if let persistedClickyShellIdentifier = UserDefaults.standard.string(forKey: "clickyShellIdentifier"),
+           !persistedClickyShellIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return persistedClickyShellIdentifier
+        }
+
+        let generatedClickyShellIdentifier = "clicky-shell-\(UUID().uuidString.lowercased())"
+        UserDefaults.standard.set(generatedClickyShellIdentifier, forKey: "clickyShellIdentifier")
+        return generatedClickyShellIdentifier
+    }
+
+    private var clickyShellLabel: String {
+        let hostName = Host.current().localizedName ?? "This Mac"
+        return "Clicky on \(hostName)"
+    }
+
+    private var clickyShellBridgeVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+    }
+
+    private var clickyShellRuntimeMode: String {
+        #if DEBUG
+        return "debug"
+        #else
+        return "production"
+        #endif
+    }
+
+    private var shouldAttemptClickyShellRegistration: Bool {
+        guard selectedAgentBackend == .openClaw else { return false }
+        guard !openClawGatewayURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+
+        if isOpenClawGatewayRemote {
+            return true
+        }
+
+        return clickyOpenClawPluginStatus == .enabled
+    }
+
+    private func refreshClickyShellRegistrationLifecycle() {
+        clickyShellHeartbeatTimer?.invalidate()
+        clickyShellHeartbeatTimer = nil
+
+        guard shouldAttemptClickyShellRegistration else {
+            clickyShellRegistrationStatus = .idle
+            clickyShellServerFreshnessState = nil
+            clickyShellServerStatusSummary = nil
+            clickyShellServerSessionBindingState = nil
+            clickyShellServerSessionKey = nil
+            clickyShellServerTrustState = nil
+            return
+        }
+
+        attemptClickyShellRegistration()
+    }
+
+    private func attemptClickyShellRegistration() {
+        guard shouldAttemptClickyShellRegistration else { return }
+
+        clickyShellRegistrationStatus = .registering
+
+        let shellRegistrationPayload = OpenClawShellRegistrationPayload(
+            agentIdentityName: effectiveOpenClawAgentName,
+            shellIdentifier: clickyShellIdentifier,
+            shellLabel: clickyShellLabel,
+            bridgeVersion: clickyShellBridgeVersion,
+            cursorPointingProtocol: ClickyShellCapabilities.cursorPointingProtocol,
+            capabilities: ClickyShellCapabilities.capabilityIdentifiers,
+            clickyShellCapabilityVersion: ClickyShellCapabilities.shellCapabilityVersion,
+            clickyPresentationName: effectiveClickyPresentationName,
+            personaScope: clickyPersonaScopeMode == .overrideInClicky ? "clicky-local-override" : "openclaw-identity",
+            runtimeMode: clickyShellRuntimeMode,
+            screenContextTransport: ClickyShellCapabilities.screenContextTransport,
+            sessionKey: openClawSessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : openClawSessionKey,
+            shellProtocolVersion: ClickyShellCapabilities.shellProtocolVersion,
+            speechOutputMode: ClickyShellCapabilities.speechOutputMode,
+            supportsInlineTextBubble: ClickyShellCapabilities.supportsInlineTextBubble,
+            registeredAtMilliseconds: Int(Date().timeIntervalSince1970 * 1000)
+        )
+
+        Task { @MainActor in
+            do {
+                let summary = try await openClawGatewayCompanionAgent.registerShell(
+                    gatewayURLString: openClawGatewayURL,
+                    explicitGatewayAuthToken: openClawGatewayAuthToken,
+                    payload: shellRegistrationPayload
+                )
+
+                clickyShellRegistrationStatus = .registered(summary: summary)
+                clickyShellServerFreshnessState = "fresh"
+                clickyShellServerStatusSummary = summary
+                clickyShellServerSessionBindingState = shellRegistrationPayload.sessionKey == nil ? "unbound" : "bound"
+                clickyShellServerSessionKey = shellRegistrationPayload.sessionKey
+                clickyShellServerTrustState = isOpenClawGatewayRemote ? "trusted-remote" : "trusted-local"
+                ClickyLogger.notice(.plugin, "Clicky shell registered summary=\(summary)")
+                startClickyShellHeartbeatTimerIfNeeded()
+                fetchClickyShellServerStatus()
+            } catch {
+                clickyShellRegistrationStatus = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.plugin, "Clicky shell registration failed error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func startClickyShellHeartbeatTimerIfNeeded() {
+        clickyShellHeartbeatTimer?.invalidate()
+
+        clickyShellHeartbeatTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.sendClickyShellHeartbeat()
+            }
+        }
+    }
+
+    private func sendClickyShellHeartbeat() async {
+        guard shouldAttemptClickyShellRegistration else { return }
+
+        do {
+            try await openClawGatewayCompanionAgent.sendShellHeartbeat(
+                gatewayURLString: openClawGatewayURL,
+                explicitGatewayAuthToken: openClawGatewayAuthToken,
+                shellIdentifier: clickyShellIdentifier
+            )
+            ClickyLogger.debug(.plugin, "Clicky shell heartbeat sent shellId=\(clickyShellIdentifier)")
+        } catch {
+            clickyShellRegistrationStatus = .failed(message: error.localizedDescription)
+            ClickyLogger.error(.plugin, "Clicky shell heartbeat failed error=\(error.localizedDescription)")
+            attemptClickyShellRegistration()
+        }
+    }
+
+    private func fetchClickyShellServerStatus() {
+        guard shouldAttemptClickyShellRegistration else { return }
+
+        Task { @MainActor in
+            do {
+                let shellStatusSnapshot = try await openClawGatewayCompanionAgent.fetchShellStatus(
+                    gatewayURLString: openClawGatewayURL,
+                    explicitGatewayAuthToken: openClawGatewayAuthToken,
+                    shellIdentifier: clickyShellIdentifier
+                )
+
+                clickyShellServerStatusSummary = shellStatusSnapshot.summary
+                clickyShellServerFreshnessState = shellStatusSnapshot.freshnessState
+                clickyShellServerSessionBindingState = shellStatusSnapshot.sessionBindingState
+                clickyShellServerSessionKey = shellStatusSnapshot.sessionKey
+                clickyShellServerTrustState = shellStatusSnapshot.trustState
+            } catch {
+                clickyShellServerStatusSummary = error.localizedDescription
+            }
+        }
+    }
+
+    private func bindClickyShellSession() {
+        guard shouldAttemptClickyShellRegistration else { return }
+
+        Task { @MainActor in
+            do {
+                let shellStatusSnapshot = try await openClawGatewayCompanionAgent.bindShellSession(
+                    gatewayURLString: openClawGatewayURL,
+                    explicitGatewayAuthToken: openClawGatewayAuthToken,
+                    shellIdentifier: clickyShellIdentifier,
+                    sessionKey: openClawSessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : openClawSessionKey
+                )
+
+                clickyShellServerStatusSummary = shellStatusSnapshot.summary
+                clickyShellServerFreshnessState = shellStatusSnapshot.freshnessState
+                clickyShellServerSessionBindingState = shellStatusSnapshot.sessionBindingState
+                clickyShellServerSessionKey = shellStatusSnapshot.sessionKey
+                clickyShellServerTrustState = shellStatusSnapshot.trustState
+            } catch {
+                clickyShellRegistrationStatus = .failed(message: error.localizedDescription)
             }
         }
     }
@@ -266,6 +741,9 @@ final class CompanionManager: ObservableObject {
                 await buddyDictationManager.requestInitialPushToTalkPermissionsIfNeeded()
             }
         }
+
+        refreshClickyShellRegistrationLifecycle()
+        refreshOpenClawAgentIdentity()
 
         // If the user already completed onboarding AND all permissions are
         // still granted, show the cursor overlay immediately. If permissions
@@ -376,6 +854,8 @@ final class CompanionManager: ObservableObject {
         buddyDictationManager.cancelCurrentDictation()
         overlayWindowManager.hideOverlay()
         transientHideTask?.cancel()
+        clickyShellHeartbeatTimer?.invalidate()
+        clickyShellHeartbeatTimer = nil
 
         currentResponseTask?.cancel()
         currentResponseTask = nil
@@ -661,6 +1141,69 @@ final class CompanionManager: ObservableObject {
     - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
     """
 
+    private func openClawShellScopedSystemPrompt() -> String {
+        let upstreamOpenClawAgentName = effectiveOpenClawAgentName
+        let clickyPresentationName = effectiveClickyPresentationName
+        let localPersonaInstructions = clickyPersonaOverrideInstructions
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let clickyScopedIdentityInstructions: String
+        if clickyPersonaScopeMode == .overrideInClicky {
+            clickyScopedIdentityInstructions = """
+            your upstream openclaw identity is \(upstreamOpenClawAgentName). clicky is only the desktop shell around you. inside clicky only, present yourself as \(clickyPresentationName). do not claim that your upstream identity changed globally. this is a clicky-local presentation layer.
+            \(localPersonaInstructions.isEmpty ? "keep the same core knowledge, memory, and reasoning style you already have in openclaw." : "follow these clicky-only persona instructions: \(localPersonaInstructions)")
+            """
+        } else {
+            clickyScopedIdentityInstructions = """
+            your upstream openclaw identity is \(upstreamOpenClawAgentName). clicky is only the desktop shell around you. do not rename yourself to clicky or imply that clicky replaced your core identity. keep speaking as \(upstreamOpenClawAgentName), with clicky only providing capture, cursor, and voice presentation.
+            """
+        }
+
+        return """
+        \(clickyScopedIdentityInstructions)
+
+        clicky shell capabilities currently available to you:
+        - screen context arrives as attached screenshots
+        - cursor pointing uses \(ClickyShellCapabilities.cursorPointingProtocol)
+        - spoken output is handled by the clicky shell
+        - clicky shell protocol version: \(ClickyShellCapabilities.shellProtocolVersion)
+        - clicky shell capability version: \(ClickyShellCapabilities.shellCapabilityVersion)
+
+        the user just spoke to you via push-to-talk and you can see their screen(s). your reply will be spoken aloud via text-to-speech, so write the way you'd actually talk. this is an ongoing conversation — you remember everything they've said before.
+
+        rules:
+        - default to one or two sentences. be direct and dense. BUT if the user asks you to explain more, go deeper, or elaborate, then go all out — give a thorough, detailed explanation with no length limit.
+        - all lowercase, casual, warm. no emojis.
+        - write for the ear, not the eye. short sentences. no lists, bullet points, markdown, or formatting — just natural speech.
+        - don't use abbreviations or symbols that sound weird read aloud. write "for example" not "e.g.", spell out small numbers.
+        - if the user's question relates to what's on their screen, reference specific things you see.
+        - if the screenshot doesn't seem relevant to their question, just answer the question directly.
+        - you can help with anything — coding, writing, general knowledge, brainstorming.
+        - never say "simply" or "just".
+        - don't read out code verbatim. describe what the code does or what needs to change conversationally.
+        - focus on giving a thorough, useful explanation. don't end with simple yes/no questions like "want me to explain more?" or "should i show you?" — those are dead ends that force the user to just say yes.
+        - instead, when it fits naturally, end by planting a seed — mention something bigger or more ambitious they could try, a related concept that goes deeper, or a next-level technique that builds on what you just explained. make it something worth coming back for, not a question they'd just nod to. it's okay to not end with anything extra if the answer is complete on its own.
+        - if you receive multiple screen images, the one labeled "primary focus" is where the cursor is — prioritize that one but reference others if relevant.
+
+        element pointing:
+        you have a small blue triangle cursor that can fly to and point at things on screen. use it whenever pointing would genuinely help the user — if they're asking how to do something, looking for a menu, trying to find a button, or need help navigating an app, point at the relevant element. err on the side of pointing rather than not pointing, because it makes your help way more useful and concrete.
+
+        don't point at things when it would be pointless — like if the user asks a general knowledge question, or the conversation has nothing to do with what's on screen, or you'd just be pointing at something obvious they're already looking at. but if there's a specific UI element, menu, button, or area on screen that's relevant to what you're helping with, point at it.
+
+        when you point, append a coordinate tag at the very end of your response, AFTER your spoken text. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
+
+        format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screenshot's coordinate space, and label is a short 1-3 word description of the element (like "search bar" or "save button"). if the element is on the cursor's screen you can omit the screen number. if the element is on a DIFFERENT screen, append :screenN where N is the screen number from the image label (e.g. :screen2). this is important — without the screen number, the cursor will point at the wrong place.
+
+        if pointing wouldn't help, append [POINT:none].
+
+        examples:
+        - user asks how to color grade in final cut: "you'll want to open the color inspector — it's right up in the top right area of the toolbar. click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
+        - user asks what html is: "html stands for hypertext markup language, it's basically the skeleton of every web page. curious how it connects to the css you're looking at? [POINT:none]"
+        - user asks how to commit in xcode: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut. [POINT:285,11:source control]"
+        - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
+        """
+    }
+
     // MARK: - AI Response Pipeline
 
     /// Captures a screenshot, sends it along with the transcript to Claude,
@@ -726,7 +1269,7 @@ final class CompanionManager: ObservableObject {
                         configuredAgentIdentifier: openClawAgentIdentifier,
                         configuredSessionKey: openClawSessionKey,
                         images: imageAttachments,
-                        systemPrompt: Self.companionVoiceResponseSystemPrompt,
+                        systemPrompt: openClawShellScopedSystemPrompt(),
                         userPrompt: transcript,
                         onTextChunk: { _ in
                             // No streaming text display — spinner stays until TTS plays

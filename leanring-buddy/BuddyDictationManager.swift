@@ -384,6 +384,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         guard !isDictationInProgress else { return }
 
         print("🎙️ BuddyDictationManager: start requested (\(startSource))")
+        ClickyLogger.info(.audio, "Push-to-talk start requested source=\(String(describing: startSource))")
 
         if needsInitialPermissionPrompt {
             print("🎙️ BuddyDictationManager: requesting initial permissions")
@@ -406,6 +407,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
 
         guard await requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts() else {
             print("🎙️ BuddyDictationManager: permissions missing or denied")
+            ClickyLogger.error(.audio, "Push-to-talk permissions missing or denied")
             isPreparingToRecord = false
             return
         }
@@ -462,6 +464,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
             }
             isPreparingToRecord = false
             print("🎙️ BuddyDictationManager: recognition session started")
+            ClickyLogger.info(.audio, "Recognition session started provider=\(transcriptionProvider.displayName)")
         } catch {
             isPreparingToRecord = false
             lastErrorMessage = userFacingErrorMessage(
@@ -469,6 +472,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                 fallback: "couldn't start voice input. try again."
             )
             print("❌ BuddyDictationManager: failed to start recognition session (\(transcriptionProvider.displayName)): \(error)")
+            ClickyLogger.error(.audio, "Recognition session failed provider=\(transcriptionProvider.displayName) error=\(error.localizedDescription)")
             resetSessionState()
         }
     }
@@ -483,6 +487,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         guard !isFinalizingTranscript else { return }
 
         print("🎙️ BuddyDictationManager: stop requested (\(expectedStartSource))")
+        ClickyLogger.info(.audio, "Push-to-talk stop requested source=\(String(describing: expectedStartSource))")
 
         isRecordingFromMicrophoneButton = false
         isRecordingFromKeyboardShortcut = false

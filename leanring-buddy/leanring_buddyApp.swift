@@ -46,6 +46,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🎯 Clicky: Starting...")
         print("🎯 Clicky: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
+        ClickyLogger.notice(.app, "Launching Clicky version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
         terminateOtherRunningClickyInstances()
 
@@ -73,6 +74,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        ClickyLogger.notice(.app, "Terminating Clicky")
         companionManager.stop()
     }
 
@@ -117,6 +119,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         for runningApplication in otherRunningClickyApplications {
             print("🎯 Clicky: Terminating duplicate instance pid=\(runningApplication.processIdentifier)")
+            ClickyLogger.notice(.app, "Terminating duplicate instance pid=\(runningApplication.processIdentifier)")
             _ = runningApplication.terminate()
         }
     }

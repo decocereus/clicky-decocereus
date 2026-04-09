@@ -5,6 +5,7 @@
 //  Desktop configuration surface for the companion shell.
 //
 
+import AppKit
 import SwiftUI
 
 private enum CompanionStudioSection: String, CaseIterable, Identifiable {
@@ -12,6 +13,7 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable {
     case openClaw
     case voiceAppearance
     case integrations
+    case diagnostics
 
     var id: String { rawValue }
 
@@ -25,6 +27,8 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable {
             return "Voice & Appearance"
         case .integrations:
             return "Integrations"
+        case .diagnostics:
+            return "Diagnostics"
         }
     }
 
@@ -38,6 +42,8 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable {
             return "speaker.wave.3"
         case .integrations:
             return "puzzlepiece.extension"
+        case .diagnostics:
+            return "stethoscope"
         }
     }
 
@@ -51,6 +57,8 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable {
             return "Speech and cursor shell"
         case .integrations:
             return "Plugin-ready direction"
+        case .diagnostics:
+            return "Debug and internal state"
         }
     }
 }
@@ -215,6 +223,8 @@ struct CompanionStudioView: View {
             voiceAppearanceSectionContent
         case .integrations:
             integrationsSectionContent
+        case .diagnostics:
+            diagnosticsSectionContent
         }
     }
 
@@ -284,6 +294,7 @@ struct CompanionStudioView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
         }
     }
 
@@ -336,6 +347,81 @@ struct CompanionStudioView: View {
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            StudioCard(title: "Identity in Clicky", subtitle: "Choose how your existing OpenClaw agent shows up inside Clicky") {
+                VStack(alignment: .leading, spacing: 14) {
+                    StudioKeyValueRow(
+                        label: "Current agent",
+                        value: companionManager.inferredOpenClawAgentIdentityDisplayName
+                    )
+
+                    Button(action: {
+                        companionManager.refreshOpenClawAgentIdentity()
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Refresh OpenClaw Identity")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(DS.Colors.surface2)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+
+                    Picker(
+                        "Persona Scope",
+                        selection: Binding(
+                            get: { companionManager.clickyPersonaScopeMode },
+                            set: { companionManager.clickyPersonaScopeMode = $0 }
+                        )
+                    ) {
+                        Text("Use OpenClaw Identity").tag(ClickyPersonaScopeMode.useOpenClawIdentity)
+                        Text("Override in Clicky").tag(ClickyPersonaScopeMode.overrideInClicky)
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text("Your OpenClaw agent stays itself. Clicky only changes how that agent appears inside Clicky when you choose an override.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    StudioKeyValueRow(
+                        label: "Clicky presents as",
+                        value: companionManager.effectiveClickyPresentationName
+                    )
+
+                    if companionManager.clickyPersonaScopeMode == .overrideInClicky {
+                        StudioTextField(
+                            title: "Clicky-only display name",
+                            text: Binding(
+                                get: { companionManager.clickyPersonaOverrideName },
+                                set: { companionManager.clickyPersonaOverrideName = $0 }
+                            ),
+                            placeholder: "Example: Zuko in Clicky"
+                        )
+
+                        StudioMultilineField(
+                            title: "Clicky-only persona notes",
+                            text: Binding(
+                                get: { companionManager.clickyPersonaOverrideInstructions },
+                                set: { companionManager.clickyPersonaOverrideInstructions = $0 }
+                            ),
+                            placeholder: "Only affects Clicky. Does not rewrite the agent inside OpenClaw."
+                        )
+                    }
                 }
             }
 
@@ -417,31 +503,212 @@ struct CompanionStudioView: View {
 
     private var integrationsSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            StudioCard(title: "Plugin Direction", subtitle: "Make Clicky installable into agent ecosystems instead of building bespoke glue per runtime") {
+            StudioCard(title: "Connect Clicky to OpenClaw", subtitle: "Set up the bridge once, then Clicky can work as your desktop companion shell") {
                 VStack(alignment: .leading, spacing: 12) {
-                    StudioStatusPill(label: "OpenClaw plugin is next", tone: .info)
-                    Text("The goal is a Clicky plugin that OpenClaw can install so OpenClaw recognizes Clicky as a first-class integration, can route responses through Clicky's transcript/TTS shell, and can keep its own memory updated about the connection.")
+                    StudioStepRow(
+                        stepNumber: 1,
+                        title: "Install the plugin",
+                        detail: "Run this once from your terminal.",
+                        statusLabel: companionManager.clickyOpenClawPluginStatus == .notConfigured ? "Needed" : "Done",
+                        statusTone: companionManager.clickyOpenClawPluginStatus == .notConfigured ? .warning : .success
+                    )
+
+                    StudioCommandBlock(
+                        title: "Install command",
+                        command: companionManager.clickyOpenClawPluginInstallCommand
+                    )
+
+                    StudioStepRow(
+                        stepNumber: 2,
+                        title: "Enable it in OpenClaw",
+                        detail: "This turns the plugin on and restarts the Gateway.",
+                        statusLabel: companionManager.clickyOpenClawPluginStatus == .enabled ? "Done" : "Needed",
+                        statusTone: companionManager.clickyOpenClawPluginStatus == .enabled ? .success : .warning
+                    )
+
+                    StudioCommandBlock(
+                        title: "Enable + restart",
+                        command: companionManager.clickyOpenClawPluginEnableCommand
+                    )
+
+                    StudioStepRow(
+                        stepNumber: 3,
+                        title: "Register this Clicky shell",
+                        detail: "Once OpenClaw is enabled and the Agent backend is set to OpenClaw, Clicky can identify itself as the live desktop shell.",
+                        statusLabel: companionManager.clickyShellRegistrationStatusLabel,
+                        statusTone: clickyShellRegistrationTone
+                    )
+
+                    Button(action: {
+                        companionManager.registerClickyShellNow()
+                    }) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Register Clicky Shell")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(DS.Colors.surface2)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+
+                    Button(action: {
+                        companionManager.refreshClickyShellStatusNow()
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Refresh Shell Status")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(DS.Colors.surface2)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+
+                    shellRegistrationStatusView
+                }
+            }
+
+            StudioCard(title: "Connection Summary", subtitle: "What matters to a user right now") {
+                VStack(alignment: .leading, spacing: 12) {
+                    StudioStatusPill(
+                        label: companionManager.clickyOpenClawPluginStatusLabel,
+                        tone: clickyPluginStatusTone
+                    )
+
+                    Text("Once this bridge is installed and enabled, Clicky can speak responses, show cursor presence, and stay aligned with your OpenClaw agent while keeping that agent’s core identity intact.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            StudioCard(title: "Remote-Ready Integration", subtitle: "Local-first, but not local-only") {
+            StudioCard(title: "Remote-Ready Setup", subtitle: "This keeps working when OpenClaw is hosted somewhere else") {
                 VStack(alignment: .leading, spacing: 12) {
-                    StudioKeyValueRow(label: "Transport", value: "ws:// or wss:// Gateway")
-                    StudioKeyValueRow(label: "Auth", value: "Studio token override or local OpenClaw token")
-                    StudioKeyValueRow(label: "Shell ownership", value: "Clicky captures input, shows presence, speaks output")
-                    StudioKeyValueRow(label: "Agent ownership", value: "OpenClaw handles cognition, memory, and agent runtime")
+                    StudioKeyValueRow(label: "Gateway transport", value: "Clicky connects out over ws:// or wss://")
+                    StudioKeyValueRow(label: "Auth mode", value: "Local token fallback or explicit Studio token")
+                    Text(companionManager.clickyOpenClawRemoteReadinessSummary)
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            StudioCard(title: "What Comes After Studio", subtitle: "The next build slice after this window exists") {
+            StudioCard(title: "What Comes Next", subtitle: "The current bridge is working, but the plugin will keep getting richer") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("1. Give OpenClaw a real Clicky identity handshake.\n2. Package Clicky capabilities as an installable plugin.\n3. Route remote OpenClaw turns through the same silky cursor and voice shell.\n4. Add custom voices and cursor appearance packs here.")
+                    Text("Next we deepen the trust handshake, capability versioning, and session-binding behavior so OpenClaw can treat Clicky as a first-class shell instead of just a generic Gateway client.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var diagnosticsSectionContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            StudioCard(title: "Diagnostics", subtitle: "Internal app and integration state for debugging") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("This section is intentionally more technical. It’s here so we can debug identity, shell registration, and bridge behavior without exposing those details in the normal user flow.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    StudioKeyValueRow(label: "OpenClaw agent id", value: companionManager.inferredOpenClawAgentIdentifier ?? "Not detected")
+                    StudioKeyValueRow(label: "OpenClaw emoji", value: companionManager.inferredOpenClawAgentIdentityEmojiLabel)
+                    StudioKeyValueRow(label: "OpenClaw avatar", value: companionManager.inferredOpenClawAgentIdentityAvatarLabel)
+                    StudioKeyValueRow(label: "Shell trust", value: companionManager.clickyShellServerTrustLabel)
+                    StudioKeyValueRow(label: "Shell freshness", value: companionManager.clickyShellServerFreshnessLabel)
+                    StudioKeyValueRow(label: "Session binding", value: companionManager.clickyShellServerBindingLabel)
+                    StudioKeyValueRow(label: "Bound session", value: companionManager.clickyShellServerSessionKeyLabel)
+
+                    if let clickyShellServerStatusSummary = companionManager.clickyShellServerStatusSummary,
+                       !clickyShellServerStatusSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        DisclosureGroup("Raw shell summary") {
+                            Text(clickyShellServerStatusSummary)
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 8)
+                                .textSelection(.enabled)
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(DS.Colors.textSecondary)
+                    }
+
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            let pasteboard = NSPasteboard.general
+                            pasteboard.clearContents()
+                            pasteboard.setString(ClickyDiagnosticsStore.shared.formattedRecentLogText(), forType: .string)
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Copy Recent Logs")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+
+                        Button(action: {
+                            ClickyDiagnosticsStore.shared.clear()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Clear Buffer")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+                    }
                 }
             }
         }
@@ -457,6 +724,8 @@ struct CompanionStudioView: View {
             return "Own the speech pipeline and visual shell here so later voice packs and cursor skins have a real home."
         case .integrations:
             return "This is the bridge from app-specific integration to a real Clicky plugin story for OpenClaw and other runtimes."
+        case .diagnostics:
+            return "Internal activity, bridge state, and debugging details live here instead of cluttering the normal user flow."
         }
     }
 
@@ -508,6 +777,97 @@ struct CompanionStudioView: View {
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private var clickyPluginStatusTone: StudioStatusTone {
+        switch companionManager.clickyOpenClawPluginStatus {
+        case .enabled:
+            return .success
+        case .disabled:
+            return .warning
+        case .notConfigured:
+            return .neutral
+        }
+    }
+
+    private var clickyShellRegistrationTone: StudioStatusTone {
+        switch companionManager.clickyShellRegistrationStatus {
+        case .idle:
+            return .neutral
+        case .registering:
+            return .info
+        case .registered:
+            return .success
+        case .failed:
+            return .warning
+        }
+    }
+
+    private var clickyShellTrustTone: StudioStatusTone {
+        switch companionManager.clickyShellServerTrustState {
+        case "trusted-local", "trusted-remote":
+            return .success
+        case nil:
+            return .neutral
+        default:
+            return .warning
+        }
+    }
+
+    private var clickyShellFreshnessTone: StudioStatusTone {
+        switch companionManager.clickyShellServerFreshnessState {
+        case "fresh":
+            return .success
+        case "stale":
+            return .warning
+        case nil:
+            return .neutral
+        default:
+            return .warning
+        }
+    }
+
+    private var clickyShellBindingTone: StudioStatusTone {
+        switch companionManager.clickyShellServerSessionBindingState {
+        case "bound":
+            return .success
+        case "unbound":
+            return .warning
+        case nil:
+            return .neutral
+        default:
+            return .warning
+        }
+    }
+
+    @ViewBuilder
+    private var shellRegistrationStatusView: some View {
+        switch companionManager.clickyShellRegistrationStatus {
+        case .idle:
+            Text("OpenClaw will only accept a live Clicky shell registration once the `clicky-shell` plugin is enabled and the app is targeting the OpenClaw backend.")
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        case .registering:
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(DS.Colors.accentText)
+                Text("Registering this desktop shell with OpenClaw...")
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textSecondary)
+            }
+        case .registered(let summary):
+            Text(summary)
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        case .failed(let message):
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -630,6 +990,100 @@ private struct StudioKeyValueRow: View {
     }
 }
 
+private struct StudioCommandBlock: View {
+    let title: String
+    let command: String
+
+    @State private var hasCopied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(DS.Colors.textTertiary)
+
+                Spacer()
+
+                Button(action: {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(command, forType: .string)
+                    hasCopied = true
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        hasCopied = false
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: hasCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(hasCopied ? "Copied" : "Copy")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(hasCopied ? DS.Colors.success : DS.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+
+            Text(command)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundColor(DS.Colors.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(DS.Colors.surface2)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                )
+                .textSelection(.enabled)
+        }
+    }
+}
+
+private struct StudioStepRow: View {
+    let stepNumber: Int
+    let title: String
+    let detail: String
+    let statusLabel: String
+    let statusTone: StudioStatusTone
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Text("\(stepNumber)")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(DS.Colors.textPrimary)
+                .frame(width: 24, height: 24)
+                .background(
+                    Circle()
+                        .fill(DS.Colors.surface2)
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 10) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
+
+                    StudioStatusPill(label: statusLabel, tone: statusTone)
+                }
+
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
+    }
+}
+
 private struct StudioTextField: View {
     let title: String
     @Binding var text: String
@@ -695,6 +1149,46 @@ private struct StudioSecretField: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(DS.Colors.surface2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+            )
+        }
+    }
+}
+
+private struct StudioMultilineField: View {
+    let title: String
+    @Binding var text: String
+    let placeholder: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(DS.Colors.textTertiary)
+
+            ZStack(alignment: .topLeading) {
+                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(placeholder)
+                        .font(.system(size: 13))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                }
+
+                TextEditor(text: $text)
+                    .font(.system(size: 13))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(minHeight: 120)
+            }
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(DS.Colors.surface2)

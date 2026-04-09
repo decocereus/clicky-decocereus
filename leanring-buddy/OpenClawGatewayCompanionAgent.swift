@@ -15,6 +15,44 @@ struct OpenClawGatewayImageAttachment {
     let mimeType: String
 }
 
+struct OpenClawShellRegistrationPayload {
+    let agentIdentityName: String?
+    let shellIdentifier: String
+    let shellLabel: String
+    let bridgeVersion: String
+    let cursorPointingProtocol: String
+    let capabilities: [String]
+    let clickyShellCapabilityVersion: String
+    let clickyPresentationName: String?
+    let personaScope: String
+    let runtimeMode: String
+    let screenContextTransport: String
+    let sessionKey: String?
+    let shellProtocolVersion: String
+    let speechOutputMode: String
+    let supportsInlineTextBubble: Bool
+    let registeredAtMilliseconds: Int
+}
+
+struct OpenClawShellStatusSnapshot {
+    let freshnessState: String?
+    let isRegistered: Bool
+    let agentIdentityName: String?
+    let clickyPresentationName: String?
+    let personaScope: String?
+    let sessionKey: String?
+    let summary: String
+    let sessionBindingState: String?
+    let trustState: String?
+}
+
+struct OpenClawAgentIdentitySnapshot {
+    let agentIdentifier: String?
+    let avatar: String?
+    let emoji: String?
+    let name: String?
+}
+
 private struct OpenClawGatewayDeviceIdentity {
     let deviceIdentifier: String
     let publicKeyRawBase64URL: String
@@ -235,6 +273,124 @@ final class OpenClawGatewayCompanionAgent {
         return try await requestSession.runConnectionTest()
     }
 
+    func registerShell(
+        gatewayURLString: String,
+        explicitGatewayAuthToken: String? = nil,
+        payload: OpenClawShellRegistrationPayload
+    ) async throws -> String {
+        let requestSession = try OpenClawGatewayCompanionRequestSession(
+            urlSession: urlSession,
+            gatewayURLString: gatewayURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? Self.defaultGatewayURLString
+                : gatewayURLString,
+            gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
+            configuredAgentIdentifier: "",
+            sessionKey: Self.defaultSessionKey,
+            images: [],
+            systemPrompt: "",
+            userPrompt: "",
+            onTextChunk: { _ in }
+        )
+
+        return try await requestSession.runShellRegistration(payload: payload)
+    }
+
+    func sendShellHeartbeat(
+        gatewayURLString: String,
+        explicitGatewayAuthToken: String? = nil,
+        shellIdentifier: String
+    ) async throws {
+        let requestSession = try OpenClawGatewayCompanionRequestSession(
+            urlSession: urlSession,
+            gatewayURLString: gatewayURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? Self.defaultGatewayURLString
+                : gatewayURLString,
+            gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
+            configuredAgentIdentifier: "",
+            sessionKey: Self.defaultSessionKey,
+            images: [],
+            systemPrompt: "",
+            userPrompt: "",
+            onTextChunk: { _ in }
+        )
+
+        try await requestSession.runShellHeartbeat(shellIdentifier: shellIdentifier)
+    }
+
+    func fetchShellStatus(
+        gatewayURLString: String,
+        explicitGatewayAuthToken: String? = nil,
+        shellIdentifier: String
+    ) async throws -> OpenClawShellStatusSnapshot {
+        let requestSession = try OpenClawGatewayCompanionRequestSession(
+            urlSession: urlSession,
+            gatewayURLString: gatewayURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? Self.defaultGatewayURLString
+                : gatewayURLString,
+            gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
+            configuredAgentIdentifier: "",
+            sessionKey: Self.defaultSessionKey,
+            images: [],
+            systemPrompt: "",
+            userPrompt: "",
+            onTextChunk: { _ in }
+        )
+
+        return try await requestSession.runShellStatus(shellIdentifier: shellIdentifier)
+    }
+
+    func bindShellSession(
+        gatewayURLString: String,
+        explicitGatewayAuthToken: String? = nil,
+        shellIdentifier: String,
+        sessionKey: String?
+    ) async throws -> OpenClawShellStatusSnapshot {
+        let requestSession = try OpenClawGatewayCompanionRequestSession(
+            urlSession: urlSession,
+            gatewayURLString: gatewayURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? Self.defaultGatewayURLString
+                : gatewayURLString,
+            gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
+            configuredAgentIdentifier: "",
+            sessionKey: Self.defaultSessionKey,
+            images: [],
+            systemPrompt: "",
+            userPrompt: "",
+            onTextChunk: { _ in }
+        )
+
+        return try await requestSession.runShellSessionBinding(
+            shellIdentifier: shellIdentifier,
+            sessionKey: sessionKey
+        )
+    }
+
+    func fetchAgentIdentity(
+        gatewayURLString: String,
+        explicitGatewayAuthToken: String? = nil,
+        agentIdentifier: String?,
+        sessionKey: String?
+    ) async throws -> OpenClawAgentIdentitySnapshot {
+        let requestSession = try OpenClawGatewayCompanionRequestSession(
+            urlSession: urlSession,
+            gatewayURLString: gatewayURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? Self.defaultGatewayURLString
+                : gatewayURLString,
+            gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
+            configuredAgentIdentifier: "",
+            sessionKey: Self.defaultSessionKey,
+            images: [],
+            systemPrompt: "",
+            userPrompt: "",
+            onTextChunk: { _ in }
+        )
+
+        return try await requestSession.runAgentIdentityFetch(
+            agentIdentifier: agentIdentifier,
+            sessionKey: sessionKey
+        )
+    }
+
     static func hasLocalGatewayAuthToken() -> Bool {
         resolveLocalGatewayAuthToken() != nil
     }
@@ -429,6 +585,147 @@ final class OpenClawGatewayCompanionAgent {
             let serverVersion = (server["version"] as? String) ?? "unknown"
             let connectionIdentifier = (server["connId"] as? String) ?? "unknown"
             return "Connected to OpenClaw Gateway v\(serverVersion) (protocol \(protocolVersion), conn \(connectionIdentifier))"
+        }
+
+        func runShellRegistration(payload: OpenClawShellRegistrationPayload) async throws -> String {
+            _ = try await connect()
+            defer { cancel() }
+
+            let registrationPayload = try await request(
+                method: "clicky.shell.register",
+                params: [
+                    "agentIdentityName": payload.agentIdentityName as Any,
+                    "shellId": payload.shellIdentifier,
+                    "shellLabel": payload.shellLabel,
+                    "bridgeVersion": payload.bridgeVersion,
+                    "cursorPointingProtocol": payload.cursorPointingProtocol,
+                    "capabilities": payload.capabilities,
+                    "clickyShellCapabilityVersion": payload.clickyShellCapabilityVersion,
+                    "clickyPresentationName": payload.clickyPresentationName as Any,
+                    "personaScope": payload.personaScope,
+                    "runtimeMode": payload.runtimeMode,
+                    "screenContextTransport": payload.screenContextTransport,
+                    "sessionKey": payload.sessionKey as Any,
+                    "shellProtocolVersion": payload.shellProtocolVersion,
+                    "speechOutputMode": payload.speechOutputMode,
+                    "supportsInlineTextBubble": payload.supportsInlineTextBubble,
+                    "registeredAt": payload.registeredAtMilliseconds,
+                ],
+                timeoutSeconds: 15
+            )
+
+            if let summary = registrationPayload["summary"] as? String,
+               !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return summary
+            }
+
+            return "Clicky shell registered with OpenClaw."
+        }
+
+        func runShellHeartbeat(shellIdentifier: String) async throws {
+            _ = try await connect()
+            defer { cancel() }
+
+            _ = try await request(
+                method: "clicky.shell.heartbeat",
+                params: [
+                    "shellId": shellIdentifier,
+                ],
+                timeoutSeconds: 10
+            )
+        }
+
+        func runShellStatus(shellIdentifier: String) async throws -> OpenClawShellStatusSnapshot {
+            _ = try await connect()
+            defer { cancel() }
+
+            let statusPayload = try await request(
+                method: "clicky.shell.status",
+                params: [
+                    "shellId": shellIdentifier,
+                ],
+                timeoutSeconds: 10
+            )
+
+            return OpenClawShellStatusSnapshot(
+                freshnessState: ((statusPayload["registration"] as? [String: Any])?["freshnessState"] as? String),
+                isRegistered: (statusPayload["found"] as? Bool) ?? false,
+                agentIdentityName: ((statusPayload["registration"] as? [String: Any])?["agentIdentityName"] as? String),
+                clickyPresentationName: ((statusPayload["registration"] as? [String: Any])?["clickyPresentationName"] as? String),
+                personaScope: ((statusPayload["registration"] as? [String: Any])?["personaScope"] as? String),
+                sessionKey: ((statusPayload["registration"] as? [String: Any])?["sessionKey"] as? String),
+                summary: (statusPayload["summary"] as? String) ?? "No status summary returned.",
+                sessionBindingState: ((statusPayload["registration"] as? [String: Any])?["sessionBindingState"] as? String),
+                trustState: ((statusPayload["registration"] as? [String: Any])?["trustState"] as? String)
+            )
+        }
+
+        func runShellSessionBinding(
+            shellIdentifier: String,
+            sessionKey: String?
+        ) async throws -> OpenClawShellStatusSnapshot {
+            _ = try await connect()
+            defer { cancel() }
+
+            var requestParams: [String: Any] = [
+                "shellId": shellIdentifier,
+            ]
+
+            if let sessionKey,
+               !sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                requestParams["sessionKey"] = sessionKey
+            }
+
+            let bindingPayload = try await request(
+                method: "clicky.shell.bind_session",
+                params: requestParams,
+                timeoutSeconds: 10
+            )
+
+            return OpenClawShellStatusSnapshot(
+                freshnessState: ((bindingPayload["registration"] as? [String: Any])?["freshnessState"] as? String),
+                isRegistered: true,
+                agentIdentityName: ((bindingPayload["registration"] as? [String: Any])?["agentIdentityName"] as? String),
+                clickyPresentationName: ((bindingPayload["registration"] as? [String: Any])?["clickyPresentationName"] as? String),
+                personaScope: ((bindingPayload["registration"] as? [String: Any])?["personaScope"] as? String),
+                sessionKey: ((bindingPayload["registration"] as? [String: Any])?["sessionKey"] as? String),
+                summary: (bindingPayload["summary"] as? String) ?? "Clicky shell session binding updated.",
+                sessionBindingState: ((bindingPayload["registration"] as? [String: Any])?["sessionBindingState"] as? String),
+                trustState: ((bindingPayload["registration"] as? [String: Any])?["trustState"] as? String)
+            )
+        }
+
+        func runAgentIdentityFetch(
+            agentIdentifier: String?,
+            sessionKey: String?
+        ) async throws -> OpenClawAgentIdentitySnapshot {
+            _ = try await connect()
+            defer { cancel() }
+
+            var requestParams: [String: Any] = [:]
+
+            if let agentIdentifier,
+               !agentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                requestParams["agentId"] = agentIdentifier
+            }
+
+            if let sessionKey,
+               !sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                requestParams["sessionKey"] = sessionKey
+            }
+
+            let identityPayload = try await request(
+                method: "agent.identity.get",
+                params: requestParams,
+                timeoutSeconds: 10
+            )
+
+            return OpenClawAgentIdentitySnapshot(
+                agentIdentifier: identityPayload["agentId"] as? String,
+                avatar: identityPayload["avatar"] as? String,
+                emoji: identityPayload["emoji"] as? String,
+                name: identityPayload["name"] as? String
+            )
         }
 
         private func connect() async throws -> [String: Any] {

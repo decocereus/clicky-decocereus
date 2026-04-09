@@ -1,5 +1,14 @@
 # AGENTS.md - leanring-buddy (Main App Target)
 
+## Repo Workflow
+
+- Before starting work in this target, use the Build macOS Apps plugin as the default macOS guidance layer and pick the smallest relevant skill first.
+- Default to plugin guidance for SwiftUI/AppKit structure, menu bar behavior, window activation, telemetry, window management, signing, packaging, and other desktop-specific choices.
+- Actively help the user take advantage of the plugin by suggesting tighter run/debug loops, Run button support, and unified logging or telemetry when those would materially help.
+- Repo override: do **not** use terminal `xcodebuild` here. Preserve TCC permissions by preferring Xcode.app for build/run unless the user explicitly accepts the tradeoff.
+- The Codex app `Run` action is wired to `./script/build_and_run.sh`, which uses Xcode AppleScript automation rather than terminal `xcodebuild`.
+- Do **not** automatically reinstall the local `clicky-shell` OpenClaw plugin or restart the OpenClaw Gateway while iterating on the macOS app. Only do that when the user explicitly asks for it, or explicitly agrees to a verification step that requires it.
+
 ## Source Files
 
 ### FloatingSessionButton.swift

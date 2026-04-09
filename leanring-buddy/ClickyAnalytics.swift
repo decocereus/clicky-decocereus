@@ -9,15 +9,21 @@
 import Foundation
 
 enum ClickyAnalytics {
+    private static let defaultPostHogAPIKey = "phc_xcQPygmhTMzzYh8wNW92CCwoXmnzqyChAixh8zgpqC3C"
+    private static let defaultPostHogHost = "https://us.i.posthog.com"
 
     // MARK: - Setup
 
     static func configure() {
+        let postHogAPIKey = AppBundleConfiguration.stringValue(forKey: "PostHogAPIKey") ?? defaultPostHogAPIKey
+        let postHogHost = AppBundleConfiguration.stringValue(forKey: "PostHogHost") ?? defaultPostHogHost
+
         let config = PostHogConfig(
-            apiKey: "phc_xcQPygmhTMzzYh8wNW92CCwoXmnzqyChAixh8zgpqC3C",
-            host: "https://us.i.posthog.com"
+            apiKey: postHogAPIKey,
+            host: postHogHost
         )
         PostHogSDK.shared.setup(config)
+        ClickyLogger.info(.app, "Configured PostHog host=\(postHogHost)")
     }
 
     // MARK: - App Lifecycle

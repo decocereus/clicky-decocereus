@@ -1,7 +1,5 @@
 # Clicky - Coding Agent Instructions
 
-<!-- This file mirrors the project agent guidance in a lowercase, tool-agnostic form for coding agents that prefer `agents.md`. -->
-
 ## Overview
 
 macOS menu bar companion app. Lives primarily in the macOS status bar (no dock icon in production), but also exposes a unified Settings/Studio window for deeper configuration and debugging. Clicking the menu bar icon opens a custom floating panel with companion voice controls, and the Settings/Studio scene handles backend routing, OpenClaw Gateway configuration, voice pipeline status, and future integration/plugin setup. The app uses push-to-talk (ctrl+option) to capture voice input, transcribes it via AssemblyAI streaming when the Cloudflare Worker is configured, and otherwise falls back to Apple Speech for local development. The transcript plus a screenshot of the user's screen are sent to a selectable agent backend. Claude is the original backend via the Cloudflare Worker proxy. OpenClaw Gateway is also supported as a local/remote WebSocket agent backend. The chosen backend responds with text, the app speaks the reply through ElevenLabs or system speech fallback, and a blue cursor overlay can fly to and point at UI elements referenced in the reply.
@@ -14,11 +12,24 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Framework**: SwiftUI (macOS native) with AppKit bridging for the menu bar panel and cursor overlay
 - **Pattern**: MVVM with `@StateObject` / `@Published` state management
 - **Agent Backends**: Claude via Cloudflare Worker proxy plus OpenClaw Gateway via WebSocket with image attachments and Gateway session routing
+- **OpenClaw Plugin Direction**: The repo includes a native OpenClaw plugin scaffold in `plugins/openclaw-clicky-shell` and a contract doc in `docs/clicky-openclaw-integration-contract.md` so Clicky can become a first-class desktop shell integration for OpenClaw
+- **Identity Model**: The upstream agent identity belongs to OpenClaw. Clicky may optionally override presentation **inside Clicky only**; it should not silently rewrite the upstream agent identity
 - **Speech-to-Text**: AssemblyAI when the worker is configured, with OpenAI and Apple Speech fallbacks
 - **Text-to-Speech**: ElevenLabs via the worker, with system speech fallback for local development
 - **Screen Capture**: ScreenCaptureKit (macOS 14.2+), multi-monitor support
 - **Voice Input**: Push-to-talk via `AVAudioEngine` and a pluggable transcription-provider layer
 - **Element Pointing**: Agent replies may include `[POINT:x,y:label:screenN]` tags that drive the blue cursor overlay
+
+## Codex Workflow
+
+- Before starting any work in this repo, use the Build macOS Apps plugin as the default source of platform guidance.
+- Pick the smallest relevant Build macOS Apps skill set for the task first, then say which skills are guiding the work. Most common fits here are `swiftui-patterns`, `window-management`, `appkit-interop`, `telemetry`, `view-refactor`, `build-run-debug`, `test-triage`, `signing-entitlements`, and `packaging-notarization`.
+- Treat the plugin as the default reference for macOS-specific decisions: scene structure, menu bar behavior, window activation/focus, toolbar and command design, app bundle behavior, unified logging, telemetry, packaging, and other desktop-native details.
+- Actively guide the user to take advantage of the plugin. When relevant, suggest Codex Run button wiring, project-local run scripts, `.codex/environments/environment.toml`, unified logging, or targeted telemetry so future debugging loops are tighter.
+- Repo-specific override: do **not** follow generic shell-first `xcodebuild` advice here. This project must not use `xcodebuild` from the terminal because it can invalidate TCC permissions and force the app to re-request screen recording, accessibility, and similar grants.
+- If plugin guidance would normally suggest shell build/run automation, adapt it for this repo by preferring Xcode-launched build/run loops and non-destructive debugging paths first. Only discuss terminal build automation if the user explicitly wants that tradeoff and understands the TCC cost.
+- If the user wants deeper observability, prefer lightweight `OSLog` / unified logging instrumentation and plugin-guided telemetry patterns over ad hoc prints.
+- Do **not** automatically reinstall the local `clicky-shell` OpenClaw plugin or restart the OpenClaw Gateway during normal iteration. Only do either when the user explicitly asks, or when the user clearly agrees to that disruption for a specific verification step.
 
 ## Build & Run
 
@@ -29,7 +40,13 @@ open leanring-buddy.xcodeproj
 # Select the leanring-buddy scheme, set signing team, Cmd+R to build and run
 ```
 
+Prefer Xcode.app as the primary build/run loop in this repo.
+
 **Do NOT run `xcodebuild` from the terminal** — it invalidates TCC permissions and forces the app to re-request screen recording, accessibility, and related grants.
+
+If the user wants Codex app Run button support or tighter build/run automation, propose a repo-safe path first and explicitly call out any TCC tradeoffs before wiring shell-based automation.
+
+The Codex app `Run` action is wired through `.codex/environments/environment.toml` to `./script/build_and_run.sh`, which tells Xcode to build and run the `leanring-buddy` scheme via AppleScript so TCC-sensitive permissions stay intact.
 
 ## Code Style & Conventions
 
@@ -45,7 +62,7 @@ open leanring-buddy.xcodeproj
 - Do not add features or refactors that were not explicitly asked for.
 - Do not rename the project directory or scheme. The `leanring` typo is intentional/legacy.
 - Do not try to clean up the known non-blocking warnings unless explicitly asked.
-- Do not use `xcodebuild` from the terminal.
+- Do not use `xcodebuild` from the terminal, even if generic plugin guidance suggests a shell-first macOS workflow.
 
 ## Git Workflow
 
@@ -55,4 +72,4 @@ open leanring-buddy.xcodeproj
 
 ## Self-Update Instructions
 
-When you make meaningful architecture or workflow changes, update this file and the main `AGENTS.md` file together so both stay aligned.
+When you make meaningful architecture or workflow changes, update this file and `leanring-buddy/AGENTS.md` together so all tracked agent entry points stay aligned.

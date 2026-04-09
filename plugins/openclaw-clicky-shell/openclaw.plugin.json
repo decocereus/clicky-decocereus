@@ -1,0 +1,42 @@
+{
+  "id": "clicky-shell",
+  "name": "Clicky Shell",
+  "description": "Connects OpenClaw to the Clicky desktop shell for local speech, cursor presence, and screen-aware guidance.",
+  "version": "0.1.0",
+  "contracts": {
+    "tools": [
+      "clicky_status"
+    ]
+  },
+  "uiHints": {
+    "shellLabel": {
+      "label": "Shell label",
+      "help": "Friendly label for the connected Clicky shell."
+    },
+    "registrationTtlMs": {
+      "label": "Registration TTL",
+      "help": "How long a shell registration remains fresh before OpenClaw treats it as stale."
+    },
+    "allowRemoteDesktopShell": {
+      "label": "Allow remote desktop shell",
+      "help": "Allow Clicky shells that register through remote Gateway connections."
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "shellLabel": {
+        "type": "string"
+      },
+      "registrationTtlMs": {
+        "type": "integer",
+        "minimum": 5000,
+        "maximum": 300000
+      },
+      "allowRemoteDesktopShell": {
+        "type": "boolean"
+      }
+    }
+  }
+}

@@ -6,3 +6,5 @@ build/
 releases/
 .claude/
 coding-plans/
+
+plugins/openclaw-clicky-shell/node_modules/
