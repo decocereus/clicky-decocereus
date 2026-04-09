@@ -24,26 +24,30 @@ import { getLaunchEntitlementSnapshot } from "./entitlements/service"
 
 const app = new Hono<{ Bindings: Env }>()
 
+const corsOptions = {
+  origin: (origin: string, c: { env: Env }) => {
+    const allowedOrigins = new Set(
+      [
+        c.env.BETTER_AUTH_URL,
+        c.env.WEB_ORIGIN,
+      ].filter((value): value is string => Boolean(value)),
+    )
+
+    return allowedOrigins.has(origin) ? origin : ""
+  },
+  allowHeaders: ["Content-Type", "Authorization"],
+  allowMethods: ["GET", "POST", "OPTIONS"],
+  exposeHeaders: ["Content-Length", "set-auth-token"],
+  credentials: true,
+  maxAge: 600,
+}
+
 app.use(
   "/api/auth/*",
-  cors({
-    origin: (origin, c) => {
-      const allowedOrigins = new Set(
-        [
-          c.env.BETTER_AUTH_URL,
-          c.env.WEB_ORIGIN,
-        ].filter((value): value is string => Boolean(value)),
-      )
-
-      return allowedOrigins.has(origin) ? origin : ""
-    },
-    allowHeaders: ["Content-Type", "Authorization"],
-    allowMethods: ["GET", "POST", "OPTIONS"],
-    exposeHeaders: ["Content-Length", "set-auth-token"],
-    credentials: true,
-    maxAge: 600,
-  }),
+  cors(corsOptions),
 )
+
+app.use("/v1/*", cors(corsOptions))
 
 app.get("/", (c) => {
   return c.json({
