@@ -124,7 +124,9 @@ struct CompanionStudioView: View {
             List {
                 ForEach(availableSections) { section in
                     Button(action: {
-                        selectedSection = section
+                        withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) {
+                            selectedSection = section
+                        }
                     }) {
                         studioSidebarRow(for: section)
                     }
@@ -166,6 +168,7 @@ struct CompanionStudioView: View {
                     sectionHero
                     sectionContent
                 }
+                .id(selectedSection)
                 .padding(28)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -217,6 +220,11 @@ struct CompanionStudioView: View {
 
     private var sectionHero: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text(sectionChapterLabel)
+                .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                .foregroundColor(sectionAccent)
+                .tracking(1.2)
+
             Text(selectedSection.title)
                 .font(ClickyTypography.display(size: 44))
                 .foregroundColor(theme.textPrimary)
@@ -225,7 +233,17 @@ struct CompanionStudioView: View {
                 .font(ClickyTypography.mono(size: 14, weight: .medium))
                 .foregroundColor(theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if !sectionHeroBadges.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(sectionHeroBadges, id: \.label) { badge in
+                        StudioStatusPill(label: "\(badge.label): \(badge.value)", tone: badge.tone)
+                    }
+                }
+                .padding(.top, 6)
+            }
         }
+        .padding(.bottom, 6)
     }
 
     @ViewBuilder
@@ -1223,17 +1241,85 @@ struct CompanionStudioView: View {
     private var sectionHeroDescription: String {
         switch selectedSection {
         case .general:
-            return "Tune the shell itself: runtime mode, backend routing, and the core companion behavior users feel first."
+            return "The everyday chapter. Keep the shell soft, useful, and legible while the heavier configuration work stays deeper in the story."
         case .openClaw:
-            return "Connect Clicky to your OpenClaw agent, keep the identity clean, and only touch technical setup when you actually need to."
+            return "Bring your existing OpenClaw agent into Clicky without breaking its identity. Connection, presence, and bridge setup all live here."
         case .voiceAppearance:
-            return "Own the speech pipeline and visual shell here so later voice packs and cursor skins have a real home."
+            return "Voice, persona, and the surface look all belong to the same chapter. This is where Clicky starts feeling like itself."
         case .integrations:
-            return "Keep purchase, sign-in, and restore cleanly visible here while all the trial simulation and paywall debugging stays tucked away in Support."
+            return "A clean commercial chapter. Sign in, unlock, and restore without any of the internal launch scaffolding leaking into the user path."
         case .designLab:
             return "Compare three Studio directions before we commit to a full redesign. Each option keeps diagnostics isolated from the production-facing app flow."
         case .diagnostics:
-            return "Diagnostics, support exports, and internal controls live here instead of cluttering the main product experience."
+            return "A technical appendix for debugging, exports, and launch simulation. This is intentionally backstage."
+        }
+    }
+
+    private var sectionChapterLabel: String {
+        switch selectedSection {
+        case .general:
+            return "Chapter 01"
+        case .openClaw:
+            return "Chapter 02"
+        case .voiceAppearance:
+            return "Chapter 03"
+        case .integrations:
+            return "Chapter 04"
+        case .designLab:
+            return "Lab"
+        case .diagnostics:
+            return "Appendix"
+        }
+    }
+
+    private var sectionAccent: Color {
+        switch selectedSection {
+        case .general:
+            return theme.glowA
+        case .openClaw:
+            return theme.primary
+        case .voiceAppearance:
+            return theme.accent
+        case .integrations:
+            return theme.warning
+        case .designLab:
+            return theme.accentStrong
+        case .diagnostics:
+            return theme.glowB
+        }
+    }
+
+    private var sectionHeroBadges: [(label: String, value: String, tone: StudioStatusTone)] {
+        switch selectedSection {
+        case .general:
+            return [
+                ("Backend", companionManager.selectedAgentBackend.displayName, .info),
+                ("Speech", companionManager.effectiveVoiceOutputDisplayName, .neutral)
+            ]
+        case .openClaw:
+            return [
+                ("Gateway", openClawConnectionStatusLabel, openClawConnectionTone),
+                ("Identity", companionManager.effectiveClickyPresentationName, .neutral)
+            ]
+        case .voiceAppearance:
+            return [
+                ("Theme", companionManager.clickyThemePreset.displayName, .info),
+                ("Voice", companionManager.effectiveVoiceOutputDisplayName, .neutral)
+            ]
+        case .integrations:
+            return [
+                ("Account", companionManager.clickyLaunchAuthStatusLabel, .neutral),
+                ("Entitlement", companionManager.clickyLaunchEntitlementStatusLabel, .success),
+                ("Trial", companionManager.clickyLaunchTrialStatusLabel, .warning)
+            ]
+        case .designLab:
+            return [
+                ("Mode", "Exploration", .info)
+            ]
+        case .diagnostics:
+            return [
+                ("Support", isSupportModeEnabled ? "Enabled" : "Hidden", isSupportModeEnabled ? .warning : .neutral)
+            ]
         }
     }
 
@@ -1673,18 +1759,19 @@ private struct StudioCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(ClickyTypography.section(size: 23))
-                    .foregroundColor(theme.textPrimary)
                 Text(subtitle)
                     .font(ClickyTypography.mono(size: 12, weight: .medium))
                     .foregroundColor(theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Text(title)
+                    .font(ClickyTypography.display(size: 30))
+                    .foregroundColor(theme.textPrimary)
             }
 
             content
         }
-        .clickyGlassCard(cornerRadius: 30, padding: 22)
+        .clickyGlassCard(cornerRadius: 30, padding: 24)
     }
 }
 
