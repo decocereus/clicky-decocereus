@@ -17,53 +17,23 @@ import {
   bootstrapWebCompanionSession,
   type WebCompanionAction,
   type WebCompanionReply,
+  type WebCompanionScreenContextInput,
   type WebCompanionSessionSnapshot,
   sendWebCompanionEvent,
   sendWebCompanionMessage,
+  transcribeWebCompanionAudio,
 } from '../lib/webCompanion'
 
 const VISITOR_STORAGE_KEY = 'clicky:web-companion:visitor:v1'
 const MAX_AUTOMATED_SPOKEN_MESSAGES = 4
 const MIN_SPEECH_GAP_MS = 12_000
 const SECTION_SETTLE_DELAY_MS = 1_600
+const SHORTCUT_RELEASE_GRACE_MS = 260
+const SITE_LAYOUT_CONTEXT_WIDTH = 1200
+const SITE_LAYOUT_CONTEXT_HEIGHT = 900
 
-interface BrowserSpeechRecognitionAlternative {
-  transcript: string
-}
-
-interface BrowserSpeechRecognitionResult {
-  0: BrowserSpeechRecognitionAlternative
-  isFinal: boolean
-  length: number
-}
-
-interface BrowserSpeechRecognitionEvent {
-  resultIndex: number
-  results: ArrayLike<BrowserSpeechRecognitionResult>
-}
-
-interface BrowserSpeechRecognition {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  onend: (() => void) | null
-  onerror: ((event: { error?: string }) => void) | null
-  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null
-  start: () => void
-  stop: () => void
-}
-
-interface BrowserSpeechRecognitionConstructor {
-  new (): BrowserSpeechRecognition
-}
-
-declare global {
-  interface Window {
-    __clickyVoiceDebugLog?: Array<Record<string, unknown>>
-    SpeechRecognition?: BrowserSpeechRecognitionConstructor
-    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor
-  }
-}
+type ExperienceMode = 'mic-only' | 'demo-only' | null
+type StartExperienceMode = Exclude<ExperienceMode, null>
 
 type ExperienceStatus =
   | 'idle'
@@ -85,17 +55,26 @@ type CompanionGuidanceTarget = {
   sequence: number
 }
 
+declare global {
+  interface Window {
+    __clickyVoiceDebugLog?: Array<Record<string, unknown>>
+  }
+}
+
 interface WebCompanionExperienceValue {
   backendMode: BackendMode
   bubbleText: string | null
   companionVisualState: CompanionVisualState
   currentSectionId: string | null
   errorMessage: string | null
+  experienceMode: ExperienceMode
   guidanceTarget: CompanionGuidanceTarget | null
   isListening: boolean
   isSpeaking: boolean
   status: ExperienceStatus
-  startExperience: () => Promise<void>
+  startExperience: (options?: {
+    mode?: StartExperienceMode
+  }) => Promise<void>
 }
 
 const WebCompanionExperienceContext =
@@ -125,14 +104,6 @@ function stripMarkdownArtifacts(text: string) {
     .trim()
 }
 
-function getSpeechRecognitionConstructor() {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null
-}
-
 function logVoiceDebug(event: string, details: Record<string, unknown> = {}) {
   const payload = {
     details,
@@ -149,6 +120,25 @@ function logVoiceDebug(event: string, details: Record<string, unknown> = {}) {
   console.debug('[clicky-web-voice]', event, details)
 }
 
+function getSupportedRecordingMimeType() {
+  if (typeof MediaRecorder === 'undefined') {
+    return ''
+  }
+
+  const candidateMimeTypes = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+  ]
+
+  return (
+    candidateMimeTypes.find((mimeType) =>
+      MediaRecorder.isTypeSupported(mimeType)
+    ) ?? ''
+  )
+}
+
 export function useWebCompanionExperience() {
   const context = useContext(WebCompanionExperienceContext)
   if (!context) {
@@ -160,7 +150,7 @@ export function useWebCompanionExperience() {
   return context
 }
 
-function useOptionalWebCompanionExperience() {
+export function useOptionalCursorCompanionExperience() {
   return useContext(WebCompanionExperienceContext)
 }
 
@@ -172,6 +162,7 @@ export function WebCompanionExperienceProvider({
   const [backendMode, setBackendMode] = useState<BackendMode>(null)
   const [bubbleText, setBubbleText] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [experienceMode, setExperienceMode] = useState<ExperienceMode>(null)
   const [guidanceTarget, setGuidanceTarget] =
     useState<CompanionGuidanceTarget | null>(null)
   const [isListening, setIsListening] = useState(false)
@@ -183,37 +174,54 @@ export function WebCompanionExperienceProvider({
   const [voiceTurnPhase, setVoiceTurnPhase] = useState<VoiceTurnPhase>('idle')
 
   const activeSectionId = useActiveCompanionSection(companionSectionIds)
+  const activeSection = useMemo(
+    () => getCompanionSection(activeSectionId),
+    [activeSectionId]
+  )
+
   const sessionRef = useRef<WebCompanionSessionSnapshot | null>(null)
   const statusRef = useRef<ExperienceStatus>('idle')
+  const activeSectionIdRef = useRef<string | null>(activeSectionId)
+  const isReadyForVoiceRef = useRef(false)
+  const isListeningRef = useRef(false)
+  const isProcessingVoiceTurnRef = useRef(false)
+  const speechActiveRef = useRef(false)
+  const captureSessionActiveRef = useRef(false)
+  const shortcutPressedRef = useRef(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaRecorderChunksRef = useRef<Blob[]>([])
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const audioElementRef = useRef<HTMLAudioElement | null>(null)
+  const audioObjectUrlRef = useRef<string | null>(null)
+  const bubbleTimeoutRef = useRef<number | null>(null)
+  const sectionAnnouncementTimeoutRef = useRef<number | null>(null)
+  const voiceTurnPhaseTimeoutRef = useRef<number | null>(null)
+  const captureStopTimeoutRef = useRef<number | null>(null)
+  const guidanceTargetSequenceRef = useRef(0)
+  const highlightedTargetRef = useRef<string | null>(null)
   const visitedSectionIdsRef = useRef<string[]>([])
   const introHasRunRef = useRef(false)
   const lastAutoSpokenAtRef = useRef(0)
   const autoSpokenMessageCountRef = useRef(0)
   const announcedSectionsRef = useRef<Set<string>>(new Set())
-  const bubbleTimeoutRef = useRef<number | null>(null)
-  const sectionAnnouncementTimeoutRef = useRef<number | null>(null)
-  const guidanceTargetSequenceRef = useRef(0)
-  const highlightedTargetRef = useRef<string | null>(null)
-  const voiceTurnPhaseTimeoutRef = useRef<number | null>(null)
-  const recognitionStopTimeoutRef = useRef<number | null>(null)
-  const audioElementRef = useRef<HTMLAudioElement | null>(null)
-  const audioObjectUrlRef = useRef<string | null>(null)
-  const isListeningRef = useRef(false)
-  const isReadyForVoiceRef = useRef(false)
-  const isProcessingVoiceTurnRef = useRef(false)
-  const recognitionSessionActiveRef = useRef(false)
-  const recognitionStopRequestedRef = useRef(false)
-  const shortcutPressedRef = useRef(false)
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null)
-  const speechActiveRef = useRef(false)
-  const transcriptDraftRef = useRef('')
-  const interimTranscriptRef = useRef('')
-  const activeSectionIdRef = useRef<string | null>(activeSectionId)
 
-  const activeSection = useMemo(
-    () => getCompanionSection(activeSectionId),
-    [activeSectionId]
-  )
+  const drawRoundedRect = (
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number
+  ) => {
+    const nextRadius = Math.min(radius, width / 2, height / 2)
+    context.beginPath()
+    context.moveTo(x + nextRadius, y)
+    context.arcTo(x + width, y, x + width, y + height, nextRadius)
+    context.arcTo(x + width, y + height, x, y + height, nextRadius)
+    context.arcTo(x, y + height, x, y, nextRadius)
+    context.arcTo(x, y, x + width, y, nextRadius)
+    context.closePath()
+  }
 
   useEffect(() => {
     sessionRef.current = session
@@ -228,16 +236,12 @@ export function WebCompanionExperienceProvider({
   }, [activeSectionId])
 
   useEffect(() => {
+    isReadyForVoiceRef.current = isReadyForVoice
+  }, [isReadyForVoice])
+
+  useEffect(() => {
     isListeningRef.current = isListening
   }, [isListening])
-
-  useEffect(() => {
-    isReadyForVoiceRef.current = isReadyForVoice
-  }, [isReadyForVoice])
-
-  useEffect(() => {
-    isReadyForVoiceRef.current = isReadyForVoice
-  }, [isReadyForVoice])
 
   useEffect(() => {
     isProcessingVoiceTurnRef.current = isProcessingVoiceTurn
@@ -257,8 +261,8 @@ export function WebCompanionExperienceProvider({
         window.clearTimeout(voiceTurnPhaseTimeoutRef.current)
       }
 
-      if (recognitionStopTimeoutRef.current !== null) {
-        window.clearTimeout(recognitionStopTimeoutRef.current)
+      if (captureStopTimeoutRef.current !== null) {
+        window.clearTimeout(captureStopTimeoutRef.current)
       }
 
       if (audioElementRef.current) {
@@ -269,9 +273,39 @@ export function WebCompanionExperienceProvider({
         URL.revokeObjectURL(audioObjectUrlRef.current)
       }
 
-      recognitionRef.current?.stop()
+      mediaRecorderRef.current?.stop()
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop())
     }
   }, [])
+
+  const hideBubble = () => {
+    if (bubbleTimeoutRef.current !== null) {
+      window.clearTimeout(bubbleTimeoutRef.current)
+      bubbleTimeoutRef.current = null
+    }
+
+    setBubbleText(null)
+  }
+
+  const showTemporaryBubble = (text: string, delayMs = 2_400) => {
+    setBubbleText(text)
+
+    if (bubbleTimeoutRef.current !== null) {
+      window.clearTimeout(bubbleTimeoutRef.current)
+    }
+
+    bubbleTimeoutRef.current = window.setTimeout(() => {
+      hideBubble()
+    }, delayMs)
+  }
+
+  const applyResponseBubble = (bubble: WebCompanionReply['bubble']) => {
+    if (!bubble || bubble.mode !== 'brief' || !bubble.text?.trim()) {
+      return
+    }
+
+    showTemporaryBubble(stripMarkdownArtifacts(bubble.text), 2_800)
+  }
 
   const executeActions = (actions: WebCompanionAction[]) => {
     if (!actions.length) {
@@ -313,6 +347,7 @@ export function WebCompanionExperienceProvider({
         guidanceTargetSequenceRef.current = nextGuidanceTarget.sequence
         setGuidanceTarget(nextGuidanceTarget)
       }
+
       element.setAttribute(
         'data-companion-highlight',
         action.type === 'pulse' ? 'pulse' : 'true'
@@ -333,29 +368,12 @@ export function WebCompanionExperienceProvider({
             setGuidanceTarget(null)
           }
         }
-      }, action.type === 'pulse' ? 1600 : 2200)
-
-      // Website companion guidance should never auto-scroll the page.
-      // Highlighting is allowed; navigation stays user-driven.
+      }, action.type === 'pulse' ? 2900 : 2200)
     }
   }
 
-  const hideBubble = () => {
-    if (bubbleTimeoutRef.current !== null) {
-      window.clearTimeout(bubbleTimeoutRef.current)
-      bubbleTimeoutRef.current = null
-    }
-
-    setBubbleText(null)
-  }
-
-  const showTemporaryBubble = (text: string, delayMs = 2_400) => {
-    const nextText = stripMarkdownArtifacts(text).slice(0, 72)
-    if (!nextText) {
-      hideBubble()
-      return
-    }
-
+  const showBubbleText = async (text: string) => {
+    const nextText = stripMarkdownArtifacts(text)
     setBubbleText(nextText)
 
     if (bubbleTimeoutRef.current !== null) {
@@ -364,17 +382,17 @@ export function WebCompanionExperienceProvider({
 
     bubbleTimeoutRef.current = window.setTimeout(() => {
       setBubbleText(null)
-      bubbleTimeoutRef.current = null
-    }, delayMs)
+    }, 6_000)
   }
 
-  const applyResponseBubble = (bubble: WebCompanionReply['bubble']) => {
-    if (!bubble || bubble.mode !== 'brief') {
-      hideBubble()
-      return
+  const clearBubbleSoon = (delayMs: number) => {
+    if (bubbleTimeoutRef.current !== null) {
+      window.clearTimeout(bubbleTimeoutRef.current)
     }
 
-    showTemporaryBubble(bubble.text ?? '', 2_800)
+    bubbleTimeoutRef.current = window.setTimeout(() => {
+      setBubbleText(null)
+    }, delayMs)
   }
 
   const playOpenClawAudio = async (
@@ -465,6 +483,146 @@ export function WebCompanionExperienceProvider({
     return payload.session
   }
 
+  const buildSiteLayoutReferenceContext =
+    (): WebCompanionScreenContextInput | null => {
+      if (typeof document === 'undefined') {
+        return null
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = SITE_LAYOUT_CONTEXT_WIDTH
+      canvas.height = SITE_LAYOUT_CONTEXT_HEIGHT
+      const context = canvas.getContext('2d')
+      if (!context) {
+        return null
+      }
+
+      const width = canvas.width
+      const height = canvas.height
+      context.fillStyle = '#F6F2EC'
+      context.fillRect(0, 0, width, height)
+
+      context.fillStyle = '#1A1A1A'
+      context.font = '600 42px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
+      context.fillText('Clicky website layout reference', 72, 88)
+
+      context.fillStyle = '#6E6A64'
+      context.font = '24px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
+      const modeLabel =
+        experienceMode === 'mic-only'
+          ? 'Mic is enabled. Live screen share is off, so this layout map stands in as visual context.'
+          : 'This layout map stands in as visual context when live screen sharing is unavailable.'
+      context.fillText(modeLabel, 72, 128)
+
+      const frameX = 72
+      const frameY = 172
+      const frameWidth = width - 144
+      const frameHeight = 608
+      drawRoundedRect(context, frameX, frameY, frameWidth, frameHeight, 28)
+      context.fillStyle = '#FFFCF8'
+      context.fill()
+      context.strokeStyle = 'rgba(26,26,26,0.08)'
+      context.lineWidth = 2
+      context.stroke()
+
+      const pageHeight = Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight,
+        window.innerHeight,
+        1
+      )
+
+      const palette = ['#DDD4F1', '#E8D8C3', '#D6E5D6', '#F0D6DC', '#D5E3F2']
+      const innerX = frameX + 36
+      const innerY = frameY + 28
+      const innerWidth = frameWidth - 72
+      const innerHeight = frameHeight - 56
+
+      companionSectionIds.forEach((sectionId, index) => {
+        const section = getCompanionSection(sectionId)
+        const element = document.getElementById(sectionId)
+        const rect = element?.getBoundingClientRect()
+        const absoluteTop = rect ? window.scrollY + rect.top : index * 640
+        const absoluteHeight = element?.clientHeight || rect?.height || 640
+        const blockY = innerY + (absoluteTop / pageHeight) * innerHeight
+        const blockHeight = Math.max(
+          72,
+          Math.min(innerHeight * 0.24, (absoluteHeight / pageHeight) * innerHeight)
+        )
+        const isActiveSection = activeSectionIdRef.current === sectionId
+        const isVisitedSection = visitedSectionIdsRef.current.includes(sectionId)
+
+        drawRoundedRect(
+          context,
+          innerX,
+          blockY,
+          innerWidth,
+          Math.min(blockHeight, innerY + innerHeight - blockY),
+          22
+        )
+        context.fillStyle = palette[index % palette.length]
+        context.globalAlpha = isVisitedSection ? 0.96 : 0.74
+        context.fill()
+        context.globalAlpha = 1
+
+        if (isActiveSection) {
+          context.strokeStyle = '#7A9BC4'
+          context.lineWidth = 4
+          context.stroke()
+        }
+
+        context.fillStyle = '#1A1A1A'
+        context.font = '600 26px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
+        context.fillText(section?.title ?? sectionId, innerX + 24, blockY + 40)
+
+        context.fillStyle = '#5E5A55'
+        context.font = '20px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
+        context.fillText(
+          isActiveSection
+            ? 'Current focus'
+            : isVisitedSection
+              ? 'Visited'
+              : 'Upcoming',
+          innerX + 24,
+          blockY + 72
+        )
+      })
+
+      context.fillStyle = '#1A1A1A'
+      context.font = '600 22px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
+      context.fillText('Known live controls', 72, 834)
+
+      context.fillStyle = '#6E6A64'
+      context.font = '20px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
+      context.fillText(
+        'Hero: Download for macOS, Try Clicky. Pricing and footer also contain download CTAs.',
+        72,
+        870
+      )
+
+      const dataUrl = canvas.toDataURL('image/png')
+      const [, contentBase64 = ''] = dataUrl.split(',', 2)
+      if (!contentBase64) {
+        return null
+      }
+
+      return {
+        attachments: [
+          {
+            contentBase64,
+            label: 'Clicky site layout reference',
+            mimeType: 'image/png',
+          },
+        ],
+        source: 'site-layout-reference',
+      }
+    }
+
+  const captureScreenContext =
+    async (): Promise<WebCompanionScreenContextInput | null> => {
+      return buildSiteLayoutReferenceContext()
+    }
+
   const dispatchEvent = async (
     input: {
       type: string
@@ -481,20 +639,32 @@ export function WebCompanionExperienceProvider({
       shouldSpeak: options?.shouldSpeak === true,
       type: input.type,
     })
+
     const currentSession = await ensureSession()
-    const payload = await sendWebCompanionEvent(currentSession.id, input)
+    const payload = await sendWebCompanionEvent(currentSession.id, {
+      ...input,
+      screenContext: await captureScreenContext(),
+    })
     setSession(payload.session)
 
     if (payload.response) {
       setBackendMode(payload.response.provider)
       executeActions(payload.response.actions)
       applyResponseBubble(payload.response.bubble)
+
       if (options?.shouldSpeak === true) {
-        await playOpenClawAudio(payload.response.audio)
-      } else if (!payload.response.bubble || payload.response.bubble.mode === 'hidden') {
-        hideBubble()
+        const played = await playOpenClawAudio(payload.response.audio)
+        if (!played) {
+          await showBubbleText(payload.response.text)
+        } else if (!payload.response.bubble || payload.response.bubble.mode !== 'brief') {
+          setBubbleText(stripMarkdownArtifacts(payload.response.text))
+          clearBubbleSoon(2_500)
+        }
+      } else {
+        await showBubbleText(payload.response.text)
       }
     }
+
     logVoiceDebug('dispatch-event:done', {
       hasAudio: Boolean(payload.response?.audio?.audioBase64),
       type: input.type,
@@ -506,13 +676,13 @@ export function WebCompanionExperienceProvider({
       transcriptLength: transcript.length,
     })
     setVoiceTurnPhase('thinking')
-    hideBubble()
 
     const currentSession = await ensureSession()
     const payload = await sendWebCompanionMessage(currentSession.id, {
       message: transcript,
       path: window.location.pathname,
       sectionId: activeSectionIdRef.current,
+      screenContext: await captureScreenContext(),
       visitedSectionIds: visitedSectionIdsRef.current,
     })
 
@@ -525,17 +695,19 @@ export function WebCompanionExperienceProvider({
       const played = await playOpenClawAudio(payload.response.audio)
       if (!played) {
         setVoiceTurnPhase('idle')
-        if (!payload.response.bubble || payload.response.bubble.mode === 'hidden') {
-          hideBubble()
-        }
+        await showBubbleText(payload.response.text)
+      } else if (!payload.response.bubble || payload.response.bubble.mode !== 'brief') {
+        setBubbleText(stripMarkdownArtifacts(payload.response.text))
+        clearBubbleSoon(2_500)
       }
     }
+
     logVoiceDebug('voice-message:done', {
       hasAudio: Boolean(payload.response?.audio?.audioBase64),
     })
   }
 
-  const requestMicPermission = async () => {
+  const ensureMicrophoneStream = async () => {
     if (
       typeof navigator === 'undefined' ||
       !navigator.mediaDevices ||
@@ -544,143 +716,141 @@ export function WebCompanionExperienceProvider({
       throw new Error('Microphone access is not supported in this browser.')
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    for (const track of stream.getTracks()) {
-      track.stop()
+    if (mediaStreamRef.current) {
+      return mediaStreamRef.current
+    }
+
+    mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+    })
+
+    return mediaStreamRef.current
+  }
+
+  const requestMicPermission = async () => {
+    const stream = await ensureMicrophoneStream()
+    if (!stream.getAudioTracks().length) {
+      throw new Error('No microphone track is available.')
     }
   }
 
-  const ensureRecognition = () => {
-    if (recognitionRef.current) {
-      return recognitionRef.current
+  const dispatchRecordedAudio = async (audioBlob: Blob) => {
+    const currentSession = await ensureSession()
+    setVoiceTurnPhase('transcribing')
+    hideBubble()
+
+    logVoiceDebug('transcribe:start', {
+      mimeType: audioBlob.type,
+      sizeBytes: audioBlob.size,
+    })
+
+    const transcription = await transcribeWebCompanionAudio(currentSession.id, {
+      audioBlob,
+      filename: `clicky-web-${Date.now()}.webm`,
+    })
+
+    const transcript = transcription.transcript.trim()
+
+    logVoiceDebug('transcribe:done', {
+      transcriptLength: transcript.length,
+    })
+
+    if (!transcript) {
+      setVoiceTurnPhase('idle')
+      showTemporaryBubble('Try that again', 2_400)
+      return
     }
 
-    const RecognitionConstructor = getSpeechRecognitionConstructor()
-    if (!RecognitionConstructor) {
-      throw new Error(
-        'Push-to-talk needs browser speech recognition support. Try Chrome or Safari for this demo.'
-      )
+    setIsProcessingVoiceTurn(true)
+    setVoiceTurnPhase('transcribing')
+
+    if (voiceTurnPhaseTimeoutRef.current !== null) {
+      window.clearTimeout(voiceTurnPhaseTimeoutRef.current)
     }
 
-    const recognition = new RecognitionConstructor()
-    recognition.continuous = false
-    recognition.interimResults = true
-    recognition.lang = navigator.language || 'en-US'
+    voiceTurnPhaseTimeoutRef.current = window.setTimeout(() => {
+      void dispatchVoiceMessage(transcript)
+        .catch((error) => {
+          setVoiceTurnPhase('idle')
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : 'Clicky could not send the voice message.'
+          )
+          showTemporaryBubble('Could not send that', 2_600)
+        })
+        .finally(() => {
+          setIsProcessingVoiceTurn(false)
+        })
+    }, 260)
+  }
 
-    recognition.onresult = (event) => {
-      let finalTranscript = ''
-      let interimTranscript = ''
-
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index]
-        const transcript = result[0]?.transcript?.trim() ?? ''
-
-        if (!transcript) {
-          continue
-        }
-
-        if (result.isFinal) {
-          finalTranscript = `${finalTranscript} ${transcript}`.trim()
-        } else {
-          interimTranscript = `${interimTranscript} ${transcript}`.trim()
-        }
-      }
-
-      if (finalTranscript) {
-        transcriptDraftRef.current = finalTranscript
-      }
-
-      if (interimTranscript) {
-        interimTranscriptRef.current = interimTranscript
-      }
-
-      logVoiceDebug('recognition:result', {
-        finalTranscriptLength: finalTranscript.length,
-        interimTranscriptLength: interimTranscript.length,
-      })
+  const ensureRecorder = async () => {
+    if (typeof MediaRecorder === 'undefined') {
+      throw new Error('MediaRecorder is not supported in this browser.')
     }
 
-    recognition.onerror = (event) => {
-      recognitionSessionActiveRef.current = false
+    const stream = await ensureMicrophoneStream()
+    const mimeType = getSupportedRecordingMimeType()
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream)
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        mediaRecorderChunksRef.current.push(event.data)
+      }
+    }
+
+    recorder.onerror = (event) => {
+      captureSessionActiveRef.current = false
       setIsListening(false)
       setVoiceTurnPhase('idle')
-
-      const hasTranscript =
-        transcriptDraftRef.current.trim().length > 0 ||
-        interimTranscriptRef.current.trim().length > 0
-      const wasManualStop = recognitionStopRequestedRef.current
-
-      if (event.error === 'network' && (wasManualStop || hasTranscript)) {
-        logVoiceDebug('recognition:error-ignored', {
-          error: event.error,
-          hasTranscript,
-          wasManualStop,
-        })
-        return
-      }
-
-      logVoiceDebug('recognition:error', {
-        error: event.error ?? 'unknown',
-        hasTranscript,
-        wasManualStop,
-      })
       setErrorMessage(
-        event.error
-          ? `Voice demo error: ${event.error}.`
-          : 'Voice demo error while listening.'
+        event.error?.message || 'Voice recording failed while capturing audio.'
       )
+      logVoiceDebug('recorder:error', {
+        message: event.error?.message ?? 'unknown',
+      })
       showTemporaryBubble('Voice input failed', 2_400)
     }
 
-    recognition.onend = () => {
-      recognitionSessionActiveRef.current = false
+    recorder.onstop = () => {
+      const audioBlob = new Blob(mediaRecorderChunksRef.current, {
+        type: mediaRecorderChunksRef.current[0]?.type || recorder.mimeType || 'audio/webm',
+      })
+      mediaRecorderChunksRef.current = []
+      captureSessionActiveRef.current = false
       setIsListening(false)
-      recognitionStopRequestedRef.current = false
 
-      const transcript =
-        transcriptDraftRef.current.trim() || interimTranscriptRef.current.trim()
-      transcriptDraftRef.current = ''
-      interimTranscriptRef.current = ''
+      logVoiceDebug('recorder:stop', {
+        mimeType: audioBlob.type,
+        sizeBytes: audioBlob.size,
+      })
 
-      if (!transcript) {
+      if (audioBlob.size < 1024) {
         setVoiceTurnPhase('idle')
-        logVoiceDebug('recognition:end-empty', {})
-        if (statusRef.current === 'active') {
-          showTemporaryBubble('Try that again', 2_400)
-        }
+        showTemporaryBubble('Try that again', 2_400)
         return
       }
 
-      setIsProcessingVoiceTurn(true)
-      setVoiceTurnPhase('transcribing')
-      hideBubble()
-      logVoiceDebug('recognition:end-transcript', {
-        transcriptLength: transcript.length,
+      void dispatchRecordedAudio(audioBlob).catch((error) => {
+        setVoiceTurnPhase('idle')
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : 'Audio transcription failed.'
+        )
+        showTemporaryBubble('Voice input failed', 2_400)
       })
-
-      if (voiceTurnPhaseTimeoutRef.current !== null) {
-        window.clearTimeout(voiceTurnPhaseTimeoutRef.current)
-      }
-
-      voiceTurnPhaseTimeoutRef.current = window.setTimeout(() => {
-        void dispatchVoiceMessage(transcript)
-          .catch((error) => {
-            setVoiceTurnPhase('idle')
-            setErrorMessage(
-              error instanceof Error
-                ? error.message
-                : 'Clicky could not send the voice message.'
-            )
-            showTemporaryBubble('Could not send that', 2_600)
-          })
-          .finally(() => {
-            setIsProcessingVoiceTurn(false)
-          })
-      }, 260)
     }
 
-    recognitionRef.current = recognition
-    return recognition
+    mediaRecorderRef.current = recorder
+    return recorder
   }
 
   const startListening = () => {
@@ -689,31 +859,28 @@ export function WebCompanionExperienceProvider({
       isListeningRef.current ||
       isProcessingVoiceTurnRef.current ||
       speechActiveRef.current ||
-      recognitionSessionActiveRef.current
+      captureSessionActiveRef.current
     ) {
-      logVoiceDebug('recognition:start-blocked', {
+      logVoiceDebug('capture:start-blocked', {
         isListening: isListeningRef.current,
         isProcessing: isProcessingVoiceTurnRef.current,
         isReady: isReadyForVoiceRef.current,
-        recognitionActive: recognitionSessionActiveRef.current,
+        recordingActive: captureSessionActiveRef.current,
         speechActive: speechActiveRef.current,
       })
+
       if (!isReadyForVoiceRef.current) {
         showTemporaryBubble('Getting ready', 1_800)
       }
       return
     }
 
-    if (recognitionStopTimeoutRef.current !== null) {
-      window.clearTimeout(recognitionStopTimeoutRef.current)
-      recognitionStopTimeoutRef.current = null
+    if (captureStopTimeoutRef.current !== null) {
+      window.clearTimeout(captureStopTimeoutRef.current)
+      captureStopTimeoutRef.current = null
     }
 
-    const recognition = ensureRecognition()
-
-    transcriptDraftRef.current = ''
-    interimTranscriptRef.current = ''
-    recognitionStopRequestedRef.current = false
+    mediaRecorderChunksRef.current = []
     setErrorMessage(null)
     setIsListening(true)
     setVoiceTurnPhase('idle')
@@ -729,47 +896,61 @@ export function WebCompanionExperienceProvider({
       voiceTurnPhaseTimeoutRef.current = null
     }
 
-    try {
-      recognitionSessionActiveRef.current = true
-      recognition.start()
-      logVoiceDebug('recognition:start', {})
-    } catch (error) {
-      recognitionSessionActiveRef.current = false
-      setIsListening(false)
-      setVoiceTurnPhase('idle')
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : 'Voice demo could not start listening.'
-      )
-      logVoiceDebug('recognition:start-failed', {
-        message: error instanceof Error ? error.message : String(error),
+    void ensureRecorder()
+      .then((recorder) => {
+        captureSessionActiveRef.current = true
+        recorder.start()
+        logVoiceDebug('recorder:start', {
+          mimeType: recorder.mimeType,
+        })
       })
-    }
+      .catch((error) => {
+        captureSessionActiveRef.current = false
+        setIsListening(false)
+        setVoiceTurnPhase('idle')
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : 'Voice demo could not start listening.'
+        )
+        logVoiceDebug('recorder:start-failed', {
+          message: error instanceof Error ? error.message : String(error),
+        })
+      })
   }
 
   const stopListening = () => {
-    if (!recognitionSessionActiveRef.current) {
+    if (!captureSessionActiveRef.current) {
       return
     }
 
-    recognitionStopRequestedRef.current = true
-    logVoiceDebug('recognition:stop-requested', {})
-    recognitionRef.current?.stop()
+    logVoiceDebug('recorder:stop-requested', {})
+    mediaRecorderRef.current?.stop()
   }
 
-  const startExperience = async () => {
-    if (status === 'requesting-permission' || status === 'active') {
+  const startExperience = async (options?: {
+    mode?: StartExperienceMode
+  }) => {
+    if (status === 'requesting-permission') {
       return
     }
+
+    const requestedMode = options?.mode ?? 'full'
 
     try {
       setStatus('requesting-permission')
       setErrorMessage(null)
       setIsReadyForVoice(false)
-      ensureRecognition()
+
+      if (requestedMode === 'demo-only') {
+        setExperienceMode('demo-only')
+        setStatus('idle')
+        return
+      }
+
       await requestMicPermission()
       await ensureSession()
+      setExperienceMode('mic-only')
       setStatus('active')
       await dispatchEvent(
         {
@@ -791,11 +972,12 @@ export function WebCompanionExperienceProvider({
         lastAutoSpokenAtRef.current = Date.now()
       }
     } catch (error) {
-      setStatus('error')
+      setExperienceMode('demo-only')
+      setStatus('idle')
       setErrorMessage(
         error instanceof Error
-          ? error.message
-          : 'Clicky could not start the guided experience.'
+          ? `${error.message} You can still watch the demo below and enable live permissions later.`
+          : 'Clicky could not start the guided experience. You can still watch the demo below.'
       )
     }
   }
@@ -832,7 +1014,7 @@ export function WebCompanionExperienceProvider({
     }
 
     sectionAnnouncementTimeoutRef.current = window.setTimeout(() => {
-      if (status !== 'active') {
+      if (statusRef.current !== 'active') {
         return
       }
 
@@ -888,20 +1070,20 @@ export function WebCompanionExperienceProvider({
         logVoiceDebug('shortcut:keyup', {
           key: event.key,
         })
-        if (recognitionStopTimeoutRef.current !== null) {
-          window.clearTimeout(recognitionStopTimeoutRef.current)
+        if (captureStopTimeoutRef.current !== null) {
+          window.clearTimeout(captureStopTimeoutRef.current)
         }
 
-        recognitionStopTimeoutRef.current = window.setTimeout(() => {
+        captureStopTimeoutRef.current = window.setTimeout(() => {
           stopListening()
-        }, 260)
+        }, SHORTCUT_RELEASE_GRACE_MS)
       }
     }
 
     const handleBlur = () => {
       shortcutPressedRef.current = false
-      if (recognitionStopTimeoutRef.current !== null) {
-        window.clearTimeout(recognitionStopTimeoutRef.current)
+      if (captureStopTimeoutRef.current !== null) {
+        window.clearTimeout(captureStopTimeoutRef.current)
       }
       stopListening()
     }
@@ -926,10 +1108,6 @@ export function WebCompanionExperienceProvider({
       return 'listening'
     }
 
-    if (isSpeaking) {
-      return 'responding'
-    }
-
     if (voiceTurnPhase === 'transcribing') {
       return 'transcribing'
     }
@@ -939,7 +1117,7 @@ export function WebCompanionExperienceProvider({
     }
 
     return 'idle'
-  }, [isListening, isProcessingVoiceTurn, isSpeaking, status, voiceTurnPhase])
+  }, [isListening, isProcessingVoiceTurn, status, voiceTurnPhase])
 
   const value = useMemo<WebCompanionExperienceValue>(
     () => ({
@@ -947,6 +1125,7 @@ export function WebCompanionExperienceProvider({
       bubbleText,
       companionVisualState,
       currentSectionId: activeSectionId,
+      experienceMode,
       errorMessage,
       guidanceTarget,
       isListening,
@@ -959,6 +1138,7 @@ export function WebCompanionExperienceProvider({
       backendMode,
       bubbleText,
       companionVisualState,
+      experienceMode,
       errorMessage,
       guidanceTarget,
       isListening,
@@ -972,8 +1152,4 @@ export function WebCompanionExperienceProvider({
       {children}
     </WebCompanionExperienceContext.Provider>
   )
-}
-
-export function useOptionalCursorCompanionExperience() {
-  return useOptionalWebCompanionExperience()
 }

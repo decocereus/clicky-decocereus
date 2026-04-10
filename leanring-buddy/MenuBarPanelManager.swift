@@ -12,6 +12,7 @@
 //
 
 import AppKit
+import OSLog
 import SwiftUI
 
 extension Notification.Name {
@@ -38,11 +39,13 @@ final class MenuBarPanelManager: NSObject {
     private var showPanelObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
+    private weak var studioWindowPresenter: CompanionAppDelegate?
     private let panelWidth: CGFloat = 360
     private let panelHeight: CGFloat = 380
 
-    init(companionManager: CompanionManager) {
+    init(companionManager: CompanionManager, studioWindowPresenter: CompanionAppDelegate) {
         self.companionManager = companionManager
+        self.studioWindowPresenter = studioWindowPresenter
         super.init()
         createStatusItem()
 
@@ -51,7 +54,7 @@ final class MenuBarPanelManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.hidePanel()
+            self?.hidePanel(reason: "notification")
         }
 
         openStudioObserver = NotificationCenter.default.addObserver(
@@ -59,8 +62,8 @@ final class MenuBarPanelManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.hidePanel()
-            self?.openStudioWindow()
+            self?.hidePanel(reason: "opening-studio")
+            self?.openStudioWindow(source: "companion-panel")
         }
 
         showPanelObserver = NotificationCenter.default.addObserver(
@@ -68,7 +71,7 @@ final class MenuBarPanelManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.showPanel()
+            self?.showPanel(source: "notification")
         }
     }
 
@@ -145,32 +148,42 @@ final class MenuBarPanelManager: NSObject {
     func showPanelOnLaunch() {
         // Small delay so the status item has time to appear in the menu bar
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            self.showPanel()
+            self.showPanel(source: "launch-required-action")
         }
     }
 
     func showStudioOnLaunch() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-            self.openStudioWindow()
+            self.openStudioWindow(source: "debug-launch")
         }
     }
 
-    private func openStudioWindow() {
+    private func openStudioWindow(source: String) {
+        ClickyUnifiedTelemetry.windowing.info(
+            "Studio open requested source=\(source, privacy: .public)"
+        )
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        guard let studioWindowPresenter else {
+            ClickyUnifiedTelemetry.windowing.error(
+                "Studio open dropped source=\(source, privacy: .public) reason=missing-studio-presenter"
+            )
+            return
+        }
+
+        studioWindowPresenter.showStudioWindow(source: source)
     }
 
     @objc private func statusItemClicked() {
         if let panel, panel.isVisible {
-            hidePanel()
+            hidePanel(reason: "status-item-toggle")
         } else {
-            showPanel()
+            showPanel(source: "status-item-toggle")
         }
     }
 
     // MARK: - Panel Lifecycle
 
-    private func showPanel() {
+    private func showPanel(source: String) {
         if panel == nil {
             createPanel()
         }
@@ -181,11 +194,26 @@ final class MenuBarPanelManager: NSObject {
         panel?.makeKeyAndOrderFront(nil)
         panel?.orderFrontRegardless()
         installClickOutsideMonitor()
+        ClickyUnifiedTelemetry.windowing.info(
+            "Companion panel presented source=\(source, privacy: .public)"
+        )
     }
 
-    private func hidePanel() {
-        panel?.orderOut(nil)
+    private func hidePanel(reason: String) {
+        guard let panel else {
+            removeClickOutsideMonitor()
+            return
+        }
+
+        let wasVisible = panel.isVisible
+        panel.orderOut(nil)
         removeClickOutsideMonitor()
+
+        guard wasVisible else { return }
+
+        ClickyUnifiedTelemetry.windowing.info(
+            "Companion panel dismissed reason=\(reason, privacy: .public)"
+        )
     }
 
     private func createPanel() {
@@ -230,7 +258,6 @@ final class MenuBarPanelManager: NSObject {
         // Calculate the panel's content height from the hosting view's fitting size
         // so the panel snugly wraps the SwiftUI content instead of using a fixed height.
         let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: panelWidth, height: panelHeight)
-        let actualPanelHeight = fittingSize.height
 
         // Status item window coordinates can occasionally be stale or far offscreen
         // during first launch on menu bar-only apps. Clamp the final panel frame to
@@ -239,7 +266,9 @@ final class MenuBarPanelManager: NSObject {
             ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
             ?? NSScreen.main
         let fallbackVisibleFrame = fallbackScreen?.visibleFrame
-            ?? CGRect(x: 0, y: 0, width: panelWidth, height: actualPanelHeight)
+            ?? CGRect(x: 0, y: 0, width: panelWidth, height: fittingSize.height)
+        let maxPanelHeight = max(220, fallbackVisibleFrame.height - 12)
+        let actualPanelHeight = min(fittingSize.height, maxPanelHeight)
 
         // Horizontally center the panel beneath the status item icon, then clamp.
         let unclampedPanelOriginX = statusItemFrame.midX - (panelWidth / 2)
@@ -290,7 +319,7 @@ final class MenuBarPanelManager: NSObject {
                     return
                 }
 
-                self.hidePanel()
+                self.hidePanel(reason: "outside-click")
             }
         }
     }

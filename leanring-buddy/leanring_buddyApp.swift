@@ -7,6 +7,8 @@
 //  opens a floating panel with companion voice controls.
 //
 
+import AppKit
+import OSLog
 import ServiceManagement
 import SwiftUI
 
@@ -16,18 +18,33 @@ struct leanring_buddyApp: App {
 
     var body: some Scene {
         Settings {
-            CompanionStudioView(companionManager: appDelegate.companionManager)
-                .frame(minWidth: 980, minHeight: 680)
+            EmptyView()
         }
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Open Studio") {
+                    ClickyUnifiedTelemetry.windowing.info(
+                        "Studio command invoked source=app-settings"
+                    )
+                    appDelegate.showStudioWindow(source: "app-settings")
+                }
+                .keyboardShortcut(",", modifiers: [.command])
+            }
+
             CommandMenu("Clicky") {
                 Button("Open Companion Panel") {
+                    ClickyUnifiedTelemetry.windowing.info(
+                        "Companion panel command invoked source=clicky-command-menu"
+                    )
                     NotificationCenter.default.post(name: .clickyShowPanel, object: nil)
                 }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
 
-                SettingsLink {
-                    Text("Open Studio")
+                Button("Open Studio") {
+                    ClickyUnifiedTelemetry.windowing.info(
+                        "Studio command invoked source=clicky-command-menu"
+                    )
+                    appDelegate.showStudioWindow(source: "clicky-command-menu")
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
             }
@@ -42,11 +59,14 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarPanelManager: MenuBarPanelManager?
     let companionManager = CompanionManager()
     private var sparkleUpdaterController: SPUStandardUpdaterController?
+    private lazy var studioWindowController = StudioWindowController(companionManager: companionManager)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("🎯 Clicky: Starting...")
-        print("🎯 Clicky: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
-        ClickyLogger.notice(.app, "Launching Clicky version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        ClickyUnifiedTelemetry.lifecycle.info(
+            "App launch began version=\(version, privacy: .public)"
+        )
+        ClickyLogger.notice(.app, "Launching Clicky version=\(version)")
 
         terminateOtherRunningClickyInstances()
 
@@ -60,7 +80,10 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         #endif
 
-        menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
+        menuBarPanelManager = MenuBarPanelManager(
+            companionManager: companionManager,
+            studioWindowPresenter: self
+        )
         companionManager.start()
         // Auto-open the panel if the user still needs to do something:
         // either they haven't onboarded yet, or permissions were revoked.
@@ -75,6 +98,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        ClickyUnifiedTelemetry.lifecycle.info("App termination began")
         ClickyLogger.notice(.app, "Terminating Clicky")
         companionManager.stop()
     }
@@ -85,6 +109,20 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        companionManager.handleApplicationDidBecomeActive()
+    }
+
+    func showStudioWindow(source: String = "app") {
+        ClickyUnifiedTelemetry.windowing.info(
+            "Studio handoff began source=\(source, privacy: .public)"
+        )
+        #if !DEBUG
+        NSApp.setActivationPolicy(.regular)
+        #endif
+        studioWindowController.showWindow(source: source)
+    }
+
     /// Registers the app as a login item so it launches automatically on
     /// startup. Uses SMAppService which shows the app in System Settings >
     /// General > Login Items, letting the user toggle it off if they want.
@@ -93,9 +131,11 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         if loginItemService.status != .enabled {
             do {
                 try loginItemService.register()
-                print("🎯 Clicky: Registered as login item")
+                ClickyUnifiedTelemetry.lifecycle.info("Login item registered")
             } catch {
-                print("⚠️ Clicky: Failed to register as login item: \(error)")
+                ClickyUnifiedTelemetry.lifecycle.error(
+                    "Login item registration failed error=\(error.localizedDescription, privacy: .public)"
+                )
             }
         }
     }
@@ -111,7 +151,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         do {
             try updaterController.updater.start()
         } catch {
-            print("⚠️ Clicky: Sparkle updater failed to start: \(error)")
+            ClickyUnifiedTelemetry.lifecycle.error(
+                "Sparkle updater failed to start error=\(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -125,9 +167,92 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         for runningApplication in otherRunningClickyApplications {
-            print("🎯 Clicky: Terminating duplicate instance pid=\(runningApplication.processIdentifier)")
+            ClickyUnifiedTelemetry.lifecycle.info(
+                "Duplicate instance termination requested pid=\(String(runningApplication.processIdentifier), privacy: .public)"
+            )
             ClickyLogger.notice(.app, "Terminating duplicate instance pid=\(runningApplication.processIdentifier)")
             _ = runningApplication.terminate()
         }
+    }
+}
+
+@MainActor
+private final class StudioWindowController: NSWindowController, NSWindowDelegate {
+    init(companionManager: CompanionManager) {
+        let studioRootView = CompanionStudioView(companionManager: companionManager)
+            .frame(minWidth: 980, minHeight: 680)
+
+        let hostingController = NSHostingController(rootView: studioRootView)
+        hostingController.view.wantsLayer = true
+        hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+
+        window.contentViewController = hostingController
+        window.contentView?.wantsLayer = true
+        window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+        window.contentView?.superview?.wantsLayer = true
+        window.contentView?.superview?.layer?.backgroundColor = NSColor.clear.cgColor
+        window.contentView?.superview?.superview?.wantsLayer = true
+        window.contentView?.superview?.superview?.layer?.backgroundColor = NSColor.clear.cgColor
+        window.title = "Clicky Studio"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 980, height: 680)
+        if #available(macOS 11.0, *) {
+            window.titlebarSeparatorStyle = .none
+        }
+
+        super.init(window: window)
+
+        window.delegate = self
+        window.center()
+        window.setFrameAutosaveName("ClickyStudioWindow")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func showWindow(source: String) {
+        guard let window else {
+            ClickyUnifiedTelemetry.windowing.error(
+                "Studio window presentation failed source=\(source, privacy: .public) reason=missing-window"
+            )
+            return
+        }
+
+        ClickyUnifiedTelemetry.windowing.info(
+            "Studio window presentation began source=\(source, privacy: .public)"
+        )
+        let wasVisible = window.isVisible
+        if !window.isVisible {
+            window.center()
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        super.showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
+        window.makeMain()
+        window.orderFrontRegardless()
+        ClickyUnifiedTelemetry.windowing.info(
+            "Studio window presented source=\(source, privacy: .public) reused=\(wasVisible ? "true" : "false", privacy: .public)"
+        )
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        ClickyUnifiedTelemetry.windowing.info("Studio window will close")
+        #if !DEBUG
+        NSApp.setActivationPolicy(.accessory)
+        #endif
     }
 }

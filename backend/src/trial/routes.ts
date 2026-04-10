@@ -7,6 +7,7 @@ import {
   consumeLaunchTrialCredit,
   getLaunchTrialSnapshot,
   markLaunchTrialPaywalled,
+  markLaunchTrialWelcomeDelivered,
 } from "./service"
 
 export async function handleGetTrial(c: Context<{ Bindings: Env }>) {
@@ -74,6 +75,30 @@ export async function handleMarkTrialPaywalled(c: Context<{ Bindings: Env }>) {
   }
 
   const trial = await markLaunchTrialPaywalled(c.env, sessionResult.session.user.id)
+
+  if (!trial) {
+    return c.json(
+      {
+        error: "Launch trial is not activated for this user.",
+      },
+      404,
+    )
+  }
+
+  return c.json({
+    userId: sessionResult.session.user.id,
+    trial,
+  })
+}
+
+export async function handleMarkTrialWelcomeDelivered(c: Context<{ Bindings: Env }>) {
+  const sessionResult = await requireSession(c)
+
+  if (!sessionResult.ok) {
+    return sessionResult.response
+  }
+
+  const trial = await markLaunchTrialWelcomeDelivered(c.env, sessionResult.session.user.id)
 
   if (!trial) {
     return c.json(

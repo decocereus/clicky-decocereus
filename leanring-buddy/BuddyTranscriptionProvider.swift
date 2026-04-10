@@ -7,6 +7,7 @@
 
 import AVFoundation
 import Foundation
+import OSLog
 
 protocol BuddyStreamingTranscriptionSession: AnyObject {
     var finalTranscriptFallbackDelaySeconds: TimeInterval { get }
@@ -36,13 +37,21 @@ enum BuddyTranscriptionProviderFactory {
         case appleSpeech = "apple"
     }
 
-    static func makeDefaultProvider() -> any BuddyTranscriptionProvider {
-        let provider = resolveProvider()
-        print("🎙️ Transcription: using \(provider.displayName)")
-        return provider
+    private struct Resolution {
+        let provider: any BuddyTranscriptionProvider
+        let reason: String
+        let didFallback: Bool
     }
 
-    private static func resolveProvider() -> any BuddyTranscriptionProvider {
+    static func makeDefaultProvider() -> any BuddyTranscriptionProvider {
+        let resolution = resolveProvider()
+        ClickyUnifiedTelemetry.voiceRouting.info(
+            "Transcription provider resolved provider=\(resolution.provider.displayName, privacy: .public) reason=\(resolution.reason, privacy: .public) fallback=\(resolution.didFallback ? "true" : "false", privacy: .public)"
+        )
+        return resolution.provider
+    }
+
+    private static func resolveProvider() -> Resolution {
         let preferredProviderRawValue = AppBundleConfiguration
             .stringValue(forKey: "VoiceTranscriptionProvider")?
             .lowercased()
@@ -52,49 +61,81 @@ enum BuddyTranscriptionProviderFactory {
         let openAIProvider = OpenAIAudioTranscriptionProvider()
 
         if preferredProvider == .appleSpeech {
-            return AppleSpeechTranscriptionProvider()
+            return Resolution(
+                provider: AppleSpeechTranscriptionProvider(),
+                reason: "preferred-apple-speech",
+                didFallback: false
+            )
         }
 
         if preferredProvider == .assemblyAI {
             if assemblyAIProvider.isConfigured {
-                return assemblyAIProvider
+                return Resolution(
+                    provider: assemblyAIProvider,
+                    reason: "preferred-assemblyai",
+                    didFallback: false
+                )
             }
-
-            print("⚠️ Transcription: AssemblyAI preferred but not configured, falling back")
 
             if openAIProvider.isConfigured {
-                print("⚠️ Transcription: using OpenAI as fallback")
-                return openAIProvider
+                return Resolution(
+                    provider: openAIProvider,
+                    reason: "preferred-assemblyai-unavailable",
+                    didFallback: true
+                )
             }
 
-            print("⚠️ Transcription: using Apple Speech as fallback")
-            return AppleSpeechTranscriptionProvider()
+            return Resolution(
+                provider: AppleSpeechTranscriptionProvider(),
+                reason: "preferred-assemblyai-unavailable",
+                didFallback: true
+            )
         }
 
         if preferredProvider == .openAI {
             if openAIProvider.isConfigured {
-                return openAIProvider
+                return Resolution(
+                    provider: openAIProvider,
+                    reason: "preferred-openai",
+                    didFallback: false
+                )
             }
-
-            print("⚠️ Transcription: OpenAI preferred but not configured, falling back")
 
             if assemblyAIProvider.isConfigured {
-                print("⚠️ Transcription: using AssemblyAI as fallback")
-                return assemblyAIProvider
+                return Resolution(
+                    provider: assemblyAIProvider,
+                    reason: "preferred-openai-unavailable",
+                    didFallback: true
+                )
             }
 
-            print("⚠️ Transcription: using Apple Speech as fallback")
-            return AppleSpeechTranscriptionProvider()
+            return Resolution(
+                provider: AppleSpeechTranscriptionProvider(),
+                reason: "preferred-openai-unavailable",
+                didFallback: true
+            )
         }
 
         if assemblyAIProvider.isConfigured {
-            return assemblyAIProvider
+            return Resolution(
+                provider: assemblyAIProvider,
+                reason: "default-worker-configured",
+                didFallback: false
+            )
         }
 
         if openAIProvider.isConfigured {
-            return openAIProvider
+            return Resolution(
+                provider: openAIProvider,
+                reason: "default-openai-configured",
+                didFallback: false
+            )
         }
 
-        return AppleSpeechTranscriptionProvider()
+        return Resolution(
+            provider: AppleSpeechTranscriptionProvider(),
+            reason: "default-local-fallback",
+            didFallback: true
+        )
     }
 }

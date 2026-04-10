@@ -295,6 +295,18 @@ struct ClickyBackendAuthClient {
         return try JSONDecoder().decode(ClickyBackendTrialEnvelopePayload.self, from: data)
     }
 
+    func markTrialWelcomeDelivered(sessionToken: String) async throws -> ClickyBackendTrialEnvelopePayload {
+        var request = URLRequest(url: try endpointURL(path: "/v1/trial/welcome-delivered"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(ClickyBackendTrialEnvelopePayload.self, from: data)
+    }
+
     private func validate(response: URLResponse, data: Data) throws {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ClickyBackendAuthClientError.invalidResponse

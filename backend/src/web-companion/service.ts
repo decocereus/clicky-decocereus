@@ -12,7 +12,9 @@ import { isKnownWebCompanionSection } from "./sections"
 import { generateWebCompanionReply } from "./openclaw"
 import type {
   WebCompanionGenerationInput,
+  WebCompanionImageAttachment,
   WebCompanionResponse,
+  WebCompanionScreenContext,
   WebCompanionSessionMetadata,
 } from "./types"
 
@@ -21,6 +23,8 @@ const PROACTIVE_MUTE_WINDOW_MS = 2 * 60 * 1000
 const MAX_RECENT_TURNS = 10
 const MAX_PROACTIVE_NUDGES_PER_SESSION = 3
 const MAX_MESSAGE_LENGTH = 800
+const MAX_SCREEN_ATTACHMENTS = 2
+const MAX_SCREEN_ATTACHMENT_BASE64_LENGTH = 3_000_000
 
 type WebCompanionSessionRow = typeof webCompanionSessions.$inferSelect
 type WebCompanionTurnRow = typeof webCompanionTurns.$inferSelect
@@ -59,6 +63,69 @@ function normalizeStringArray(value: unknown) {
   return value
     .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
     .filter(Boolean)
+}
+
+function normalizeScreenAttachment(raw: unknown): WebCompanionImageAttachment | null {
+  if (!isRecord(raw)) {
+    return null
+  }
+
+  const contentBase64 =
+    typeof raw.contentBase64 === "string" ? raw.contentBase64.trim() : ""
+  if (!contentBase64 || contentBase64.length > MAX_SCREEN_ATTACHMENT_BASE64_LENGTH) {
+    return null
+  }
+
+  const label =
+    typeof raw.label === "string" && raw.label.trim()
+      ? raw.label.trim().slice(0, 160)
+      : "Shared screen capture"
+  const mimeType =
+    typeof raw.mimeType === "string" && raw.mimeType.trim()
+      ? raw.mimeType.trim().slice(0, 64)
+      : "image/jpeg"
+
+  if (!/^image\/(jpeg|jpg|png|webp)$/i.test(mimeType)) {
+    return null
+  }
+
+  return {
+    contentBase64,
+    label,
+    mimeType,
+  }
+}
+
+function normalizeScreenContext(raw: unknown): WebCompanionScreenContext | null {
+  if (!isRecord(raw)) {
+    return null
+  }
+
+  const source =
+    typeof raw.source === "string" &&
+    (raw.source.trim() === "display-media" ||
+      raw.source.trim() === "site-layout-reference")
+      ? (raw.source.trim() as "display-media" | "site-layout-reference")
+      : null
+  if (!source) {
+    return null
+  }
+
+  const attachments = Array.isArray(raw.attachments)
+    ? raw.attachments
+        .map(normalizeScreenAttachment)
+        .filter((attachment): attachment is WebCompanionImageAttachment => Boolean(attachment))
+        .slice(0, MAX_SCREEN_ATTACHMENTS)
+    : []
+
+  if (!attachments.length) {
+    return null
+  }
+
+  return {
+    attachments,
+    source,
+  }
 }
 
 function normalizeSessionMetadata(raw: unknown): WebCompanionSessionMetadata {
@@ -210,6 +277,7 @@ function buildGenerationInput(
   metadata: WebCompanionSessionMetadata,
   history: Awaited<ReturnType<typeof listRecentTurns>>,
   trigger: WebCompanionGenerationInput["trigger"],
+  screenContext: WebCompanionScreenContext | null,
 ): WebCompanionGenerationInput {
   return {
     visitorId: visitorAnonymousId,
@@ -218,6 +286,7 @@ function buildGenerationInput(
     path: session.path,
     currentSectionId: session.currentSectionId,
     visitedSectionIds: metadata.visitedSectionIds,
+    screenContext,
     history: history
       .filter((turn) => turn.role === "user" || turn.role === "assistant")
       .map((turn) => ({
@@ -510,6 +579,7 @@ export async function recordWebCompanionEvent(
     ctaId?: unknown
     visitedSectionIds?: unknown
     dwellMs?: unknown
+    screenContext?: unknown
   },
 ) {
   console.info("[web-companion] event:start", {
@@ -537,6 +607,7 @@ export async function recordWebCompanionEvent(
     typeof input.ctaId === "string" && input.ctaId.trim()
       ? input.ctaId.trim().slice(0, 120)
       : null
+  const screenContext = normalizeScreenContext(input.screenContext)
   const sessionMetadata = normalizeSessionMetadata(bundle.session.metadata)
   const nextMetadata: WebCompanionSessionMetadata = {
     ...sessionMetadata,
@@ -597,6 +668,7 @@ export async function recordWebCompanionEvent(
         sectionId: sectionId ?? updatedSession.currentSectionId,
         ctaId,
       },
+      screenContext,
     )
 
     response = await generateWebCompanionReply(env, generationInput)
@@ -640,6 +712,7 @@ export async function sendWebCompanionMessage(
     path?: unknown
     sectionId?: unknown
     visitedSectionIds?: unknown
+    screenContext?: unknown
   },
 ) {
   console.info("[web-companion] message:start", {
@@ -667,6 +740,7 @@ export async function sendWebCompanionMessage(
       ? input.sectionId
       : bundle.session.currentSectionId
   const path = normalizePath(input.path ?? bundle.session.path)
+  const screenContext = normalizeScreenContext(input.screenContext)
   const sessionMetadata = normalizeSessionMetadata(bundle.session.metadata)
   const nextMetadata: WebCompanionSessionMetadata = {
     ...sessionMetadata,
@@ -696,6 +770,8 @@ export async function sendWebCompanionMessage(
     metadata: {
       path,
       sectionId,
+      screenAttachmentCount: screenContext?.attachments.length ?? 0,
+      screenContextSource: screenContext?.source ?? null,
     },
   })
 
@@ -710,6 +786,7 @@ export async function sendWebCompanionMessage(
       message,
       sectionId,
     },
+    screenContext,
   )
 
   const response = await generateWebCompanionReply(env, generationInput)

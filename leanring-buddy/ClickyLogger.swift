@@ -136,7 +136,6 @@ enum ClickyLogger {
 private enum ClickyLogRedactor {
     private static let knownSecretAccounts = [
         "elevenlabs_api_key",
-        "clicky_auth_session",
     ]
 
     private static let userDefaultSecretKeys = [
@@ -148,14 +147,19 @@ private enum ClickyLogRedactor {
 
         let patternReplacements: [(String, String)] = [
             (#"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,]+"#, "$1[REDACTED]"),
+            (#"(?i)(\"api[_-]?key\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
             (#"(?i)(\"access[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
             (#"(?i)(\"refresh[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
             (#"(?i)(\"session[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(\"id[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(\"auth[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
             (#"(?i)(\"client[_-]?secret\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(\"exchange[_-]?code\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
             (#"(?i)(api[_ -]?key\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
             (#"(?i)(token\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
             (#"(?i)(secret\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
             (#"(?i)(code=)[^&\s]+"#, "$1[REDACTED]"),
+            (#"(?i)(authToken=)[^&\s]+"#, "$1[REDACTED]"),
             (#"(?i)(token=)[^&\s]+"#, "$1[REDACTED]"),
             (#"(?i)(secret=)[^&\s]+"#, "$1[REDACTED]"),
         ]
@@ -185,6 +189,13 @@ private enum ClickyLogRedactor {
             if let value = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
                !value.isEmpty {
                 values.append(value)
+            }
+        }
+
+        if let storedSession = ClickyAuthSessionStore.load() {
+            let trimmedSessionToken = storedSession.sessionToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedSessionToken.isEmpty {
+                values.append(trimmedSessionToken)
             }
         }
 

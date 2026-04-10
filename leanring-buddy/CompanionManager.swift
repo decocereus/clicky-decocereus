@@ -10,6 +10,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import OSLog
 import ScreenCaptureKit
 import SwiftUI
 
@@ -148,6 +149,7 @@ private struct ClickySpeechPlaybackOutcome {
 
 private struct LaunchAssistantTurnAuthorization {
     let session: ClickyAuthSessionSnapshot?
+    let shouldUseWelcomeTurn: Bool
     let shouldUsePaywallTurn: Bool
 }
 
@@ -231,6 +233,8 @@ final class CompanionManager: ObservableObject {
     /// Scheduled hide for transient cursor mode — cancelled if the user
     /// speaks again before the delay elapses.
     private var transientHideTask: Task<Void, Never>?
+    private var quietLaunchEntitlementRefreshTask: Task<Void, Never>?
+    private var lastQuietLaunchEntitlementRefreshAt: Date?
 
     /// True when all three required permissions (accessibility, screen recording,
     /// microphone) are granted. Used by the panel to show a single "all good" state.
@@ -471,6 +475,31 @@ final class CompanionManager: ObservableObject {
             return "Unlocked"
         case let .failed(message):
             return message
+        }
+    }
+
+    var isClickyLaunchSignedIn: Bool {
+        if case .signedIn = clickyLaunchAuthState {
+            return true
+        }
+
+        return false
+    }
+
+    var requiresLaunchSignInForCompanionUse: Bool {
+        guard hasCompletedOnboarding && allPermissionsGranted else {
+            return false
+        }
+
+        if isClickyLaunchPaywallActive {
+            return false
+        }
+
+        switch clickyLaunchAuthState {
+        case .signedOut, .failed:
+            return true
+        case .restoring, .signingIn, .signedIn:
+            return false
         }
     }
 
@@ -1599,13 +1628,17 @@ final class CompanionManager: ObservableObject {
     }
 
     func start() {
+        ClickyUnifiedTelemetry.lifecycle.info("Companion start began")
+
         if !CompanionRuntimeConfiguration.isWorkerConfigured && selectedAgentBackend == .claude {
             selectedAgentBackend = .openClaw
+            ClickyUnifiedTelemetry.lifecycle.info(
+                "Agent backend fallback applied from=Claude to=OpenClaw reason=worker-unconfigured"
+            )
         }
 
         restoreClickyLaunchSessionIfPossible()
         refreshAllPermissions()
-        print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
         bindVoiceStateObservation()
         bindAudioPowerLevel()
@@ -1638,6 +1671,10 @@ final class CompanionManager: ObservableObject {
             overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
             isOverlayVisible = true
         }
+
+        ClickyUnifiedTelemetry.lifecycle.info(
+            "Companion start completed backend=\(self.selectedAgentBackend.displayName, privacy: .public) permissions=\(self.allPermissionsGranted ? "ready" : "needs-attention", privacy: .public) onboarding=\(self.hasCompletedOnboarding ? "complete" : "pending", privacy: .public) overlay=\(self.isOverlayVisible ? "shown" : "hidden", privacy: .public)"
+        )
     }
 
     /// Called by BlueCursorView after the buddy finishes its pointing
@@ -1738,6 +1775,8 @@ final class CompanionManager: ObservableObject {
         buddyDictationManager.cancelCurrentDictation()
         overlayWindowManager.hideOverlay()
         transientHideTask?.cancel()
+        quietLaunchEntitlementRefreshTask?.cancel()
+        quietLaunchEntitlementRefreshTask = nil
         clickyShellHeartbeatTimer?.invalidate()
         clickyShellHeartbeatTimer = nil
 
@@ -1838,6 +1877,94 @@ final class CompanionManager: ObservableObject {
         return code == 401 || code == 404
     }
 
+    private func shouldAttemptQuietLaunchEntitlementRefresh(
+        for storedSession: ClickyAuthSessionSnapshot
+    ) -> Bool {
+        if storedSession.entitlement.hasAccess {
+            return true
+        }
+
+        switch clickyLaunchBillingState {
+        case .waitingForCompletion, .completed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func handleApplicationDidBecomeActive() {
+        refreshClickyLaunchEntitlementQuietlyIfNeeded(reason: "app_became_active")
+    }
+
+    func refreshClickyLaunchEntitlementQuietlyIfNeeded(
+        reason: String,
+        minimumInterval: TimeInterval = 90
+    ) {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            return
+        }
+
+        guard shouldAttemptQuietLaunchEntitlementRefresh(for: storedSession) else {
+            return
+        }
+
+        if let lastQuietLaunchEntitlementRefreshAt,
+           Date().timeIntervalSince(lastQuietLaunchEntitlementRefreshAt) < minimumInterval {
+            return
+        }
+
+        if quietLaunchEntitlementRefreshTask != nil {
+            return
+        }
+
+        lastQuietLaunchEntitlementRefreshAt = Date()
+        ClickyLogger.info(.app, "Scheduling quiet launch entitlement refresh reason=\(reason)")
+
+        quietLaunchEntitlementRefreshTask = Task { @MainActor in
+            defer {
+                quietLaunchEntitlementRefreshTask = nil
+            }
+
+            do {
+                let refreshedSnapshot = try await synchronizeLaunchSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    fallbackUserID: storedSession.userID,
+                    fallbackEmail: storedSession.email,
+                    entitlementSyncMode: .refresh
+                )
+
+                try persistLaunchSessionSnapshot(refreshedSnapshot)
+                if refreshedSnapshot.entitlement.hasAccess {
+                    clickyLaunchBillingState = .completed
+                }
+                ClickyLogger.notice(
+                    .app,
+                    "Quiet launch entitlement refresh succeeded reason=\(reason) access=\(refreshedSnapshot.entitlement.hasAccess)"
+                )
+            } catch is CancellationError {
+                ClickyLogger.debug(.app, "Quiet launch entitlement refresh cancelled reason=\(reason)")
+            } catch {
+                if shouldClearStoredLaunchSession(after: error) {
+                    ClickyAuthSessionStore.clear()
+                    clickyLaunchAuthState = .signedOut
+                    clickyLaunchEntitlementStatusLabel = "Unknown"
+                    clickyLaunchBillingState = .idle
+                    clickyLaunchTrialState = .inactive
+                    ClickyLogger.error(
+                        .app,
+                        "Quiet launch entitlement refresh cleared invalid session reason=\(reason) error=\(error.localizedDescription)"
+                    )
+                    return
+                }
+
+                ClickyLogger.error(
+                    .app,
+                    "Quiet launch entitlement refresh failed reason=\(reason) error=\(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
     private func synchronizeLaunchSessionSnapshot(
         sessionToken: String,
         fallbackUserID: String? = nil,
@@ -1922,17 +2049,46 @@ final class CompanionManager: ObservableObject {
         return refreshedSnapshot
     }
 
+    private func markClickyLaunchWelcomeDeliveredNow(
+        for storedSession: ClickyAuthSessionSnapshot
+    ) async throws -> ClickyAuthSessionSnapshot {
+        let trialPayload = try await clickyBackendAuthClient.markTrialWelcomeDelivered(
+            sessionToken: storedSession.sessionToken
+        )
+        let updatedTrial = makeLaunchTrialSnapshot(from: trialPayload.trial)
+        let refreshedSnapshot = updatedLaunchSessionSnapshot(
+            from: storedSession,
+            trial: updatedTrial
+        )
+
+        try persistLaunchSessionSnapshot(refreshedSnapshot)
+        ClickyLogger.notice(.app, "Marked launch welcome turn delivered user=\(storedSession.email)")
+        return refreshedSnapshot
+    }
+
     private func prepareLaunchAuthorizationForAssistantTurn() async throws -> LaunchAssistantTurnAuthorization {
         guard let storedSession = ClickyAuthSessionStore.load() else {
-            return LaunchAssistantTurnAuthorization(session: nil, shouldUsePaywallTurn: false)
+            return LaunchAssistantTurnAuthorization(
+                session: nil,
+                shouldUseWelcomeTurn: false,
+                shouldUsePaywallTurn: false
+            )
         }
 
         guard !storedSession.entitlement.hasAccess else {
-            return LaunchAssistantTurnAuthorization(session: storedSession, shouldUsePaywallTurn: false)
+            return LaunchAssistantTurnAuthorization(
+                session: storedSession,
+                shouldUseWelcomeTurn: false,
+                shouldUsePaywallTurn: false
+            )
         }
 
         guard hasCompletedOnboarding && allPermissionsGranted else {
-            return LaunchAssistantTurnAuthorization(session: storedSession, shouldUsePaywallTurn: false)
+            return LaunchAssistantTurnAuthorization(
+                session: storedSession,
+                shouldUseWelcomeTurn: false,
+                shouldUsePaywallTurn: false
+            )
         }
 
         let needsTrialActivation = storedSession.trial == nil || storedSession.trial?.status == "inactive"
@@ -1940,11 +2096,29 @@ final class CompanionManager: ObservableObject {
             ? try await activateClickyLaunchTrialNow(for: storedSession)
             : storedSession
 
+        let shouldUseWelcomeTurn =
+            sessionForTurn.trial?.status == "active"
+            && sessionForTurn.trial?.welcomePromptDeliveredAt == nil
         let shouldUsePaywallTurn = sessionForTurn.trial?.status == "armed"
         return LaunchAssistantTurnAuthorization(
             session: sessionForTurn,
+            shouldUseWelcomeTurn: shouldUseWelcomeTurn,
             shouldUsePaywallTurn: shouldUsePaywallTurn
         )
+    }
+
+    private func launchWelcomeTurnSystemPrompt(basePrompt: String) -> String {
+        """
+        \(basePrompt)
+
+        launch onboarding override:
+        - this is the first real clicky turn after setup completed.
+        - give a short, warm welcome that explains what clicky can help with on the user's screen and through voice.
+        - mention that they are in a limited launch trial, but keep it light and helpful rather than salesy.
+        - answer the user's request normally if they already asked for something concrete.
+        - if their first request is vague, steer them toward one or two concrete things clicky can do right now.
+        - keep the reply compact and natural.
+        """
     }
 
     private func launchPaywallTurnSystemPrompt(basePrompt: String) -> String {
@@ -1962,12 +2136,44 @@ final class CompanionManager: ObservableObject {
         """
     }
 
+    private func presentLaunchSignInRequiredState(openStudio: Bool) {
+        openClawGatewayCompanionAgent.cancelActiveRequest()
+        elevenLabsTTSClient.stopPlayback()
+
+        if openStudio {
+            NotificationCenter.default.post(name: .clickyOpenStudio, object: nil)
+        }
+
+        voiceState = .responding
+        ClickyLogger.notice(.app, "Blocked assistant turn because launch sign-in is required")
+
+        let spokenMessage: String
+        switch clickyLaunchAuthState {
+        case .failed(let message):
+            spokenMessage = message
+        default:
+            spokenMessage = "sign in to start your clicky trial. your credits and restore state now stay tied to your account."
+        }
+
+        Task { @MainActor in
+            _ = await playSpeechText(
+                spokenMessage,
+                purpose: .assistantResponse
+            )
+
+            if !Task.isCancelled {
+                voiceState = .idle
+                scheduleTransientHideIfNeeded()
+            }
+        }
+    }
+
     private func presentLaunchPaywallLockedState(openStudio: Bool) {
         openClawGatewayCompanionAgent.cancelActiveRequest()
         elevenLabsTTSClient.stopPlayback()
 
         if openStudio {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            NotificationCenter.default.post(name: .clickyOpenStudio, object: nil)
         }
 
         voiceState = .responding
@@ -2084,6 +2290,7 @@ final class CompanionManager: ObservableObject {
                     ClickyAuthSessionStore.clear()
                     clickyLaunchAuthState = .signedOut
                     clickyLaunchEntitlementStatusLabel = "Unknown"
+                    clickyLaunchBillingState = .idle
                     clickyLaunchTrialState = .inactive
                     ClickyLogger.error(.app, "Failed to restore Clicky launch auth session error=\(error.localizedDescription)")
                     return
@@ -2314,6 +2521,11 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
+            if requiresLaunchSignInForCompanionUse {
+                presentLaunchSignInRequiredState(openStudio: true)
+                return
+            }
+
             if isClickyLaunchPaywallActive {
                 presentLaunchPaywallLockedState(openStudio: true)
                 return
@@ -2512,6 +2724,7 @@ final class CompanionManager: ObservableObject {
         currentResponseTask = Task {
             var launchAuthorization = LaunchAssistantTurnAuthorization(
                 session: nil,
+                shouldUseWelcomeTurn: false,
                 shouldUsePaywallTurn: false
             )
 
@@ -2526,7 +2739,7 @@ final class CompanionManager: ObservableObject {
                 if let storedSession = launchAuthorization.session,
                    !storedSession.entitlement.hasAccess,
                    storedSession.trial?.status == "paywalled" {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    NotificationCenter.default.post(name: .clickyOpenStudio, object: nil)
                     voiceState = .responding
                     _ = await playSpeechText(
                         Self.launchPaywallLockedMessage,
@@ -2552,9 +2765,14 @@ final class CompanionManager: ObservableObject {
                 switch selectedAgentBackend {
                 case .claude:
                     let basePrompt = companionVoiceResponseSystemPrompt()
-                    let systemPrompt = launchAuthorization.shouldUsePaywallTurn
-                        ? launchPaywallTurnSystemPrompt(basePrompt: basePrompt)
-                        : basePrompt
+                    let systemPrompt: String
+                    if launchAuthorization.shouldUsePaywallTurn {
+                        systemPrompt = launchPaywallTurnSystemPrompt(basePrompt: basePrompt)
+                    } else if launchAuthorization.shouldUseWelcomeTurn {
+                        systemPrompt = launchWelcomeTurnSystemPrompt(basePrompt: basePrompt)
+                    } else {
+                        systemPrompt = basePrompt
+                    }
                     logActivePersonaForRequest(
                         transcript: transcript,
                         backend: .claude,
@@ -2578,9 +2796,14 @@ final class CompanionManager: ObservableObject {
                     fullResponseText = response.text
                 case .openClaw:
                     let basePrompt = openClawShellScopedSystemPrompt()
-                    let systemPrompt = launchAuthorization.shouldUsePaywallTurn
-                        ? launchPaywallTurnSystemPrompt(basePrompt: basePrompt)
-                        : basePrompt
+                    let systemPrompt: String
+                    if launchAuthorization.shouldUsePaywallTurn {
+                        systemPrompt = launchPaywallTurnSystemPrompt(basePrompt: basePrompt)
+                    } else if launchAuthorization.shouldUseWelcomeTurn {
+                        systemPrompt = launchWelcomeTurnSystemPrompt(basePrompt: basePrompt)
+                    } else {
+                        systemPrompt = basePrompt
+                    }
                     logActivePersonaForRequest(
                         transcript: transcript,
                         backend: .openClaw,
@@ -2696,6 +2919,15 @@ final class CompanionManager: ObservableObject {
                             ClickyLogger.error(
                                 .app,
                                 "Failed to persist launch paywall activation after paywall turn error=\(error.localizedDescription)"
+                            )
+                        }
+                    } else if launchAuthorization.shouldUseWelcomeTurn {
+                        do {
+                            _ = try await markClickyLaunchWelcomeDeliveredNow(for: storedSession)
+                        } catch {
+                            ClickyLogger.error(
+                                .app,
+                                "Failed to persist launch welcome delivery after welcome turn error=\(error.localizedDescription)"
                             )
                         }
                     } else if storedSession.trial?.status == "active" {

@@ -1,4 +1,5 @@
-import { useRef, useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { PlayCircle, Sparkles } from 'lucide-react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
@@ -18,6 +19,7 @@ interface FeatureSectionProps {
   bgColor?: 'warm' | 'sage' | 'lavender' | 'rose';
   description?: string;
   showSteps?: boolean;
+  showDemoReel?: boolean;
 }
 
 export function FeatureSection({
@@ -34,6 +36,7 @@ export function FeatureSection({
   bgColor = 'warm',
   description,
   showSteps = false,
+  showDemoReel = false,
 }: FeatureSectionProps) {
   const sectionRef = useRef<HTMLDivElement>(null);
   const headlineRef = useRef<HTMLDivElement>(null);
@@ -42,6 +45,30 @@ export function FeatureSection({
   const bubbleRef = useRef<HTMLDivElement>(null);
   const descRef = useRef<HTMLParagraphElement>(null);
   const stepsRef = useRef<HTMLDivElement>(null);
+  const [demoFrameIndex, setDemoFrameIndex] = useState(0);
+
+  const demoFrames = [
+    {
+      caption: 'Clicky spots the active canvas and responds with context-aware help.',
+      src: '/screen_design_tool.jpg',
+      title: 'Screen-aware guidance',
+    },
+    {
+      caption: 'The companion points toward the right control instead of forcing you to search.',
+      src: '/screen_settings_panel.jpg',
+      title: 'Visual pointing',
+    },
+    {
+      caption: 'Clicky adapts to whatever app you are in, not just one workflow.',
+      src: '/screen_creative_app.jpg',
+      title: 'App-aware help',
+    },
+    {
+      caption: 'Once a pattern is clear, Clicky can help repeat it on demand.',
+      src: '/screen_workflow_builder.jpg',
+      title: 'Repeatable workflows',
+    },
+  ];
 
   const getBgClass = () => {
     switch (bgColor) {
@@ -248,6 +275,21 @@ export function FeatureSection({
     return () => ctx.revert();
   }, [entranceDirection, exitDirection, mascotPosition, description, showSteps]);
 
+  useEffect(() => {
+    if (!showDemoReel) {
+      setDemoFrameIndex(0);
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setDemoFrameIndex((currentIndex) => (currentIndex + 1) % demoFrames.length);
+    }, 2200);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [showDemoReel]);
+
   return (
     <section
       ref={sectionRef}
@@ -318,11 +360,64 @@ export function FeatureSection({
           </div>
           {/* Content - either image or UI mockup */}
           <div className="flex-1 relative overflow-hidden">
-            <img
-              src={imageSrc}
-              alt={imageAlt}
-              className="w-full h-full object-cover opacity-90"
-            />
+            {showDemoReel ? (
+              <>
+                {demoFrames.map((frame, frameIndex) => (
+                  <img
+                    key={frame.src}
+                    src={frame.src}
+                    alt={frame.title}
+                    className="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
+                    style={{
+                      opacity: frameIndex === demoFrameIndex ? 0.94 : 0,
+                    }}
+                  />
+                ))}
+
+                <div className="absolute inset-x-0 top-0 flex items-center justify-between px-5 py-4">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/92 px-3 py-1.5 text-xs font-medium text-charcoal shadow-sm backdrop-blur-sm">
+                    <PlayCircle size={14} className="text-lavender" />
+                    Permission-free demo
+                  </div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/92 px-3 py-1.5 text-xs font-medium text-charcoal shadow-sm backdrop-blur-sm">
+                    <Sparkles size={14} className="text-lavender" />
+                    Scroll for the story
+                  </div>
+                </div>
+
+                <div className="absolute inset-x-0 bottom-0 space-y-3 bg-gradient-to-t from-black/65 via-black/20 to-transparent px-5 pb-5 pt-16 text-white">
+                  <div className="flex gap-1.5">
+                    {demoFrames.map((frame, frameIndex) => (
+                      <span
+                        key={frame.src}
+                        className="h-1.5 flex-1 rounded-full transition-all duration-500"
+                        style={{
+                          backgroundColor:
+                            frameIndex === demoFrameIndex
+                              ? 'rgba(255,255,255,0.96)'
+                              : 'rgba(255,255,255,0.28)',
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-sm font-semibold tracking-[0.02em]">
+                    {demoFrames[demoFrameIndex]?.title}
+                  </p>
+                  <p className="max-w-xl text-sm leading-6 text-white/88">
+                    {demoFrames[demoFrameIndex]?.caption}
+                  </p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-white/70">
+                    Enable mic + screen anytime for the live version
+                  </p>
+                </div>
+              </>
+            ) : (
+              <img
+                src={imageSrc}
+                alt={imageAlt}
+                className="w-full h-full object-cover opacity-90"
+              />
+            )}
             {/* Subtle gradient overlay for depth */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/5 to-transparent pointer-events-none" />
           </div>

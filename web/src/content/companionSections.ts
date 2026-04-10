@@ -1,11 +1,14 @@
+import { getCompanionTargetsForSection } from './companionTargetRegistry'
+
 export interface CompanionSectionDefinition {
   id: string
   title: string
   summary: string
   suggestedReplies: string[]
+  targetIds: string[]
 }
 
-export const companionSections: CompanionSectionDefinition[] = [
+const baseCompanionSections: Omit<CompanionSectionDefinition, 'targetIds'>[] = [
   {
     id: 'hero-section',
     title: 'Hero',
@@ -97,6 +100,13 @@ export const companionSections: CompanionSectionDefinition[] = [
     ],
   },
 ]
+
+export const companionSections: CompanionSectionDefinition[] = baseCompanionSections.map(
+  (section) => ({
+    ...section,
+    targetIds: getCompanionTargetsForSection(section.id).map((target) => target.id),
+  })
+)
 
 export const companionSectionIds = companionSections.map((section) => section.id)
 

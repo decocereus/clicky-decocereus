@@ -1,9 +1,15 @@
 import type { Env } from "../env"
 import { getWebCompanionSection, webCompanionSections } from "./sections"
+import {
+  getWebCompanionTargetDescriptor,
+  getWebCompanionTargetsForSection,
+  webCompanionTargetDescriptors,
+} from "./targets"
 import { synthesizeElevenLabsAudio } from "./tts"
 import type {
   WebCompanionAction,
   WebCompanionGenerationInput,
+  WebCompanionImageAttachment,
   WebCompanionResponse,
 } from "./types"
 
@@ -90,6 +96,47 @@ function filterAllowedActions(actions: WebCompanionAction[]) {
 
     return allowedTargetIds.has(action.targetId)
   })
+}
+
+function preferPulseForDirectedGuidance(
+  actions: WebCompanionAction[],
+  input: WebCompanionGenerationInput,
+  fullText: string,
+  bubble: WebCompanionResponse["bubble"],
+) {
+  if (!actions.length || input.trigger.type !== "message") {
+    return actions
+  }
+
+  const userMessage = input.trigger.message.toLowerCase()
+  const assistantText = fullText.toLowerCase()
+  const bubbleText = bubble?.mode === "brief" ? (bubble.text ?? "").toLowerCase() : ""
+  const wantsDirectedGuidance =
+    inferIntent(input.trigger.message) === "guidance" ||
+    userMessage.includes("where is") ||
+    userMessage.includes("where's") ||
+    userMessage.includes("which button") ||
+    userMessage.includes("show me") ||
+    userMessage.includes("point me") ||
+    userMessage.includes("take me to") ||
+    bubbleText.includes("right here") ||
+    bubbleText.includes("this one") ||
+    assistantText.includes("right here") ||
+    assistantText.includes("here's the") ||
+    assistantText.includes("this button")
+
+  if (!wantsDirectedGuidance) {
+    return actions
+  }
+
+  return actions.map((action, index) =>
+    index === 0 && action.type === "highlight" && action.targetId
+      ? {
+          ...action,
+          type: "pulse" as const,
+        }
+      : action,
+  )
 }
 
 function normalizeSuggestedReplies(value: unknown) {
@@ -197,21 +244,30 @@ function parseStructuredAssistantText(
     try {
       const parsed = JSON.parse(jsonCandidate) as unknown
       if (isRecord(parsed) && normalizeText(parsed.text)) {
+        const bubble = normalizeBubble(
+          parsed.bubble,
+          isRecord(parsed.bubble) ? undefined : parsed.bubbleText,
+        )
+        const text = normalizeText(parsed.text)
+        const normalizedActions = filterAllowedActions(normalizeActions(parsed.actions))
+
         return {
           mode:
             normalizeText(parsed.mode) === "nudge" && input.trigger.type === "event"
               ? "nudge"
               : "message",
-          bubble: normalizeBubble(
-            parsed.bubble,
-            isRecord(parsed.bubble) ? undefined : parsed.bubbleText,
-          ),
-          text: normalizeText(parsed.text),
+          bubble,
+          text,
           suggestedReplies: fallbackSuggestedReplies(
             input.currentSectionId,
             normalizeSuggestedReplies(parsed.suggestedReplies),
           ),
-          actions: filterAllowedActions(normalizeActions(parsed.actions)),
+          actions: preferPulseForDirectedGuidance(
+            normalizedActions,
+            input,
+            text,
+            bubble,
+          ),
           voice: {
             shouldSpeak:
               isRecord(parsed.voice) && parsed.voice.shouldSpeak === true,
@@ -286,7 +342,11 @@ function inferIntent(message: string) {
   if (
     normalizedMessage.includes("point") ||
     normalizedMessage.includes("guide") ||
-    normalizedMessage.includes("show me where")
+    normalizedMessage.includes("show me where") ||
+    normalizedMessage.includes("where is") ||
+    normalizedMessage.includes("where's") ||
+    normalizedMessage.includes("show me") ||
+    normalizedMessage.includes("which button")
   ) {
     return "guidance"
   }
@@ -315,6 +375,8 @@ function buildLocalFallbackResponse(
 ): WebCompanionResponse {
   const currentSection = getWebCompanionSection(input.currentSectionId)
   const defaultThreadId = input.openClawThreadId ?? `local-fallback:${input.sessionId}`
+  const hasLiveScreenCapture = input.screenContext?.source === "display-media"
+  const hasLayoutReference = input.screenContext?.source === "site-layout-reference"
 
   if (input.trigger.type === "event") {
     if (
@@ -322,8 +384,20 @@ function buildLocalFallbackResponse(
       input.trigger.eventType === "experience_activated"
     ) {
       const text = currentSection
-        ? `Welcome to Clicky. You're in "${currentSection.title}". ${currentSection.summary} Right now my job is to give you a lightweight live demo of how Clicky guides from the cursor, and to invite you to hold Control-Option when you're ready to talk.`
-        : "Welcome to Clicky. Right now my job is to give you a lightweight live demo from the cursor and guide you into holding Control-Option when you're ready to talk."
+        ? `Welcome to Clicky. You're in "${currentSection.title}". ${currentSection.summary} ${
+            hasLiveScreenCapture
+              ? "I can also see the shared screen for this turn, so I can react to what's visibly on the page while I guide from the cursor."
+              : hasLayoutReference
+                ? "I also have a visual map of the site layout for this turn, so I can stay grounded in where you are on the page."
+              : "Right now my job is to give you a lightweight live demo of how Clicky guides from the cursor."
+          } Hold Control-Option when you're ready to talk.`
+        : `Welcome to Clicky. ${
+            hasLiveScreenCapture
+              ? "I can see the shared screen for this turn and react to what's visible while I guide from the cursor."
+              : hasLayoutReference
+                ? "I have a visual map of the site layout for this turn and can use that while I guide from the cursor."
+              : "Right now my job is to give you a lightweight live demo from the cursor."
+          } Hold Control-Option when you're ready to talk.`
 
       return {
         bubble: {
@@ -488,7 +562,11 @@ function buildLocalFallbackResponse(
     return {
       mode: "message",
       text:
-        "Screen awareness is what makes Clicky feel grounded. The idea is that the agent doesn't answer in a vacuum. It reacts to what you're already looking at, which is why the Mac app can guide instead of just chat.",
+        hasLiveScreenCapture
+          ? "For this turn I can see the shared screen capture, so I can ground the reply in what is actually visible right now. That screen awareness is what makes Clicky feel guided instead of generic."
+          : hasLayoutReference
+            ? "For this turn I have a visual map of the site layout, so I can stay grounded in where you are even without live screen sharing. That still makes the reply more guided than generic."
+          : "Screen awareness is what makes Clicky feel grounded. The idea is that the agent doesn't answer in a vacuum. It reacts to what you're already looking at, which is why the Mac app can guide instead of just chat.",
       suggestedReplies: [
         "How does Clicky point at things?",
         "Does OpenClaw stay the agent?",
@@ -504,14 +582,18 @@ function buildLocalFallbackResponse(
 
   if (intent === "guidance") {
     return {
+      bubble: {
+        mode: "brief",
+        text: "Right here",
+      },
       mode: "message",
       text:
-        "The guiding idea is that Clicky should show, not only tell. On desktop that means cursor-side guidance and pointing. On the website, the first version mirrors that with contextual explanations and section-aware highlighting.",
+        "The guiding idea is that Clicky should show, not only tell. On desktop that means cursor-side guidance and pointing. On the website, the companion can still fly toward a target on the page and point it out instead of only describing it.",
       suggestedReplies: [
         "How is the website version different from the Mac app?",
         "Can Clicky automate workflows too?",
       ],
-      actions: [{ type: "scroll_to_section", targetId: "points-way" }],
+      actions: [{ type: "pulse", targetId: "points-way" }],
       voice: {
         shouldSpeak: false,
       },
@@ -627,13 +709,75 @@ function ctaHintForTrigger(ctaId: string | null | undefined) {
   return null
 }
 
+function describeTarget(targetId: string) {
+  const descriptor = getWebCompanionTargetDescriptor(targetId)
+  if (!descriptor) {
+    return targetId
+  }
+
+  const descriptionParts = [
+    `${descriptor.id} — ${descriptor.label}`,
+    descriptor.description ? `purpose: ${descriptor.description}` : null,
+    descriptor.aliases?.length ? `aliases: ${descriptor.aliases.join(", ")}` : null,
+    descriptor.stateNotes ? `state notes: ${descriptor.stateNotes}` : null,
+  ].filter(Boolean)
+
+  return descriptionParts.join(" — ")
+}
+
+function describeTargetList(targetIds: string[]) {
+  return targetIds.map(describeTarget).join("\n")
+}
+
+function describeSectionTargetMap() {
+  return webCompanionSections
+    .map((section) => {
+      const sectionTargets = getWebCompanionTargetsForSection(section.id)
+      const describedTargets = sectionTargets.length
+        ? sectionTargets
+            .map((target) => `- ${target.id} — ${target.label}`)
+            .join("\n")
+        : "- none"
+
+      return `${section.id} (${section.title})\n${describedTargets}`
+    })
+    .join("\n\n")
+}
+
+function summarizeScreenContext(screenContext: WebCompanionGenerationInput["screenContext"]) {
+  if (!screenContext || !screenContext.attachments.length) {
+    return "No attached screen capture for this turn. You only have structured page context."
+  }
+
+  return [
+    `Screen context source: ${screenContext.source}`,
+    "Attached screen captures:",
+    screenContext.attachments
+      .map((attachment, index) => `- attachment ${index + 1}: ${attachment.label}`)
+      .join("\n"),
+  ].join("\n")
+}
+
+function buildGatewayAttachments(
+  attachments: WebCompanionImageAttachment[],
+) {
+  return attachments.map((attachment) => ({
+    content: attachment.contentBase64,
+    mimeType: attachment.mimeType,
+  }))
+}
+
 function buildGatewayMessageBody(input: WebCompanionGenerationInput) {
   const currentSection = getWebCompanionSection(input.currentSectionId)
   const visitedSectionTitles = input.visitedSectionIds
     .map((sectionId) => getWebCompanionSection(sectionId)?.title ?? sectionId)
     .join(", ")
-  const currentAllowedTargets = currentSection?.allowedTargets.join(", ") ?? "none"
-  const allAllowedTargets = [...allowedTargetIds].join(", ")
+  const currentAllowedTargets = currentSection
+    ? describeTargetList(currentSection.allowedTargets)
+    : "none"
+  const allAllowedTargets = describeTargetList(
+    webCompanionTargetDescriptors.map((target) => target.id),
+  )
   const triggerSummary =
     input.trigger.type === "message"
       ? `Visitor message:\n${input.trigger.message}`
@@ -658,22 +802,33 @@ function buildGatewayMessageBody(input: WebCompanionGenerationInput) {
       "Bubble text must stay short, ideally under 5 words and never more than one short sentence.",
       "Never copy the full reply into bubble.text.",
       "Only use targetId values from the allowed target list.",
+      "Treat targetId values as semantic handles for named website elements, not anonymous DOM ids. Use the target label list to choose the most specific element.",
+      "Each section has its own important target list. Prefer targets that belong to the section currently in view unless the visitor explicitly asks about another part of the page.",
       "Use at most two suggested replies and at most one action.",
       "Do not auto-scroll or navigate the page on the visitor's behalf.",
       "Use highlights and cursor-adjacent cues instead of forcing page movement.",
+      "Action semantics: use highlight for passive emphasis, and use pulse when you want the Clicky companion itself to fly toward a specific on-page target and point it out.",
+      "When the visitor asks where something is, asks you to show them a control, or asks you to point out a concrete on-page element, prefer pulse over highlight.",
+      "Do not say you cannot move the Clicky companion. You can move the Clicky companion overlay toward a target on the page, even though you do not control the user's system cursor.",
       "If the trigger is a passive event, keep the tone like a subtle nudge, not a hard sell.",
       "Do not invent unsupported features, pricing, or roadmap promises.",
       "Voice should remain disabled in this web surface unless explicitly instructed elsewhere.",
       "You are integrated into the current Clicky website. Your job is to present Clicky in a strong light, explain what it does, and surface compelling benefits and use cases unlocked by the product.",
       "The cursor companion can present text bubble information separately from spoken audio, so keep bubble text distinct from the main reply when you use it.",
+      "If screenContext source is 'display-media', treat the attachments as live visual context for this turn and speak confidently about what is visibly on screen.",
+      "If screenContext source is 'site-layout-reference', treat the attachment as a visual map of the Clicky website rather than a literal live screenshot.",
+      "Do not claim you lack screen access when live display-media captures are present.",
+      "If there are no attachments, rely on the structured page context only and do not pretend to see more than that.",
       "For an experience_activated event, welcome the visitor briefly, explain that Clicky is currently demonstrating the website cursor-guidance experience, and remind them they can hold Control-Option to talk.",
     ].join(" "),
     currentSection
-      ? `Current section:\n- id: ${currentSection.id}\n- title: ${currentSection.title}\n- summary: ${currentSection.summary}\n- section targets: ${currentAllowedTargets}`
+      ? `Current viewport section:\n- id: ${currentSection.id}\n- title: ${currentSection.title}\n- summary: ${currentSection.summary}\n- section targets:\n${currentAllowedTargets}`
       : "Current section: none",
     visitedSectionTitles
       ? `Visited sections so far:\n${visitedSectionTitles}`
       : "Visited sections so far: none",
+    `Section target map:\n${describeSectionTargetMap()}`,
+    summarizeScreenContext(input.screenContext),
     `Allowed target ids across the page:\n${allAllowedTargets}`,
     `Session path:\n${input.path}`,
     triggerSummary,
@@ -764,6 +919,11 @@ class OpenClawGatewayClient {
         ...(this.config.agentId
           ? {
               agentId: this.config.agentId,
+            }
+          : {}),
+        ...(input.screenContext?.attachments.length
+          ? {
+              attachments: buildGatewayAttachments(input.screenContext.attachments),
             }
           : {}),
         idempotencyKey: runId,
@@ -870,7 +1030,9 @@ class OpenClawGatewayClient {
       bridgeVersion: "2026.04.10",
       capabilities: [
         "page_context",
+        "screen_capture",
         "text_reply",
+        "cursor_pointing",
         "element_highlight",
         "scroll_guidance",
       ],
@@ -880,7 +1042,7 @@ class OpenClawGatewayClient {
       personaScope: "openclaw-identity",
       registeredAt: Date.now(),
       runtimeMode: "web-production",
-      screenContextTransport: "structured-page-context",
+      screenContextTransport: "attached-images",
       sessionKey,
       shellId,
       shellLabel: this.config.presentationName,

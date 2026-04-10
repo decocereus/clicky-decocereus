@@ -40,19 +40,25 @@ export function Navigation() {
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-10">
             <button
+              id="nav-how-it-works-cta"
               onClick={() => scrollToSection('sees-screen')}
+              data-companion-target-kind="nav-link"
               className="text-muted-elegant hover:text-charcoal transition-colors text-sm"
             >
               How it works
             </button>
             <button
+              id="nav-apps-cta"
               onClick={() => scrollToSection('knows-apps')}
+              data-companion-target-kind="nav-link"
               className="text-muted-elegant hover:text-charcoal transition-colors text-sm"
             >
               Apps
             </button>
             <button
+              id="nav-pricing-cta"
               onClick={() => scrollToSection('pricing')}
+              data-companion-target-kind="nav-link"
               className="text-muted-elegant hover:text-charcoal transition-colors text-sm"
             >
               Pricing
@@ -82,19 +88,25 @@ export function Navigation() {
         <div className="fixed inset-0 z-99 bg-warm/98 backdrop-blur-lg md:hidden">
           <div className="flex flex-col items-center justify-center h-full gap-8">
             <button
+              id="nav-mobile-how-it-works-cta"
               onClick={() => scrollToSection('sees-screen')}
+              data-companion-target-kind="nav-link"
               className="text-charcoal text-2xl font-serif-italic"
             >
               How it works
             </button>
             <button
+              id="nav-mobile-apps-cta"
               onClick={() => scrollToSection('knows-apps')}
+              data-companion-target-kind="nav-link"
               className="text-charcoal text-2xl font-serif-italic"
             >
               Apps
             </button>
             <button
+              id="nav-mobile-pricing-cta"
               onClick={() => scrollToSection('pricing')}
+              data-companion-target-kind="nav-link"
               className="text-charcoal text-2xl font-serif-italic"
             >
               Pricing

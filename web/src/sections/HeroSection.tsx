@@ -1,18 +1,27 @@
-import { useEffect, useRef, useLayoutEffect } from 'react';
+import { useEffect, useRef, useLayoutEffect, useState } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { CursorCompanion } from '../components/CursorCompanion';
 import { useWebCompanionExperience } from '../components/WebCompanionExperience';
-import { Download, LoaderCircle, Mic, Sparkles } from 'lucide-react';
+import { Download, LoaderCircle, Mic, PlayCircle, Sparkles } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 
 gsap.registerPlugin(ScrollTrigger);
 
 export function HeroSection() {
   const {
     errorMessage: companionErrorMessage,
+    experienceMode,
     startExperience,
     status: companionStatus,
   } = useWebCompanionExperience();
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const sectionRef = useRef<HTMLDivElement>(null);
   const headlineRef = useRef<HTMLDivElement>(null);
   const subheadRef = useRef<HTMLParagraphElement>(null);
@@ -122,10 +131,13 @@ export function HeroSection() {
 
   const isRequestingCompanion = companionStatus === 'requesting-permission';
   const isCompanionActive = companionStatus === 'active';
+  const isDemoOnlyMode = experienceMode === 'demo-only';
   const tryClickyLabel = isRequestingCompanion
     ? 'Starting Clicky...'
-    : isCompanionActive
-    ? 'Step 1 complete'
+    : isCompanionActive && experienceMode === 'mic-only'
+    ? 'Upgrade Clicky'
+    : isDemoOnlyMode
+    ? 'Enable live Clicky'
     : 'Try Clicky';
 
   return (
@@ -314,11 +326,18 @@ export function HeroSection() {
               </button>
 
               <button
+                id="hero-try-clicky-cta"
                 type="button"
+                data-companion-cta-id="hero-try-clicky-cta"
+                data-companion-section-id="hero-section"
+                data-companion-target-kind="cta"
                 onClick={() => {
-                  void startExperience();
+                  if (isCompanionActive) {
+                    return;
+                  }
+                  setIsPermissionModalOpen(true);
                 }}
-                disabled={isRequestingCompanion || isCompanionActive}
+                disabled={isRequestingCompanion}
                 className="group flex items-center gap-3 rounded-full border border-charcoal/10 bg-white/84 px-7 py-4 text-base font-medium text-charcoal shadow-[0_12px_36px_rgba(26,26,26,0.08)] backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-charcoal/15 hover:shadow-[0_18px_42px_rgba(26,26,26,0.12)] disabled:cursor-default disabled:opacity-70"
               >
                 {isRequestingCompanion ? (
@@ -331,10 +350,10 @@ export function HeroSection() {
             </div>
 
             <p className="text-center text-muted-elegant text-xs">
-              {isCompanionActive
+              {isCompanionActive && experienceMode === 'mic-only'
                 ? (
                   <>
-                    Step 1 complete. Step 2: hold{' '}
+                    Mic is on. Hold{' '}
                     <span className="inline-flex items-center gap-1 align-middle">
                       <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
                         Ctrl
@@ -344,25 +363,39 @@ export function HeroSection() {
                         Option
                       </kbd>
                     </span>{' '}
-                    to talk to Clicky. The cursor companion will stay intentional and not over-talk.
+                    to talk to Clicky
+                  </>
+                )
+                : isDemoOnlyMode
+                ? (
+                  <>
+                    Demo mode is on. Scroll into the next section to watch Clicky in action, or reopen{' '}
+                    <span className="font-medium text-charcoal">Try Clicky</span>{' '}
+                    anytime to enable live permissions.
                   </>
                 )
                 : (
                   <>
-                    2-step demo: 1. Allow mic access. 2. Hold{' '}
-                    <span className="inline-flex items-center gap-1 align-middle">
-                      <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
-                        Ctrl
-                      </kbd>
-                      <span>+</span>
-                      <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
-                        Option
-                      </kbd>
-                    </span>{' '}
-                    and talk to Clicky.
+                    Best experience: allow mic + screen. If not, Clicky still falls back gracefully and the next section will show a guided demo.
                   </>
                 )}
             </p>
+
+            {!isCompanionActive && !isDemoOnlyMode ? (
+              <p className="text-center text-muted-elegant text-[11px]">
+                2-step voice demo: 1. Choose permissions. 2. Hold{' '}
+                <span className="inline-flex items-center gap-1 align-middle">
+                  <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
+                    Ctrl
+                  </kbd>
+                  <span>+</span>
+                  <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
+                    Option
+                  </kbd>
+                </span>{' '}
+                and talk to Clicky.
+              </p>
+            ) : null}
 
             {companionErrorMessage ? (
               <p className="max-w-md text-center text-xs leading-5 text-rose-600">
@@ -371,6 +404,81 @@ export function HeroSection() {
             ) : null}
           </div>
         </div>
+
+        <Dialog open={isPermissionModalOpen} onOpenChange={setIsPermissionModalOpen}>
+          <DialogContent className="max-w-xl rounded-[28px] border-white/70 bg-[#FBF7F2]/96 p-0 shadow-[0_24px_90px_rgba(26,26,26,0.18)] backdrop-blur-xl">
+            <div className="overflow-hidden rounded-[28px]">
+              <div className="border-b border-black/5 bg-gradient-to-r from-white/90 via-[#F7F0E7] to-white/90 px-7 py-6">
+                <DialogHeader className="gap-3 text-left">
+                  <DialogTitle className="text-2xl font-semibold text-charcoal">
+                    Give Clicky the right context
+                  </DialogTitle>
+                  <DialogDescription className="max-w-lg text-sm leading-6 text-muted-elegant">
+                    For the best live demo, let Clicky hear you and see the site you are looking at.
+                    If you would rather not, the website still keeps going and the next section switches into a built-in demo reel.
+                  </DialogDescription>
+                </DialogHeader>
+              </div>
+
+              <div className="space-y-4 px-7 py-6">
+                <div className="grid gap-3">
+                  <button
+                    type="button"
+                    disabled={isRequestingCompanion}
+                    onClick={() => {
+                      setIsPermissionModalOpen(false);
+                      void startExperience({ mode: 'mic-only' });
+                    }}
+                    className="group flex w-full items-start justify-between rounded-[24px] border border-charcoal/10 bg-white/92 px-5 py-4 text-left shadow-[0_16px_42px_rgba(26,26,26,0.08)] transition-all hover:-translate-y-0.5 hover:border-charcoal/15 hover:shadow-[0_22px_46px_rgba(26,26,26,0.12)]"
+                  >
+                    <div className="flex gap-4">
+                      <div className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-charcoal text-warm">
+                        <Mic size={20} />
+                      </div>
+                      <div>
+                        <p className="text-base font-semibold text-charcoal">
+                          Start live Clicky
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-muted-elegant">
+                          Ask for mic only. Clicky can still talk with you live and use the website target map to point at the right controls.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-lavender/18 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-lavender">
+                      Recommended
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isRequestingCompanion}
+                    onClick={() => {
+                      setIsPermissionModalOpen(false);
+                      void startExperience({ mode: 'demo-only' });
+                    }}
+                    className="group flex w-full items-start gap-4 rounded-[24px] border border-charcoal/10 bg-white/88 px-5 py-4 text-left shadow-[0_12px_28px_rgba(26,26,26,0.05)] transition-all hover:-translate-y-0.5 hover:border-charcoal/15 hover:shadow-[0_18px_34px_rgba(26,26,26,0.09)]"
+                  >
+                    <div className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#EFE4D6] text-charcoal">
+                      <PlayCircle size={20} />
+                    </div>
+                    <div>
+                      <p className="text-base font-semibold text-charcoal">
+                        Watch the demo first
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-muted-elegant">
+                        No permissions yet. The site keeps going, and the next section shows a permission-free Clicky demo reel instead.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+
+                <p className="px-1 text-xs leading-5 text-muted-elegant">
+                  This web version now uses semantic website targets instead of browser screen share, so the live path only needs microphone permission.
+                </p>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
     </section>
   );
 }

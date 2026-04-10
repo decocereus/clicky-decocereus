@@ -8,6 +8,7 @@ import {
   recordWebCompanionEvent,
   sendWebCompanionMessage,
 } from "./service"
+import { transcribeWebCompanionAudio } from "./transcribe"
 
 function getUserAgent(c: Context<{ Bindings: Env }>) {
   return c.req.header("user-agent") ?? null
@@ -77,13 +78,14 @@ export async function handleRecordWebCompanionEvent(
     )
   }
   const body = (await c.req.json().catch(() => null)) as
-    | {
-        type?: unknown
-        path?: unknown
-        sectionId?: unknown
-        ctaId?: unknown
-        visitedSectionIds?: unknown
-        dwellMs?: unknown
+      | {
+          type?: unknown
+          path?: unknown
+          sectionId?: unknown
+          ctaId?: unknown
+          visitedSectionIds?: unknown
+          dwellMs?: unknown
+          screenContext?: unknown
       }
     | null
 
@@ -94,6 +96,7 @@ export async function handleRecordWebCompanionEvent(
     ctaId: body?.ctaId,
     visitedSectionIds: body?.visitedSectionIds,
     dwellMs: body?.dwellMs,
+    screenContext: body?.screenContext,
   })
 
   if (!result) {
@@ -127,6 +130,7 @@ export async function handleSendWebCompanionMessage(
           path?: unknown
           sectionId?: unknown
           visitedSectionIds?: unknown
+          screenContext?: unknown
         }
       | null
 
@@ -135,6 +139,7 @@ export async function handleSendWebCompanionMessage(
       path: body?.path,
       sectionId: body?.sectionId,
       visitedSectionIds: body?.visitedSectionIds,
+      screenContext: body?.screenContext,
     })
 
     if (!result) {
@@ -184,4 +189,69 @@ export async function handleEndWebCompanionSession(
   }
 
   return c.json(result)
+}
+
+export async function handleTranscribeWebCompanionAudio(
+  c: Context<{ Bindings: Env }>,
+) {
+  const sessionId = c.req.param("sessionId")
+  if (!sessionId) {
+    return c.json(
+      {
+        error: "Missing web companion session id.",
+      },
+      400,
+    )
+  }
+
+  try {
+    const formData = await c.req.formData()
+    const audioFile = formData.get("audio") as
+      | {
+          arrayBuffer: () => Promise<ArrayBuffer>
+          size?: number
+          type?: string
+        }
+      | null
+
+    if (!audioFile || typeof audioFile.arrayBuffer !== "function") {
+      return c.json(
+        {
+          error: "Audio file is required.",
+        },
+        400,
+      )
+    }
+
+    console.info("[web-companion] transcribe:start", {
+      sessionId,
+      sizeBytes: audioFile.size ?? null,
+      type: audioFile.type ?? null,
+    })
+
+    const transcript = await transcribeWebCompanionAudio(
+      c.env,
+      await audioFile.arrayBuffer(),
+    )
+
+    console.info("[web-companion] transcribe:done", {
+      sessionId,
+      transcriptLength: transcript.length,
+    })
+
+    return c.json({
+      transcript,
+    })
+  } catch (error) {
+    console.error("[web-companion] transcribe:error", error)
+    return c.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Audio transcription failed.",
+      },
+      500,
+    )
+  }
 }

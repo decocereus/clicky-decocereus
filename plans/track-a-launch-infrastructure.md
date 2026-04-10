@@ -48,8 +48,19 @@ These items are effectively implemented in code or documented strongly enough to
 
 - [x] Entitlement schema exists in the backend.
 - [x] `GET /v1/entitlements/me` is implemented.
+- [x] `POST /v1/entitlements/refresh` now runs a provider-backed Polar reconciliation path.
+- [x] `POST /v1/billing/restore` now runs a provider-backed Polar reconciliation path.
 - [x] The Mac app tracks entitlement state separately from raw auth state.
 - [x] Studio surfaces account and entitlement state.
+
+### Trial / paywall model
+
+- [x] Backend-backed launch trial state exists with setup, welcome, credit, and paywall timestamps.
+- [x] The launch trial now starts only after sign-in, so credits and restore state stay account-bound.
+- [x] The Mac app enforces the backend-authoritative trial/paywall state inside the real companion turn flow.
+- [x] Credits are consumed only after successful assisted turns.
+- [x] The first turn after trial exhaustion becomes the paywall turn.
+- [x] Fully paywalled state blocks the live companion interaction path.
 
 ### Polar integration core
 
@@ -92,14 +103,13 @@ These are implemented enough to exist, but are not proven or polished enough to 
 
 ### Restore and refresh semantics
 
-- [ ] `POST /v1/billing/restore` exists but is still placeholder-ish.
-- [ ] `POST /v1/entitlements/refresh` exists but still behaves more like a read than a provider-backed sync.
+- [ ] Provider-backed `billing/restore` and `entitlements/refresh` need one operational verification pass against real Polar/customer state.
 - [ ] Offline grace behavior is documented, but not yet proven under real stale-session scenarios.
 
 ### Mac app access flow
 
-- [ ] Studio has account, entitlement, purchase, and refresh controls, but this is still a technical access surface rather than the final user-facing purchase experience.
-- [ ] Launch access state exists, but the full “signed out / limited / unlocked / degraded” product flow is not yet presented in a polished way to normal users.
+- [ ] Studio has account, entitlement, purchase, refresh, and restore controls, but this is still a technical access surface rather than the final user-facing purchase experience.
+- [ ] Launch access state is materially real, but the full “signed out / limited / unlocked / degraded” product flow is not yet presented in a polished way to normal users.
 
 ### Website contract drift
 
@@ -118,8 +128,9 @@ These are the real launch-blocking items still left.
 
 ### 2. Free Taste and In-App Paywall
 
-- [ ] Choose and document the exact free-taste boundary.
-- [ ] Enforce the free-taste boundary in the Mac app.
+- [x] Choose and document the exact free-taste boundary.
+- [x] Enforce the free-taste boundary in the Mac app.
+- [x] Make the signed-out launch path explicit instead of silently bypassing the account-bound trial model.
 - [ ] Build the actual in-app paywall UX for normal users.
 - [ ] Make the paywall explain:
   - what the user got to try
@@ -128,8 +139,8 @@ These are the real launch-blocking items still left.
 
 ### 3. Real Restore and Unlock Behavior
 
-- [ ] Make `billing/restore` actually provider-backed.
-- [ ] Make `entitlements/refresh` actually sync provider state when needed.
+- [x] Make `billing/restore` actually provider-backed.
+- [x] Make `entitlements/refresh` actually sync provider state when needed.
 - [ ] Tighten unlock behavior after successful purchase.
 - [ ] Tighten returning-user restore behavior across reinstalls.
 - [ ] Confirm refund/revocation behavior is acceptable.
@@ -175,13 +186,11 @@ These are useful, but they should not block the first launch unless they expose 
 
 If we were executing from this checklist right now, the next best sequence would be:
 
-1. Make `billing/restore` and `entitlements/refresh` real.
-2. Implement free-taste enforcement in the Mac app.
-3. Build the actual paywall UX.
-4. Run one real purchase with a public webhook URL.
-5. Harden whatever breaks in restore/unlock/offline behavior.
-6. Gate Diagnostics behind support mode.
-7. Enable Sparkle runtime behavior in the app.
+1. Finish welcome prompt injection and the normal-user paywall messaging path.
+2. Gate Diagnostics fully behind support mode and tighten support export/redaction.
+3. Run one real purchase with a public webhook URL.
+4. Harden whatever breaks in restore/unlock/offline behavior.
+5. Enable Sparkle runtime behavior in the app.
 
 ## Notes
 

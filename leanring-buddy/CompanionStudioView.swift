@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import OSLog
 import SwiftUI
 
 private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashable {
@@ -83,20 +84,30 @@ struct CompanionStudioView: View {
         companionManager.activeClickyTheme
     }
 
+    private var sidebarTheme: ClickyTheme {
+        theme.contentSurfaceTheme
+    }
+
     var body: some View {
-        ZStack {
-            ClickyAuraBackground()
+        ClickyGlassCluster {
             NavigationSplitView {
                 sidebar
             } detail: {
                 detailPane
             }
             .navigationSplitViewStyle(.balanced)
+            .modifier(StudioWindowShellStyle())
         }
         .clickyTheme(theme)
+        .ignoresSafeArea()
+        .background(StudioWindowConfigurator())
         .onAppear {
             NotificationCenter.default.post(name: .clickyStudioDidAppear, object: nil)
             normalizeSelectedSection()
+            ClickyUnifiedTelemetry.windowing.info("Studio content appeared")
+            ClickyUnifiedTelemetry.navigation.info(
+                "Studio section ready section=\(self.selectedSection.rawValue, privacy: .public) reason=appear"
+            )
         }
         .onDisappear {
             NotificationCenter.default.post(name: .clickyStudioDidDisappear, object: nil)
@@ -111,22 +122,20 @@ struct CompanionStudioView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("clicky")
                     .font(ClickyTypography.brand(size: 40))
-                    .foregroundColor(theme.accent)
+                    .foregroundColor(sidebarTheme.primary)
 
                 Text("Studio")
                     .font(ClickyTypography.mono(size: 11, weight: .semibold))
-                    .foregroundColor(theme.textMuted)
+                    .foregroundColor(sidebarTheme.textMuted)
                     .tracking(1.1)
             }
             .padding(.horizontal, 20)
-            .padding(.top, 18)
+            .padding(.top, 30)
 
             List {
                 ForEach(availableSections) { section in
                     Button(action: {
-                        withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) {
-                            selectedSection = section
-                        }
+                        selectSection(section, reason: "sidebar")
                     }) {
                         studioSidebarRow(for: section)
                     }
@@ -141,15 +150,15 @@ struct CompanionStudioView: View {
             .scrollContentBackground(.hidden)
         }
         .frame(minWidth: 240, idealWidth: 260)
-        .padding(.leading, 10)
-        .padding(.trailing, 8)
-        .padding(.top, 12)
-        .modifier(ClickyStudioShellStyle(cornerRadius: 30))
+        .padding(.leading, 22)
+        .padding(.trailing, 12)
+        .padding(.top, 52)
+        .padding(.bottom, 18)
     }
 
     private var availableSections: [CompanionStudioSection] {
         CompanionStudioSection.allCases.filter { section in
-            if section == .designLab {
+            if section == .designLab || section == .diagnostics {
                 return isSupportModeEnabled
             }
             return true
@@ -159,7 +168,22 @@ struct CompanionStudioView: View {
     private func normalizeSelectedSection() {
         if !availableSections.contains(selectedSection) {
             selectedSection = .general
+            ClickyUnifiedTelemetry.navigation.info(
+                "Studio section selected section=\(self.selectedSection.rawValue, privacy: .public) reason=normalized"
+            )
         }
+    }
+
+    private func selectSection(_ section: CompanionStudioSection, reason: String) {
+        guard selectedSection != section else { return }
+
+        withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) {
+            selectedSection = section
+        }
+
+        ClickyUnifiedTelemetry.navigation.info(
+            "Studio section selected section=\(section.rawValue, privacy: .public) reason=\(reason, privacy: .public)"
+        )
     }
 
     private var detailPane: some View {
@@ -178,9 +202,8 @@ struct CompanionStudioView: View {
                 .padding(28)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .modifier(ClickyStudioShellStyle(cornerRadius: 34))
             .padding(.trailing, 12)
-            .padding(.top, 12)
+            .padding(.top, 34)
             .padding(.bottom, 12)
         }
         .scrollContentBackground(.hidden)
@@ -191,16 +214,16 @@ struct CompanionStudioView: View {
             Image(systemName: section.iconSystemName)
                 .font(.system(size: 13, weight: .semibold))
                 .frame(width: 16)
-                .foregroundColor(selectedSection == section ? theme.accent : theme.textMuted)
+                .foregroundColor(selectedSection == section ? sidebarTheme.primary : sidebarTheme.textMuted)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(section.title)
                     .font(ClickyTypography.body(size: 13, weight: .semibold))
-                    .foregroundColor(theme.textPrimary)
+                    .foregroundColor(sidebarTheme.textPrimary)
 
                 Text(section.subtitle)
                     .font(ClickyTypography.mono(size: 10, weight: .medium))
-                    .foregroundColor(theme.textMuted)
+                    .foregroundColor(sidebarTheme.textMuted)
             }
         }
         .padding(.horizontal, 12)
@@ -214,14 +237,12 @@ struct CompanionStudioView: View {
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
 
         if isSelected {
-            if #available(macOS 26.0, *) {
-                shape
-                    .fill(.clear)
-                    .glassEffect(.regular.tint(theme.primary.opacity(0.18)).interactive(), in: shape)
-            } else {
-                shape
-                    .fill(theme.primary.opacity(0.14))
-            }
+            shape
+                .fill(sidebarTheme.secondary.opacity(0.96))
+                .overlay(
+                    shape
+                        .stroke(sidebarTheme.primary.opacity(0.18), lineWidth: 1)
+                )
         } else {
             shape
                 .fill(Color.clear)
@@ -253,7 +274,7 @@ struct CompanionStudioView: View {
                 .padding(.top, 6)
             }
         }
-        .padding(.bottom, 6)
+        .modifier(StudioHeroCardStyle())
     }
 
     @ViewBuilder
@@ -341,6 +362,23 @@ struct CompanionStudioView: View {
                             .tint(DS.Colors.accent)
 
                             Text("This keeps the fast menu bar companion intact while giving Studio room for deeper configuration elsewhere.")
+                                .font(.system(size: 12))
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    StudioChapterDivider()
+
+                    StudioSubsection(title: "Support Tools", subtitle: "Backstage controls stay hidden until you explicitly reveal them") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Toggle("Enable support mode", isOn: $isSupportModeEnabled)
+                                .toggleStyle(.switch)
+                                .tint(theme.primary)
+
+                            Text(isSupportModeEnabled
+                                 ? "Support mode is on. Studio now reveals the Support and Design Lab chapters for diagnostics, launch simulation, and internal reports."
+                                 : "Support mode is off. This keeps diagnostics, launch simulation, and internal reports out of the normal Studio navigation.")
                                 .font(.system(size: 12))
                                 .foregroundColor(DS.Colors.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -992,16 +1030,25 @@ struct CompanionStudioView: View {
                     StudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
 
                     HStack(spacing: 10) {
+                        StudioStatusPill(label: launchAccessPrimaryStatus.label, tone: launchAccessPrimaryStatus.tone)
+                        if let secondaryLaunchAccessStatus {
+                            StudioStatusPill(label: secondaryLaunchAccessStatus.label, tone: secondaryLaunchAccessStatus.tone)
+                        }
+                    }
+
+                    HStack(spacing: 10) {
                         launchAccessButton(
                             title: "Sign In",
-                            systemImage: "person.crop.circle.badge.plus"
+                            systemImage: "person.crop.circle.badge.plus",
+                            isEnabled: canStartLaunchSignIn
                         ) {
                             companionManager.startClickyLaunchSignIn()
                         }
 
                         launchAccessButton(
                             title: "Sign Out",
-                            systemImage: "person.crop.circle.badge.xmark"
+                            systemImage: "person.crop.circle.badge.xmark",
+                            isEnabled: canSignOutLaunchSession
                         ) {
                             companionManager.signOutClickyLaunchSession()
                         }
@@ -1010,20 +1057,32 @@ struct CompanionStudioView: View {
                     HStack(spacing: 10) {
                         launchAccessPrimaryButton(
                             title: "Buy Launch Pass",
-                            systemImage: "creditcard"
+                            systemImage: "creditcard",
+                            isEnabled: canStartLaunchCheckout
                         ) {
                             companionManager.startClickyLaunchCheckout()
                         }
 
                         launchAccessButton(
                             title: "Restore Access",
-                            systemImage: "arrow.clockwise.circle"
+                            systemImage: "arrow.clockwise.circle",
+                            isEnabled: canRestoreLaunchAccess
                         ) {
                             companionManager.restoreClickyLaunchAccess()
                         }
                     }
 
-                    Text("The Mac app initiates sign-in and purchase. Technical trial and paywall controls live in Support so this panel stays production-ready.")
+                    HStack(spacing: 10) {
+                        launchAccessButton(
+                            title: "Refresh Access",
+                            systemImage: "arrow.clockwise",
+                            isEnabled: canRefreshLaunchAccess
+                        ) {
+                            companionManager.refreshClickyLaunchEntitlement()
+                        }
+                    }
+
+                    Text(launchAccessGuidanceText)
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1607,9 +1666,12 @@ struct CompanionStudioView: View {
         let contextLines = [
             "Clicky Support Report",
             "Generated: \(ISO8601DateFormatter().string(from: Date()))",
+            "Backend URL: \(companionManager.clickyBackendStatusLabel)",
             "App Auth: \(companionManager.clickyLaunchAuthStatusLabel)",
             "Entitlement: \(companionManager.clickyLaunchEntitlementStatusLabel)",
+            "Trial: \(companionManager.clickyLaunchTrialStatusLabel)",
             "Checkout: \(companionManager.clickyLaunchBillingStatusLabel)",
+            "Paywall: \(companionManager.isClickyLaunchPaywallActive ? "Active" : "Inactive")",
             "Speech Provider: \(companionManager.clickySpeechProviderMode.displayName)",
             "Resolved Output: \(companionManager.effectiveVoiceOutputDisplayName)",
             "OpenClaw Agent: \(companionManager.inferredOpenClawAgentIdentifier ?? "Not detected")",
@@ -1618,10 +1680,146 @@ struct CompanionStudioView: View {
             "Session Binding: \(companionManager.clickyShellServerBindingLabel)",
             "",
             "Recent Logs",
-            ClickyDiagnosticsStore.shared.formattedRecentLogText()
+            ClickyDiagnosticsStore.shared.formattedRecentLogText(limit: 160)
         ]
 
         return contextLines.joined(separator: "\n")
+    }
+
+    private var launchAccessGuidanceText: String {
+        switch companionManager.clickyLaunchAuthState {
+        case .signedOut:
+            return "Sign in before you buy or restore access. Once you are signed in, Clicky can sync your purchase and keep the unlock state durable across reinstalls."
+        case .restoring, .signingIn:
+            return "Clicky is syncing your launch access state right now. Once that settles, buy, restore, and refresh will all use the same backend-authoritative path."
+        case .failed(let message):
+            return message
+        case .signedIn:
+            break
+        }
+
+        if companionManager.isClickyLaunchPaywallActive {
+            return "Your trial is exhausted, so the companion stays locked until you buy the launch pass or restore an existing purchase. Refresh Access is the lightweight resync path after checkout."
+        }
+
+        switch companionManager.clickyLaunchTrialState {
+        case .unlocked:
+            return "Clicky is unlocked on this Mac. Use Refresh Access after a purchase callback if the entitlement looks stale, or Restore Access when you are returning on a reinstall or another Mac."
+        case .active(let remainingCredits):
+            return "You are in the launch trial with \(remainingCredits) credits left. Credits only decrement after real assisted turns, never during onboarding, restore, or purchase flow."
+        case .armed:
+            return "Your next eligible assisted turn will become the paywall turn. After that, Clicky locks until you buy or restore access."
+        case .inactive:
+            return "Finish onboarding and make your first real companion turn to activate the launch trial. Technical simulation controls stay tucked away in Support mode."
+        case .paywalled:
+            return "The paywall is active. Buy the launch pass to unlock Clicky now, or restore access if this account already owns it."
+        case .failed(let message):
+            return message
+        }
+    }
+
+    private var launchAccessPrimaryStatus: (label: String, tone: StudioStatusTone) {
+        switch companionManager.clickyLaunchAuthState {
+        case .signedOut:
+            return ("Sign-in required", .info)
+        case .restoring, .signingIn:
+            return ("Syncing access", .info)
+        case .failed:
+            return ("Access issue", .warning)
+        case .signedIn:
+            break
+        }
+
+        if companionManager.isClickyLaunchPaywallActive {
+            return ("Locked", .warning)
+        }
+
+        switch companionManager.clickyLaunchTrialState {
+        case .unlocked:
+            return ("Unlocked", .success)
+        case .active:
+            return ("Trial active", .warning)
+        case .armed:
+            return ("Paywall next", .warning)
+        case .inactive:
+            return ("Trial ready", .info)
+        case .paywalled:
+            return ("Locked", .warning)
+        case .failed:
+            return ("Access issue", .warning)
+        }
+    }
+
+    private var secondaryLaunchAccessStatus: (label: String, tone: StudioStatusTone)? {
+        switch companionManager.clickyLaunchTrialState {
+        case .active(let remainingCredits):
+            return ("\(remainingCredits) credits left", .info)
+        case .unlocked:
+            return ("Restore available", .neutral)
+        case .armed:
+            return ("Buy before next turn", .warning)
+        case .inactive, .paywalled, .failed:
+            return nil
+        }
+    }
+
+    private var isLaunchAccessSyncing: Bool {
+        switch companionManager.clickyLaunchAuthState {
+        case .restoring, .signingIn:
+            return true
+        case .signedOut, .signedIn, .failed:
+            break
+        }
+
+        switch companionManager.clickyLaunchBillingState {
+        case .openingCheckout, .waitingForCompletion:
+            return true
+        case .idle, .canceled, .completed, .failed:
+            return false
+        }
+    }
+
+    private var canStartLaunchSignIn: Bool {
+        switch companionManager.clickyLaunchAuthState {
+        case .signedOut, .failed:
+            return true
+        case .restoring, .signingIn, .signedIn:
+            return false
+        }
+    }
+
+    private var canSignOutLaunchSession: Bool {
+        switch companionManager.clickyLaunchAuthState {
+        case .signedIn, .failed:
+            return true
+        case .signedOut, .restoring, .signingIn:
+            return false
+        }
+    }
+
+    private var canStartLaunchCheckout: Bool {
+        guard companionManager.isClickyLaunchSignedIn else {
+            return false
+        }
+
+        guard !isLaunchAccessSyncing else {
+            return false
+        }
+
+        switch companionManager.clickyLaunchTrialState {
+        case .unlocked:
+            return false
+        case .inactive, .active, .armed, .paywalled, .failed:
+            return true
+        }
+    }
+
+    private var canRestoreLaunchAccess: Bool {
+        companionManager.isClickyLaunchSignedIn && !isLaunchAccessSyncing
+    }
+
+    private var canRefreshLaunchAccess: Bool {
+        companionManager.isClickyLaunchSignedIn && !isLaunchAccessSyncing
     }
 
     private func exportDiagnosticsSupportReport() {
@@ -1645,11 +1843,21 @@ struct CompanionStudioView: View {
         neutralStudioButton(title: title, systemImage: systemImage, action: action)
     }
 
-    private func launchAccessButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        neutralStudioButton(title: title, systemImage: systemImage, action: action)
+    private func launchAccessButton(
+        title: String,
+        systemImage: String,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        neutralStudioButton(title: title, systemImage: systemImage, isEnabled: isEnabled, action: action)
     }
 
-    private func launchAccessPrimaryButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+    private func launchAccessPrimaryButton(
+        title: String,
+        systemImage: String,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
@@ -1657,14 +1865,15 @@ struct CompanionStudioView: View {
                 Text(title)
                     .font(ClickyTypography.body(size: 13, weight: .semibold))
             }
-            .foregroundColor(.white)
+            .foregroundColor(isEnabled ? .white : Color.white.opacity(0.45))
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
-        .modifier(StudioProminentActionButtonStyle())
-        .pointerCursor()
+        .modifier(StudioProminentActionButtonStyle(isEnabled: isEnabled))
+        .disabled(!isEnabled)
+        .pointerCursor(isEnabled: isEnabled)
     }
 
     private func neutralStudioButton(
@@ -1736,27 +1945,74 @@ private struct StudioCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
+        let cardTheme = theme.contentSurfaceTheme
+
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(subtitle)
                     .font(ClickyTypography.mono(size: 12, weight: .medium))
-                    .foregroundColor(theme.textMuted)
+                    .foregroundColor(cardTheme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(title)
                     .font(ClickyTypography.display(size: 30))
-                    .foregroundColor(theme.textPrimary)
+                    .foregroundColor(cardTheme.textPrimary)
             }
 
             content
         }
-        .padding(.vertical, 6)
-        .overlay(alignment: .topLeading) {
-            Capsule(style: .continuous)
-                .fill(theme.primary.opacity(0.45))
-                .frame(width: 80, height: 3)
-                .padding(.top, 2)
-        }
+        .clickyTheme(cardTheme)
+        .padding(22)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(cardTheme.card.opacity(0.94))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.08), cardTheme.secondary.opacity(0.24)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(cardTheme.border.opacity(0.72), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.07), radius: 22, y: 10)
+    }
+}
+
+private struct StudioHeroCardStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    func body(content: Content) -> some View {
+        let cardTheme = theme.contentSurfaceTheme
+
+        content
+            .clickyTheme(cardTheme)
+            .padding(20)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(cardTheme.secondary.opacity(0.96))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.12), theme.primary.opacity(0.08)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(theme.primary.opacity(0.18), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 18, y: 8)
     }
 }
 
@@ -1797,82 +2053,158 @@ private struct StudioChapterDivider: View {
     }
 }
 
+private struct StudioWindowShellStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 34, style: .continuous)
+
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(.clear, in: shape)
+                .overlay(
+                    shape
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.24),
+                                    Color.white.opacity(0.10),
+                                    theme.primary.opacity(0.10)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: Color.black.opacity(0.18), radius: 30, y: 16)
+        } else {
+            content
+                .background(
+                    shape
+                        .fill(theme.background.opacity(0.32))
+                )
+                .overlay(
+                    shape
+                        .stroke(theme.strokeSoft, lineWidth: 0.9)
+                )
+        }
+    }
+}
+
+private struct StudioSidebarInsetStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    func body(content: Content) -> some View {
+        content
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(theme.background.opacity(0.18))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.05), .clear],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(theme.strokeSoft.opacity(0.55), lineWidth: 0.9)
+            )
+    }
+}
+
+private struct StudioWindowConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = .clear
+            window.isOpaque = false
+
+            window.toolbar = nil
+            window.styleMask.insert(.fullSizeContentView)
+            if #available(macOS 11.0, *) {
+                window.titlebarSeparatorStyle = .none
+            }
+
+            window.standardWindowButton(.closeButton)?.isHidden = false
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = false
+            window.standardWindowButton(.zoomButton)?.isHidden = false
+        }
+
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = nsView.window else { return }
+
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = .clear
+            window.isOpaque = false
+
+            window.toolbar = nil
+            window.styleMask.insert(.fullSizeContentView)
+            if #available(macOS 11.0, *) {
+                window.titlebarSeparatorStyle = .none
+            }
+
+            window.standardWindowButton(.closeButton)?.isHidden = false
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = false
+            window.standardWindowButton(.zoomButton)?.isHidden = false
+        }
+    }
+}
+
 private struct StudioActionButtonStyle: ViewModifier {
     @Environment(\.clickyTheme) private var theme
 
     let isEnabled: Bool
 
     func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content
-                .foregroundColor(isEnabled ? theme.textPrimary : theme.textMuted)
-                .buttonStyle(.glass)
-                .tint(theme.primary.opacity(0.16))
-        } else {
-            content
-                .foregroundColor(isEnabled ? theme.textPrimary : theme.textMuted)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(theme.card.opacity(isEnabled ? 0.7 : 0.4))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(theme.strokeSoft, lineWidth: 0.9)
-                )
-        }
+        content
+            .foregroundColor(isEnabled ? theme.textPrimary : theme.textMuted)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(theme.secondary.opacity(isEnabled ? 0.96 : 0.72))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(theme.border.opacity(isEnabled ? 0.78 : 0.46), lineWidth: 0.9)
+            )
+            .shadow(color: Color.black.opacity(isEnabled ? 0.06 : 0.02), radius: 8, y: 3)
     }
 }
 
 private struct StudioProminentActionButtonStyle: ViewModifier {
     @Environment(\.clickyTheme) private var theme
+    let isEnabled: Bool
 
     func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content
-                .foregroundColor(.black.opacity(0.82))
-                .buttonStyle(.glassProminent)
-                .tint(theme.accent)
-        } else {
-            content
-                .foregroundColor(.white)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(theme.accent)
-                )
-        }
-    }
-}
-
-private struct ClickyStudioShellStyle: ViewModifier {
-    @Environment(\.clickyTheme) private var theme
-
-    let cornerRadius: CGFloat
-
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-
-        if #available(macOS 26.0, *) {
-            content
-                .background(
-                    shape
-                        .fill(.clear)
-                        .glassEffect(.regular.tint(theme.primary.opacity(0.05)).interactive(), in: shape)
-                )
-                .overlay(
-                    shape
-                        .stroke(theme.strokeSoft, lineWidth: 0.9)
-                )
-        } else {
-            content
-                .background(
-                    shape
-                        .fill(theme.card.opacity(0.9))
-                )
-                .overlay(
-                    shape
-                        .stroke(theme.strokeSoft, lineWidth: 0.9)
-                )
-        }
+        content
+            .foregroundColor(isEnabled ? theme.accentForeground : theme.accentForeground.opacity(0.45))
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isEnabled ? theme.accent : theme.accent.opacity(0.38))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
     }
 }
 
@@ -2093,11 +2425,11 @@ private struct StudioCommandBlock: View {
                 .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.02))
+                        .fill(theme.secondary.opacity(0.9))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(theme.strokeSoft, lineWidth: 1)
+                        .stroke(theme.border.opacity(0.78), lineWidth: 1)
                 )
                 .textSelection(.enabled)
         }
@@ -2121,7 +2453,7 @@ private struct StudioStepRow: View {
                 .frame(width: 24, height: 24)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(0.03))
+                        .fill(theme.secondary.opacity(0.9))
                 )
 
             VStack(alignment: .leading, spacing: 4) {
@@ -2165,11 +2497,11 @@ private struct StudioTextField: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.02))
+                        .fill(theme.secondary.opacity(0.9))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(theme.strokeSoft, lineWidth: 1)
+                        .stroke(theme.border.opacity(0.78), lineWidth: 1)
                 )
         }
     }
@@ -2215,11 +2547,11 @@ private struct StudioSecretField: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.white.opacity(0.02))
+                    .fill(theme.secondary.opacity(0.9))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(theme.strokeSoft, lineWidth: 1)
+                    .stroke(theme.border.opacity(0.78), lineWidth: 1)
             )
         }
     }
@@ -2257,11 +2589,11 @@ private struct StudioMultilineField: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.white.opacity(0.02))
+                    .fill(theme.secondary.opacity(0.9))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(theme.strokeSoft, lineWidth: 1)
+                    .stroke(theme.border.opacity(0.78), lineWidth: 1)
             )
         }
     }

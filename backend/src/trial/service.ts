@@ -146,3 +146,23 @@ export async function markLaunchTrialPaywalled(env: Env, userId: string) {
 
   return formatTrialState(updatedTrialState)
 }
+
+export async function markLaunchTrialWelcomeDelivered(env: Env, userId: string) {
+  const db = createDb(env)
+  const now = new Date()
+
+  const [updatedTrialState] = await db
+    .update(launchTrialStates)
+    .set({
+      welcomePromptDeliveredAt: sql`coalesce(${launchTrialStates.welcomePromptDeliveredAt}, ${now})`,
+      updatedAt: now,
+    })
+    .where(eq(launchTrialStates.userId, userId))
+    .returning()
+
+  if (!updatedTrialState) {
+    return null
+  }
+
+  return formatTrialState(updatedTrialState)
+}

@@ -28,12 +28,14 @@ import {
   handleGetWebCompanionSession,
   handleRecordWebCompanionEvent,
   handleSendWebCompanionMessage,
+  handleTranscribeWebCompanionAudio,
 } from "./web-companion/routes"
 import {
   handleActivateTrial,
   handleConsumeTrialCredit,
   handleGetTrial,
   handleMarkTrialPaywalled,
+  handleMarkTrialWelcomeDelivered,
 } from "./trial/routes"
 
 const app = new Hono<{ Bindings: Env }>()
@@ -138,6 +140,7 @@ app.get("/v1", (c) => {
       "POST /v1/trial/activate",
       "POST /v1/trial/consume",
       "POST /v1/trial/paywall-activate",
+      "POST /v1/trial/welcome-delivered",
       "POST /v1/billing/checkout",
       "POST /v1/billing/restore",
       "POST /v1/webhooks/polar",
@@ -147,6 +150,7 @@ app.get("/v1", (c) => {
       "GET /v1/web-companion/sessions/:sessionId",
       "POST /v1/web-companion/sessions/:sessionId/events",
       "POST /v1/web-companion/sessions/:sessionId/messages",
+      "POST /v1/web-companion/sessions/:sessionId/transcribe",
       "POST /v1/web-companion/sessions/:sessionId/end",
       "GET /v1/auth/native/start",
       "GET /v1/auth/native/callback",
@@ -171,6 +175,7 @@ app.get("/v1/trial/me", handleGetTrial)
 app.post("/v1/trial/activate", handleActivateTrial)
 app.post("/v1/trial/consume", handleConsumeTrialCredit)
 app.post("/v1/trial/paywall-activate", handleMarkTrialPaywalled)
+app.post("/v1/trial/welcome-delivered", handleMarkTrialWelcomeDelivered)
 app.post("/v1/billing/checkout", handleCreateCheckout)
 app.post("/v1/billing/restore", handleRestoreBilling)
 app.post("/v1/webhooks/polar", handlePolarWebhook)
@@ -180,6 +185,7 @@ app.post("/v1/web-companion/sessions", handleCreateWebCompanionSession)
 app.get("/v1/web-companion/sessions/:sessionId", handleGetWebCompanionSession)
 app.post("/v1/web-companion/sessions/:sessionId/events", handleRecordWebCompanionEvent)
 app.post("/v1/web-companion/sessions/:sessionId/messages", handleSendWebCompanionMessage)
+app.post("/v1/web-companion/sessions/:sessionId/transcribe", handleTranscribeWebCompanionAudio)
 app.post("/v1/web-companion/sessions/:sessionId/end", handleEndWebCompanionSession)
 
 app.get("/v1/auth/native/start", async (c) => {

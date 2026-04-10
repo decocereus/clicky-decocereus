@@ -226,6 +226,7 @@ export function FooterSection() {
           {socialLinks.map((link) => (
             <a
               key={link.label}
+              id={`footer-${link.label.toLowerCase()}-cta`}
               href={link.href}
               className="group flex items-center justify-center w-12 h-12 rounded-full bg-white/80 hover:bg-white shadow-elegant hover:shadow-lg transition-all duration-300"
               aria-label={link.label}

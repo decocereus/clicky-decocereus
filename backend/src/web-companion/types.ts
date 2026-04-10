@@ -42,6 +42,17 @@ export interface WebCompanionHistoryTurn {
   text: string
 }
 
+export interface WebCompanionImageAttachment {
+  contentBase64: string
+  label: string
+  mimeType: string
+}
+
+export interface WebCompanionScreenContext {
+  attachments: WebCompanionImageAttachment[]
+  source: "display-media" | "site-layout-reference"
+}
+
 export interface WebCompanionGenerationInput {
   visitorId: string
   sessionId: string
@@ -49,6 +60,7 @@ export interface WebCompanionGenerationInput {
   path: string
   currentSectionId: string | null
   visitedSectionIds: string[]
+  screenContext: WebCompanionScreenContext | null
   history: WebCompanionHistoryTurn[]
   trigger:
     | {
@@ -56,11 +68,13 @@ export interface WebCompanionGenerationInput {
         eventType: string
         sectionId: string | null
         ctaId?: string | null
+        screenContext?: WebCompanionScreenContext | null
       }
     | {
         type: "message"
         message: string
         sectionId: string | null
+        screenContext?: WebCompanionScreenContext | null
       }
 }
 

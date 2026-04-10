@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
+import {
+  getCompanionTargetDefinition,
+  resolveCompanionTargetGeometry,
+  type CompanionBubblePlacement,
+} from '../content/companionTargetRegistry'
 import { useOptionalCursorCompanionExperience } from './WebCompanionExperience'
 import { type Position, SmoothFollower } from './ui/smooth-cursor'
 
@@ -11,18 +16,43 @@ type CompanionRenderState =
   | 'thinking'
   | 'responding'
 type NavigationPhase = 'following' | 'navigating' | 'pointing' | 'returning'
-type BubblePlacement = 'right-below' | 'left-below' | 'right-above' | 'left-above'
+type BubblePlacement = CompanionBubblePlacement
 
 const FOLLOW_OFFSET = {
   x: 35,
   y: 25,
 }
-const GUIDE_CLEARANCE_X = 26
-const GUIDE_CLEARANCE_Y = 8
-const GUIDE_VIEWPORT_PADDING = 28
+const RETURN_SETTLE_MS = 620
 
 const LISTENING_BAR_HEIGHTS = [6, 10, 14, 10, 6]
 const RESPONDING_BAR_HEIGHTS = [7, 11, 15, 11, 7]
+
+declare global {
+  interface Window {
+    __clickyGuidanceDebugEnabled?: boolean
+    __clickyGuidanceDebugLog?: Array<Record<string, unknown>>
+    __clickyGuidanceLastResolved?: Record<string, unknown>
+  }
+}
+
+function logGuidanceDebug(
+  event: string,
+  details: Record<string, unknown> = {}
+) {
+  const payload = {
+    details,
+    event,
+    ts: new Date().toISOString(),
+  }
+
+  if (typeof window !== 'undefined') {
+    const log = window.__clickyGuidanceDebugLog ?? []
+    log.push(payload)
+    window.__clickyGuidanceDebugLog = log.slice(-150)
+  }
+
+  console.debug('[clicky-guidance]', event, details)
+}
 
 function TriangleGlyph({ color }: { color: string }) {
   return (
@@ -124,68 +154,17 @@ function CompanionGlyph({
   }
 }
 
-function measureGuidanceGeometry(targetId: string) {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  const element = document.getElementById(targetId)
-  if (!element) {
-    return null
-  }
-
-  const rect = element.getBoundingClientRect()
-  if (rect.width <= 0 || rect.height <= 0) {
-    return null
-  }
-
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
-  const targetCenterX = rect.left + rect.width / 2
-  const targetCenterY = rect.top + rect.height / 2
-  const placeLeft = targetCenterX > viewportWidth * 0.58
-  const placeAbove = targetCenterY > viewportHeight * 0.68
-
-  const desiredCompanionX = placeLeft
-    ? rect.left - GUIDE_CLEARANCE_X
-    : rect.right + GUIDE_CLEARANCE_X
-  const desiredCompanionY = placeAbove
-    ? rect.top + Math.min(rect.height * 0.28, 18)
-    : rect.top + Math.min(rect.height * 0.55, 24) + GUIDE_CLEARANCE_Y
-
-  const clampedCompanionX = Math.max(
-    GUIDE_VIEWPORT_PADDING,
-    Math.min(desiredCompanionX, viewportWidth - GUIDE_VIEWPORT_PADDING)
-  )
-  const clampedCompanionY = Math.max(
-    GUIDE_VIEWPORT_PADDING,
-    Math.min(desiredCompanionY, viewportHeight - GUIDE_VIEWPORT_PADDING)
-  )
-
-  const placement: BubblePlacement =
-    placeLeft && placeAbove
-      ? 'left-above'
-      : placeLeft
-        ? 'left-below'
-        : placeAbove
-          ? 'right-above'
-          : 'right-below'
-
-  return {
-    placement,
-    position: {
-      x: clampedCompanionX - FOLLOW_OFFSET.x,
-      y: clampedCompanionY - FOLLOW_OFFSET.y,
-    } satisfies Position,
-  }
-}
-
 export function CursorCompanion() {
   const companionExperience = useOptionalCursorCompanionExperience()
   const [isMounted, setIsMounted] = useState(false)
   const [isVisible, setIsVisible] = useState(false)
   const [bubblePlacement, setBubblePlacement] =
     useState<BubblePlacement>('right-below')
+  const [debugTargetGeometry, setDebugTargetGeometry] = useState<{
+    elementRect: { height: number; left: number; top: number; width: number }
+    position: Position
+    targetPoint: Position
+  } | null>(null)
   const [manualTargetPosition, setManualTargetPosition] = useState<Position | null>(
     null
   )
@@ -199,6 +178,10 @@ export function CursorCompanion() {
   const bubbleText = companionExperience?.bubbleText ?? null
   const guidanceTarget = companionExperience?.guidanceTarget ?? null
   const isActive = companionStatus === 'active'
+  const isGuidanceDebugEnabled =
+    typeof window !== 'undefined' &&
+    (window.__clickyGuidanceDebugEnabled === true ||
+      window.localStorage.getItem('clicky-guidance-debug') === 'true')
 
   useEffect(() => {
     setIsMounted(true)
@@ -277,11 +260,11 @@ export function CursorCompanion() {
 
   const shellScale = useMemo(() => {
     if (navigationPhase === 'navigating') {
-      return 1.16
+      return 1.13
     }
 
     if (navigationPhase === 'returning') {
-      return 1.08
+      return 1.03
     }
 
     switch (companionVisualState) {
@@ -328,87 +311,134 @@ export function CursorCompanion() {
   const shouldShowBubble =
     Boolean(bubbleText) &&
     navigationPhase !== 'navigating' &&
-    navigationPhase !== 'returning'
+    navigationPhase !== 'returning' &&
+    companionVisualState !== 'thinking' &&
+    companionVisualState !== 'transcribing'
   const followerTargetPosition =
     navigationPhase === 'following' ? null : manualTargetPosition
-  const followerRotationMode =
-    navigationPhase === 'navigating' || navigationPhase === 'returning'
-      ? 'velocity'
-      : 'none'
+  const followerRotationMode = 'none'
+
+  useEffect(() => {
+    if (!guidanceTarget && isMounted) {
+      logGuidanceDebug('guidance:reset', {
+        phase: navigationPhase,
+      })
+      setDebugTargetGeometry(null)
+      setNavigationPhase('following')
+      setManualTargetPosition(null)
+    }
+  }, [guidanceTarget, isMounted, navigationPhase])
 
   useEffect(() => {
     if (!guidanceTarget || !isMounted) {
       return
     }
 
-    const initialGeometry = measureGuidanceGeometry(guidanceTarget.id)
+    const initialGeometry = resolveCompanionTargetGeometry(guidanceTarget.id)
     if (!initialGeometry) {
+      logGuidanceDebug('guidance:geometry-missing', {
+        actionType: guidanceTarget.actionType,
+        targetId: guidanceTarget.id,
+      })
       return
     }
+
+    const descriptor = getCompanionTargetDefinition(guidanceTarget.id)
 
     pointerPositionRef.current = {
       x: Math.max(pointerPositionRef.current.x, 0),
       y: Math.max(pointerPositionRef.current.y, 0),
     }
 
-    const returnTarget = {
-      x: pointerPositionRef.current.x,
-      y: pointerPositionRef.current.y,
-    }
     const travelDistance = Math.hypot(
-      initialGeometry.position.x - returnTarget.x,
-      initialGeometry.position.y - returnTarget.y
+      initialGeometry.position.x - pointerPositionRef.current.x,
+      initialGeometry.position.y - pointerPositionRef.current.y
     )
     const navigationDurationMs = Math.min(
-      Math.max(360 + travelDistance * 0.22, 420),
-      760
+      Math.max(380 + travelDistance * 0.24, 460),
+      840
     )
     const pointingHoldMs =
       guidanceTarget.actionType === 'pulse' ? 1100 : 1550
 
-    let geometryFrameId: number | null = null
     let navigationTimer: number | null = null
     let returnTimer: number | null = null
     let resumeTimer: number | null = null
 
-    const updateGeometry = () => {
-      const nextGeometry = measureGuidanceGeometry(guidanceTarget.id)
-      if (nextGeometry) {
-        setManualTargetPosition(nextGeometry.position)
-        setBubblePlacement(nextGeometry.placement)
-      }
-
-      geometryFrameId = window.requestAnimationFrame(updateGeometry)
+    logGuidanceDebug('guidance:start', {
+      actionType: guidanceTarget.actionType,
+      anchor: initialGeometry.anchor,
+      bubblePlacement: initialGeometry.placement,
+      cursorOffset: initialGeometry.cursorOffset,
+      elementRect: initialGeometry.elementRect,
+      label: descriptor?.label ?? initialGeometry.label ?? guidanceTarget.id,
+      pointerPosition: pointerPositionRef.current,
+      resolvedPosition: initialGeometry.position,
+      sectionId: initialGeometry.sectionId,
+      targetId: guidanceTarget.id,
+      targetPoint: initialGeometry.targetPoint,
+      travelDistance,
+    })
+    window.__clickyGuidanceLastResolved = {
+      actionType: guidanceTarget.actionType,
+      anchor: initialGeometry.anchor,
+      bubblePlacement: initialGeometry.placement,
+      cursorOffset: initialGeometry.cursorOffset,
+      elementRect: initialGeometry.elementRect,
+      label: descriptor?.label ?? initialGeometry.label ?? guidanceTarget.id,
+      pointerPosition: pointerPositionRef.current,
+      resolvedPosition: initialGeometry.position,
+      sectionId: initialGeometry.sectionId,
+      targetId: guidanceTarget.id,
+      targetPoint: initialGeometry.targetPoint,
+      travelDistance,
     }
+    setDebugTargetGeometry({
+      elementRect: initialGeometry.elementRect,
+      position: initialGeometry.position,
+      targetPoint: initialGeometry.targetPoint,
+    })
 
     setBubblePlacement(initialGeometry.placement)
-    setManualTargetPosition(initialGeometry.position)
+    setManualTargetPosition({
+      x: initialGeometry.position.x - FOLLOW_OFFSET.x,
+      y: initialGeometry.position.y - FOLLOW_OFFSET.y,
+    })
     setNavigationPhase('navigating')
-    geometryFrameId = window.requestAnimationFrame(updateGeometry)
 
     navigationTimer = window.setTimeout(() => {
+      logGuidanceDebug('guidance:pointing', {
+        targetId: guidanceTarget.id,
+      })
       setNavigationPhase('pointing')
 
       returnTimer = window.setTimeout(() => {
-        if (geometryFrameId !== null) {
-          window.cancelAnimationFrame(geometryFrameId)
-          geometryFrameId = null
+        const returnTarget = {
+          x: pointerPositionRef.current.x,
+          y: pointerPositionRef.current.y,
         }
-
+        logGuidanceDebug('guidance:returning', {
+          returnTarget,
+          targetId: guidanceTarget.id,
+        })
         setNavigationPhase('returning')
         setManualTargetPosition(returnTarget)
 
         resumeTimer = window.setTimeout(() => {
+          logGuidanceDebug('guidance:complete', {
+            targetId: guidanceTarget.id,
+          })
           setNavigationPhase('following')
           setManualTargetPosition(null)
-        }, 420)
+        }, RETURN_SETTLE_MS)
       }, pointingHoldMs)
     }, navigationDurationMs)
 
     return () => {
-      if (geometryFrameId !== null) {
-        window.cancelAnimationFrame(geometryFrameId)
-      }
+      logGuidanceDebug('guidance:cleanup', {
+        targetId: guidanceTarget.id,
+      })
+      setDebugTargetGeometry(null)
       if (navigationTimer !== null) {
         window.clearTimeout(navigationTimer)
       }
@@ -439,6 +469,37 @@ export function CursorCompanion() {
       zIndex={9999}
     >
       <div className="relative isolate">
+        {isGuidanceDebugEnabled && debugTargetGeometry ? (
+          <>
+            <div
+              className="pointer-events-none fixed rounded-[20px] border border-rose-400/70 bg-rose-200/10"
+              style={{
+                left: debugTargetGeometry.elementRect.left,
+                top: debugTargetGeometry.elementRect.top,
+                width: debugTargetGeometry.elementRect.width,
+                height: debugTargetGeometry.elementRect.height,
+                zIndex: 9997,
+              }}
+            />
+            <div
+              className="pointer-events-none fixed h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-rose-500 bg-rose-400/90 shadow-[0_0_0_6px_rgba(251,113,133,0.18)]"
+              style={{
+                left: debugTargetGeometry.targetPoint.x,
+                top: debugTargetGeometry.targetPoint.y,
+                zIndex: 9998,
+              }}
+            />
+            <div
+              className="pointer-events-none fixed h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-sky-600 bg-sky-400/90 shadow-[0_0_0_6px_rgba(56,189,248,0.18)]"
+              style={{
+                left: debugTargetGeometry.position.x,
+                top: debugTargetGeometry.position.y,
+                zIndex: 9998,
+              }}
+            />
+          </>
+        ) : null}
+
         {shouldShowBubble ? (
           <div
             className="absolute transition-all duration-300 ease-out"

@@ -7,6 +7,7 @@ export interface Env {
   MAC_APP_SCHEME?: string
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
+  ASSEMBLYAI_API_KEY?: string
   ELEVENLABS_API_KEY?: string
   ELEVENLABS_MODEL_ID?: string
   ELEVENLABS_VOICE_ID?: string

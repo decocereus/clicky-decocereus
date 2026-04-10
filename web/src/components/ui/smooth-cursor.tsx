@@ -180,14 +180,16 @@ export function SmoothCursor({
   }, [desktopOnly])
 
   useEffect(() => {
-    if (!isEnabled || targetPosition !== null) {
+    if (!isEnabled) {
       return
     }
 
-    targetAnimationXRef.current?.stop()
-    targetAnimationYRef.current?.stop()
-    targetAnimationXRef.current = null
-    targetAnimationYRef.current = null
+    if (targetPosition === null) {
+      targetAnimationXRef.current?.stop()
+      targetAnimationYRef.current?.stop()
+      targetAnimationXRef.current = null
+      targetAnimationYRef.current = null
+    }
 
     const updateMotion = (nextPosition: Position) => {
       const currentTime = Date.now()
@@ -203,6 +205,10 @@ export function SmoothCursor({
       lastUpdateTime.current = currentTime
       lastPointerPos.current = nextPosition
       onPointerMove?.(nextPosition)
+
+      if (targetPosition !== null) {
+        return
+      }
 
       cursorX.set(nextPosition.x + offset.x)
       cursorY.set(nextPosition.y + offset.y)
@@ -298,15 +304,20 @@ export function SmoothCursor({
     const deltaX = targetPosition.x - currentPosition.x
     const deltaY = targetPosition.y - currentPosition.y
     const distance = Math.hypot(deltaX, deltaY)
+    const targetSpringConfig = {
+      type: 'spring' as const,
+      damping: Math.max(28, springConfig.damping * 0.76),
+      stiffness: Math.max(200, springConfig.stiffness * 0.62),
+      mass: springConfig.mass * 1.08,
+      restDelta: springConfig.restDelta,
+    }
 
     setHasTrackedPosition(true)
     targetAnimationXRef.current = animate(cursorX, targetPosition.x + offset.x, {
-      type: 'spring',
-      ...springConfig,
+      ...targetSpringConfig,
     })
     targetAnimationYRef.current = animate(cursorY, targetPosition.y + offset.y, {
-      type: 'spring',
-      ...springConfig,
+      ...targetSpringConfig,
     })
 
     if (rotationMode === 'velocity' && distance > 0.1) {

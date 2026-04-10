@@ -1,6 +1,7 @@
 import type { WebCompanionSection } from "./types"
+import { getWebCompanionTargetsForSection } from "./targets"
 
-export const webCompanionSections: WebCompanionSection[] = [
+const baseWebCompanionSections: Omit<WebCompanionSection, "allowedTargets">[] = [
   {
     id: "hero-section",
     title: "Hero",
@@ -11,12 +12,6 @@ export const webCompanionSections: WebCompanionSection[] = [
     suggestedQuestions: [
       "What makes Clicky different from a chatbot?",
       "What does Clicky actually do on my Mac?",
-    ],
-    allowedTargets: [
-      "hero-section",
-      "hero-download-cta",
-      "nav-download-cta",
-      "nav-mobile-download-cta",
     ],
   },
   {
@@ -30,7 +25,6 @@ export const webCompanionSections: WebCompanionSection[] = [
       "What does screen awareness mean here?",
       "Does Clicky just read screenshots?",
     ],
-    allowedTargets: ["sees-screen"],
   },
   {
     id: "points-way",
@@ -43,7 +37,6 @@ export const webCompanionSections: WebCompanionSection[] = [
       "How does the pointing behavior work?",
       "Is this like a guided walkthrough?",
     ],
-    allowedTargets: ["points-way"],
   },
   {
     id: "knows-apps",
@@ -56,7 +49,6 @@ export const webCompanionSections: WebCompanionSection[] = [
       "What apps is Clicky meant for?",
       "Does it work outside design tools too?",
     ],
-    allowedTargets: ["knows-apps"],
   },
   {
     id: "learns-video",
@@ -69,7 +61,6 @@ export const webCompanionSections: WebCompanionSection[] = [
       "Can Clicky turn tutorials into workflows?",
       "What other inputs can Clicky use?",
     ],
-    allowedTargets: ["learns-video"],
   },
   {
     id: "can-be-anything",
@@ -82,7 +73,6 @@ export const webCompanionSections: WebCompanionSection[] = [
       "Can I use my own OpenClaw agent identity?",
       "How much of Clicky is customizable?",
     ],
-    allowedTargets: ["can-be-anything"],
   },
   {
     id: "repeats-workflows",
@@ -95,7 +85,6 @@ export const webCompanionSections: WebCompanionSection[] = [
       "Can Clicky automate recurring tasks?",
       "Is this more than just a live assistant?",
     ],
-    allowedTargets: ["repeats-workflows"],
   },
   {
     id: "pricing",
@@ -108,7 +97,6 @@ export const webCompanionSections: WebCompanionSection[] = [
       "What do I get for the launch price?",
       "Who is Clicky a fit for right now?",
     ],
-    allowedTargets: ["pricing", "pricing-download-cta"],
   },
   {
     id: "footer",
@@ -121,9 +109,15 @@ export const webCompanionSections: WebCompanionSection[] = [
       "Can you summarize Clicky in one minute?",
       "What should I know before downloading?",
     ],
-    allowedTargets: ["footer", "footer-download-cta"],
   },
 ]
+
+export const webCompanionSections: WebCompanionSection[] = baseWebCompanionSections.map(
+  (section) => ({
+    ...section,
+    allowedTargets: getWebCompanionTargetsForSection(section.id).map((target) => target.id),
+  })
+)
 
 const webCompanionSectionMap = new Map(
   webCompanionSections.map((section) => [section.id, section]),

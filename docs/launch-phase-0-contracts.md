@@ -54,8 +54,10 @@ If we later build a collaborative web app with live backend state, Convex become
 
 These are the defaults I recommend unless we explicitly change them:
 
-- **Free taste boundary**: 5 cloud-backed companion requests per local install before the paywall blocks further requests.
-- **Taste accounting**: local-only for launch. We do not try to harden reinstall abuse yet.
+- **Free taste boundary**: 10 backend-authoritative trial credits granted after setup completes.
+- **Taste accounting**: backend-backed per signed-in user, not local-only per install.
+- **Trial start gate**: the backend-backed launch trial begins only after the user signs in.
+- **Welcome turn**: the first post-setup guided welcome turn does not decrement a trial credit.
 - **Purchase model at launch**: one-time purchase.
 - **Entitlement scope**: user-level, not device-bound.
 - **Offline behavior after unlock**: keep last known unlocked state for 30 days after the most recent successful entitlement refresh.
@@ -67,7 +69,7 @@ These are the defaults I recommend unless we explicitly change them:
 
 - Launch with Google sign-in as the default.
 - Keep magic-link or other email-based auth as a later option if needed.
-- Do not require sign-in before the free taste.
+- Require sign-in before the backend-backed launch trial starts.
 - Require sign-in before purchase and before cross-device restore.
 
 ## Session model

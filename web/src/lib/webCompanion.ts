@@ -73,6 +73,17 @@ export interface WebCompanionEventPayload {
   response: WebCompanionReply | null
 }
 
+export interface WebCompanionImageAttachmentInput {
+  contentBase64: string
+  label: string
+  mimeType: string
+}
+
+export interface WebCompanionScreenContextInput {
+  attachments: WebCompanionImageAttachmentInput[]
+  source: 'display-media' | 'site-layout-reference'
+}
+
 function normalizeErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
     return error.message
@@ -131,6 +142,7 @@ export async function sendWebCompanionEvent(
     ctaId?: string | null
     visitedSectionIds?: string[]
     dwellMs?: number
+    screenContext?: WebCompanionScreenContextInput | null
   }
 ) {
   try {
@@ -153,6 +165,7 @@ export async function sendWebCompanionMessage(
     path: string
     sectionId?: string | null
     visitedSectionIds?: string[]
+    screenContext?: WebCompanionScreenContextInput | null
   }
 ) {
   try {
@@ -166,4 +179,38 @@ export async function sendWebCompanionMessage(
   } catch (error) {
     throw new Error(normalizeErrorMessage(error))
   }
+}
+
+export async function transcribeWebCompanionAudio(
+  sessionId: string,
+  input: {
+    audioBlob: Blob
+    filename?: string
+  }
+) {
+  const formData = new FormData()
+  formData.set(
+    'audio',
+    input.audioBlob,
+    input.filename ?? `clicky-web-${Date.now()}.webm`
+  )
+
+  const response = await fetch(
+    `${getBackendUrl()}/v1/web-companion/sessions/${sessionId}/transcribe`,
+    {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    }
+  )
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null
+
+    throw new Error(payload?.error ?? `Request failed with ${response.status}`)
+  }
+
+  return (await response.json()) as { transcript: string }
 }
