@@ -82,6 +82,15 @@ enum ClickyLaunchBillingState: Equatable {
     case failed(message: String)
 }
 
+enum ClickyLaunchTrialState: Equatable {
+    case inactive
+    case active(remainingCredits: Int)
+    case armed
+    case paywalled
+    case unlocked
+    case failed(message: String)
+}
+
 enum ElevenLabsVoiceImportStatus: Equatable {
     case idle
     case importing
@@ -371,6 +380,7 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var clickyLaunchAuthState: ClickyLaunchAuthState = .signedOut
     @Published private(set) var clickyLaunchEntitlementStatusLabel: String = "Unknown"
     @Published private(set) var clickyLaunchBillingState: ClickyLaunchBillingState = .idle
+    @Published private(set) var clickyLaunchTrialState: ClickyLaunchTrialState = .inactive
     @Published var clickyBackendBaseURL: String = UserDefaults.standard.string(forKey: "clickyBackendBaseURL") ?? CompanionRuntimeConfiguration.defaultBackendBaseURL {
         didSet {
             UserDefaults.standard.set(clickyBackendBaseURL, forKey: "clickyBackendBaseURL")
@@ -431,6 +441,23 @@ final class CompanionManager: ObservableObject {
             return "Checkout canceled"
         case .completed:
             return "Checkout completed"
+        case let .failed(message):
+            return message
+        }
+    }
+
+    var clickyLaunchTrialStatusLabel: String {
+        switch clickyLaunchTrialState {
+        case .inactive:
+            return "Inactive"
+        case let .active(remainingCredits):
+            return "\(remainingCredits) credits left"
+        case .armed:
+            return "Paywall armed"
+        case .paywalled:
+            return "Paywall active"
+        case .unlocked:
+            return "Unlocked"
         case let .failed(message):
             return message
         }
@@ -648,6 +675,7 @@ final class CompanionManager: ObservableObject {
         clickyLaunchAuthState = .signedOut
         clickyLaunchEntitlementStatusLabel = "Unknown"
         clickyLaunchBillingState = .idle
+        clickyLaunchTrialState = .inactive
         ClickyLogger.notice(.app, "Cleared Clicky launch auth session")
     }
 
@@ -700,13 +728,15 @@ final class CompanionManager: ObservableObject {
                         status: entitlementPayload.entitlement.status,
                         hasAccess: entitlementPayload.entitlement.hasAccess,
                         gracePeriodEndsAt: entitlementPayload.entitlement.gracePeriodEndsAt
-                    )
+                    ),
+                    trial: storedSession.trial
                 )
 
                 try ClickyAuthSessionStore.save(refreshedSnapshot)
                 clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(refreshedSnapshot.entitlement)
                 if refreshedSnapshot.entitlement.hasAccess {
                     clickyLaunchBillingState = .completed
+                    clickyLaunchTrialState = .unlocked
                     ClickyLogger.notice(.app, "Launch entitlement active user=\(refreshedSnapshot.email)")
                 } else {
                     ClickyLogger.notice(.app, "Launch entitlement still inactive user=\(refreshedSnapshot.email) status=\(refreshedSnapshot.entitlement.status)")
@@ -764,12 +794,14 @@ final class CompanionManager: ObservableObject {
                     sessionToken: exchangePayload.sessionToken,
                     userID: exchangePayload.userID,
                     email: sessionPayload.user.email,
-                    entitlement: entitlementSnapshot
+                    entitlement: entitlementSnapshot,
+                    trial: nil
                 )
 
                 try ClickyAuthSessionStore.save(snapshot)
                 clickyLaunchAuthState = .signedIn(email: snapshot.email)
                 clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(snapshot.entitlement)
+                clickyLaunchTrialState = exchangePayload.entitlement.hasAccess ? .unlocked : .inactive
                 ClickyLogger.notice(.app, "Completed Clicky launch auth exchange user=\(snapshot.email)")
             } catch {
                 clickyLaunchAuthState = .failed(message: error.localizedDescription)
@@ -1689,10 +1721,85 @@ final class CompanionManager: ObservableObject {
         ClickyBackendAuthClient(baseURL: clickyBackendBaseURL)
     }
 
+    func refreshClickyLaunchTrialState() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchTrialState = .inactive
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                let trialPayload = try await clickyBackendAuthClient.fetchCurrentTrial(sessionToken: storedSession.sessionToken)
+                let updatedTrial = ClickyLaunchTrialSnapshot(
+                    status: trialPayload.trial.status,
+                    initialCredits: trialPayload.trial.initialCredits,
+                    remainingCredits: trialPayload.trial.remainingCredits,
+                    setupCompletedAt: trialPayload.trial.setupCompletedAt,
+                    trialActivatedAt: trialPayload.trial.trialActivatedAt,
+                    lastCreditConsumedAt: trialPayload.trial.lastCreditConsumedAt,
+                    welcomePromptDeliveredAt: trialPayload.trial.welcomePromptDeliveredAt,
+                    paywallActivatedAt: trialPayload.trial.paywallActivatedAt
+                )
+                let refreshedSnapshot = ClickyAuthSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    userID: storedSession.userID,
+                    email: storedSession.email,
+                    entitlement: storedSession.entitlement,
+                    trial: updatedTrial
+                )
+
+                try ClickyAuthSessionStore.save(refreshedSnapshot)
+                clickyLaunchTrialState = formatLaunchTrialState(updatedTrial, hasAccess: storedSession.entitlement.hasAccess)
+                ClickyLogger.notice(.app, "Launch trial state refreshed user=\(storedSession.email) status=\(updatedTrial.status) remaining=\(updatedTrial.remainingCredits)")
+            } catch {
+                clickyLaunchTrialState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to refresh launch trial state error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func activateClickyLaunchTrial() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchTrialState = .failed(message: "Sign in before activating the trial.")
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                let trialPayload = try await clickyBackendAuthClient.activateTrial(sessionToken: storedSession.sessionToken)
+                let activatedTrial = ClickyLaunchTrialSnapshot(
+                    status: trialPayload.trial.status,
+                    initialCredits: trialPayload.trial.initialCredits,
+                    remainingCredits: trialPayload.trial.remainingCredits,
+                    setupCompletedAt: trialPayload.trial.setupCompletedAt,
+                    trialActivatedAt: trialPayload.trial.trialActivatedAt,
+                    lastCreditConsumedAt: trialPayload.trial.lastCreditConsumedAt,
+                    welcomePromptDeliveredAt: trialPayload.trial.welcomePromptDeliveredAt,
+                    paywallActivatedAt: trialPayload.trial.paywallActivatedAt
+                )
+                let refreshedSnapshot = ClickyAuthSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    userID: storedSession.userID,
+                    email: storedSession.email,
+                    entitlement: storedSession.entitlement,
+                    trial: activatedTrial
+                )
+
+                try ClickyAuthSessionStore.save(refreshedSnapshot)
+                clickyLaunchTrialState = formatLaunchTrialState(activatedTrial, hasAccess: storedSession.entitlement.hasAccess)
+                ClickyLogger.notice(.app, "Activated launch trial user=\(storedSession.email) credits=\(activatedTrial.remainingCredits)")
+            } catch {
+                clickyLaunchTrialState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to activate launch trial error=\(error.localizedDescription)")
+            }
+        }
+    }
+
     private func restoreClickyLaunchSessionIfPossible() {
         guard let storedSession = ClickyAuthSessionStore.load() else {
             clickyLaunchAuthState = .signedOut
             clickyLaunchEntitlementStatusLabel = "Unknown"
+            clickyLaunchTrialState = .inactive
             return
         }
 
@@ -1711,19 +1818,45 @@ final class CompanionManager: ObservableObject {
                         status: entitlementPayload.entitlement.status,
                         hasAccess: entitlementPayload.entitlement.hasAccess,
                         gracePeriodEndsAt: entitlementPayload.entitlement.gracePeriodEndsAt
-                    )
+                    ),
+                    trial: storedSession.trial
                 )
 
                 try ClickyAuthSessionStore.save(refreshedSnapshot)
                 clickyLaunchAuthState = .signedIn(email: refreshedSnapshot.email)
                 clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(refreshedSnapshot.entitlement)
+                clickyLaunchTrialState = formatLaunchTrialState(refreshedSnapshot.trial, hasAccess: refreshedSnapshot.entitlement.hasAccess)
                 ClickyLogger.notice(.app, "Restored Clicky launch auth session user=\(refreshedSnapshot.email)")
             } catch {
                 ClickyAuthSessionStore.clear()
                 clickyLaunchAuthState = .signedOut
                 clickyLaunchEntitlementStatusLabel = "Unknown"
+                clickyLaunchTrialState = .inactive
                 ClickyLogger.error(.app, "Failed to restore Clicky launch auth session error=\(error.localizedDescription)")
             }
+        }
+    }
+
+    private func formatLaunchTrialState(_ trial: ClickyLaunchTrialSnapshot?, hasAccess: Bool) -> ClickyLaunchTrialState {
+        if hasAccess {
+            return .unlocked
+        }
+
+        guard let trial else {
+            return .inactive
+        }
+
+        switch trial.status {
+        case "active":
+            return .active(remainingCredits: trial.remainingCredits)
+        case "armed":
+            return .armed
+        case "paywalled":
+            return .paywalled
+        case "unlocked":
+            return .unlocked
+        default:
+            return .inactive
         }
     }
 

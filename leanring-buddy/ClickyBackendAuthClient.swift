@@ -77,6 +77,39 @@ struct ClickyBackendCheckoutDetailsPayload: Decodable {
     let returnUrl: String?
 }
 
+struct ClickyBackendTrialPayload: Decodable {
+    let status: String
+    let initialCredits: Int
+    let remainingCredits: Int
+    let setupCompletedAt: String?
+    let trialActivatedAt: String?
+    let lastCreditConsumedAt: String?
+    let welcomePromptDeliveredAt: String?
+    let paywallActivatedAt: String?
+}
+
+struct ClickyBackendTrialEnvelopePayload: Decodable {
+    let userID: String
+    let trial: ClickyBackendTrialPayload
+
+    private enum CodingKeys: String, CodingKey {
+        case userID = "userId"
+        case trial
+    }
+}
+
+struct ClickyBackendTrialConsumePayload: Decodable {
+    let userID: String
+    let paywallArmed: Bool
+    let trial: ClickyBackendTrialPayload
+
+    private enum CodingKeys: String, CodingKey {
+        case userID = "userId"
+        case paywallArmed
+        case trial
+    }
+}
+
 enum ClickyBackendAuthClientError: LocalizedError {
     case backendNotConfigured
     case invalidBackendURL
@@ -177,6 +210,51 @@ struct ClickyBackendAuthClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try JSONDecoder().decode(ClickyBackendCheckoutPayload.self, from: data)
+    }
+
+    func fetchCurrentTrial(sessionToken: String) async throws -> ClickyBackendTrialEnvelopePayload {
+        var request = URLRequest(url: try endpointURL(path: "/v1/trial/me"))
+        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(ClickyBackendTrialEnvelopePayload.self, from: data)
+    }
+
+    func activateTrial(sessionToken: String) async throws -> ClickyBackendTrialEnvelopePayload {
+        var request = URLRequest(url: try endpointURL(path: "/v1/trial/activate"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(ClickyBackendTrialEnvelopePayload.self, from: data)
+    }
+
+    func consumeTrialCredit(sessionToken: String) async throws -> ClickyBackendTrialConsumePayload {
+        var request = URLRequest(url: try endpointURL(path: "/v1/trial/consume"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(ClickyBackendTrialConsumePayload.self, from: data)
+    }
+
+    func markTrialPaywalled(sessionToken: String) async throws -> ClickyBackendTrialEnvelopePayload {
+        var request = URLRequest(url: try endpointURL(path: "/v1/trial/paywall-activate"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(ClickyBackendTrialEnvelopePayload.self, from: data)
     }
 
     private func validate(response: URLResponse, data: Data) throws {

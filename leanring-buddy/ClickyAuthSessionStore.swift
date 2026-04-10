@@ -14,11 +14,23 @@ struct ClickyLaunchEntitlementSnapshot: Codable {
     let gracePeriodEndsAt: String?
 }
 
+struct ClickyLaunchTrialSnapshot: Codable {
+    let status: String
+    let initialCredits: Int
+    let remainingCredits: Int
+    let setupCompletedAt: String?
+    let trialActivatedAt: String?
+    let lastCreditConsumedAt: String?
+    let welcomePromptDeliveredAt: String?
+    let paywallActivatedAt: String?
+}
+
 struct ClickyAuthSessionSnapshot: Codable {
     let sessionToken: String
     let userID: String
     let email: String
     let entitlement: ClickyLaunchEntitlementSnapshot
+    let trial: ClickyLaunchTrialSnapshot?
 }
 
 enum ClickyAuthSessionStore {
