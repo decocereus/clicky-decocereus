@@ -9,6 +9,8 @@ coding-plans/
 
 plugins/openclaw-clicky-shell/node_modules/
 /backend/node_modules
+/backend/.wrangler
+/backend/.dev.vars
 /backend/.env
 
 # Logs

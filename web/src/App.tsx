@@ -8,6 +8,7 @@ import { FeatureSection } from './sections/FeatureSection';
 import { PricingSection } from './sections/PricingSection';
 import { FooterSection } from './sections/FooterSection';
 import './App.css';
+import {Agentation} from 'agentation'
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -190,11 +191,7 @@ function LandingPage() {
 function App() {
   const pathname = typeof window === 'undefined' ? '/' : window.location.pathname;
 
-  if (pathname === '/auth/native') {
-    return <NativeAuthPage />;
-  }
-
-  return <LandingPage />;
+  return <>{pathname === '/auth/native' ? <NativeAuthPage />: <LandingPage />}<Agentation/></> ;
 }
 
 export default App;
