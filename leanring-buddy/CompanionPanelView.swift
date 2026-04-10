@@ -52,9 +52,6 @@ struct CompanionPanelView: View {
                     .foregroundColor(theme.textMuted)
                     .tracking(1.2)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .modifier(ClickyHeaderGlassCapsuleStyle())
 
             Spacer()
 
@@ -1037,37 +1034,6 @@ private struct ClickyTinyGlassCircleStyle: ViewModifier {
                 .background(
                     Circle()
                         .fill(Color.white.opacity(0.04))
-                )
-        }
-    }
-}
-
-private struct ClickyHeaderGlassCapsuleStyle: ViewModifier {
-    @Environment(\.clickyTheme) private var theme
-
-    func body(content: Content) -> some View {
-        let shape = Capsule(style: .continuous)
-
-        if #available(macOS 26.0, *) {
-            content
-                .background(
-                    shape
-                        .fill(.clear)
-                        .glassEffect(.regular.tint(theme.primary.opacity(0.14)).interactive(), in: shape)
-                )
-                .overlay(
-                    shape
-                        .stroke(theme.strokeSoft, lineWidth: 0.9)
-                )
-        } else {
-            content
-                .background(
-                    shape
-                        .fill(Color.white.opacity(0.04))
-                )
-                .overlay(
-                    shape
-                        .stroke(theme.strokeSoft, lineWidth: 0.9)
                 )
         }
     }

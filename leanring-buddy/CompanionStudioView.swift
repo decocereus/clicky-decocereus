@@ -144,6 +144,7 @@ struct CompanionStudioView: View {
         .padding(.leading, 10)
         .padding(.trailing, 8)
         .padding(.top, 12)
+        .modifier(ClickyStudioShellStyle(cornerRadius: 30))
     }
 
     private var availableSections: [CompanionStudioSection] {
@@ -172,6 +173,10 @@ struct CompanionStudioView: View {
                 .padding(28)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .modifier(ClickyStudioShellStyle(cornerRadius: 34))
+            .padding(.trailing, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
         }
         .scrollContentBackground(.hidden)
     }
@@ -1771,7 +1776,55 @@ private struct StudioCard<Content: View>: View {
 
             content
         }
-        .clickyGlassCard(cornerRadius: 30, padding: 24)
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(theme.card.opacity(0.28))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .stroke(theme.strokeSoft.opacity(0.7), lineWidth: 0.8)
+        )
+        .overlay(alignment: .topLeading) {
+            Capsule(style: .continuous)
+                .fill(theme.primary.opacity(0.45))
+                .frame(width: 80, height: 3)
+                .padding(.top, 14)
+                .padding(.leading, 24)
+        }
+    }
+}
+
+private struct ClickyStudioShellStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+        if #available(macOS 26.0, *) {
+            content
+                .background(
+                    shape
+                        .fill(.clear)
+                        .glassEffect(.regular.tint(theme.primary.opacity(0.12)).interactive(), in: shape)
+                )
+                .overlay(
+                    shape
+                        .stroke(theme.strokeSoft, lineWidth: 0.9)
+                )
+        } else {
+            content
+                .background(
+                    shape
+                        .fill(theme.card.opacity(0.9))
+                )
+                .overlay(
+                    shape
+                        .stroke(theme.strokeSoft, lineWidth: 0.9)
+                )
+        }
     }
 }
 
