@@ -21,13 +21,13 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
     var title: String {
         switch self {
         case .general:
-            return "General"
+            return "Companion"
         case .openClaw:
-            return "OpenClaw"
+            return "Connection"
         case .voiceAppearance:
-            return "Persona"
+            return "Voice & Persona"
         case .integrations:
-            return "Integrations"
+            return "Launch Access"
         case .designLab:
             return "Design Lab"
         case .diagnostics:
@@ -55,13 +55,13 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
     var subtitle: String {
         switch self {
         case .general:
-            return "Runtime and backend"
+            return "Daily shell controls"
         case .openClaw:
-            return "Connection and identity"
+            return "Agent and gateway"
         case .voiceAppearance:
-            return "Tone, voice, and look"
+            return "Voice, tone, and look"
         case .integrations:
-            return "Setup and status"
+            return "Buy, restore, unlock"
         case .designLab:
             return "Three UI directions"
         case .diagnostics:
@@ -146,7 +146,10 @@ struct CompanionStudioView: View {
 
     private var availableSections: [CompanionStudioSection] {
         CompanionStudioSection.allCases.filter { section in
-            isSupportModeEnabled || section != .diagnostics
+            if section == .designLab {
+                return isSupportModeEnabled
+            }
+            return true
         }
     }
 
@@ -245,7 +248,7 @@ struct CompanionStudioView: View {
 
     private var generalSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            StudioCard(title: "Runtime Overview", subtitle: "What shell you are currently running") {
+            StudioCard(title: "Companion", subtitle: "The production-facing shell surface should stay focused and calm") {
                 VStack(spacing: 12) {
                     StudioKeyValueRow(label: "Hotkey", value: "Control + Option")
                     StudioKeyValueRow(label: "Overlay", value: companionManager.isOverlayVisible ? "Visible" : "Hidden")
@@ -255,7 +258,7 @@ struct CompanionStudioView: View {
                 }
             }
 
-            StudioCard(title: "Agent Backend", subtitle: "Choose which brain powers the companion") {
+            StudioCard(title: "Agent", subtitle: "Choose which brain powers the companion without exposing the deeper debug controls here") {
                 VStack(alignment: .leading, spacing: 14) {
                     Picker(
                         "Agent Backend",
@@ -291,7 +294,7 @@ struct CompanionStudioView: View {
                 }
             }
 
-            StudioCard(title: "Quick Controls", subtitle: "The shell-level behavior users feel immediately") {
+            StudioCard(title: "Quick Controls", subtitle: "Only the daily product controls belong here") {
                 VStack(spacing: 14) {
                     Toggle(
                         "Show Clicky cursor overlay",
@@ -309,240 +312,6 @@ struct CompanionStudioView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            StudioCard(title: "Support Tools", subtitle: "Keep technical debugging surfaces out of the normal user flow until you need them") {
-                VStack(alignment: .leading, spacing: 14) {
-                    Toggle("Enable support mode", isOn: $isSupportModeEnabled)
-                        .toggleStyle(.switch)
-                        .tint(DS.Colors.accent)
-
-                    Text(isSupportModeEnabled
-                         ? "Diagnostics is currently visible in Studio for debugging and support work."
-                         : "Diagnostics is currently hidden from the main Studio navigation. Enable support mode when you need technical debugging details.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            StudioCard(title: "Account & Launch Access", subtitle: "Connect the app to the launch backend and restore your access") {
-                VStack(alignment: .leading, spacing: 14) {
-                    StudioKeyValueRow(label: "Backend URL", value: companionManager.clickyBackendStatusLabel)
-                    StudioKeyValueRow(label: "Account", value: companionManager.clickyLaunchAuthStatusLabel)
-                    StudioKeyValueRow(label: "Entitlement", value: companionManager.clickyLaunchEntitlementStatusLabel)
-                    StudioKeyValueRow(label: "Trial", value: companionManager.clickyLaunchTrialStatusLabel)
-                    StudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
-
-                    StudioTextField(
-                        title: "Launch backend URL",
-                        text: Binding(
-                            get: { companionManager.clickyBackendBaseURL },
-                            set: { companionManager.clickyBackendBaseURL = $0 }
-                        ),
-                        placeholder: "https://api.clicky.app"
-                    )
-
-                    HStack(spacing: 10) {
-                        Button(action: {
-                            companionManager.startClickyLaunchSignIn()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "person.crop.circle.badge.plus")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Sign In")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            companionManager.signOutClickyLaunchSession()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "person.crop.circle.badge.xmark")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Sign Out")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            companionManager.startClickyLaunchCheckout()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "creditcard")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Buy Launch Pass")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            companionManager.refreshClickyLaunchEntitlement()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.clockwise.circle")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Refresh Access")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            companionManager.activateClickyLaunchTrial()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Activate Trial")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            companionManager.refreshClickyLaunchTrialState()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "hourglass")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Refresh Trial")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            companionManager.consumeClickyLaunchTrialCredit()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "minus.circle")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Consume Credit")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            companionManager.activateClickyLaunchPaywall()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "lock.circle")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Activate Paywall")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-                    }
-
-                    Text("The Mac app opens the browser for sign-in, then stores the returned session token in Keychain on this Mac.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
         }
     }
 
@@ -699,6 +468,8 @@ struct CompanionStudioView: View {
                     connectionStatusView
                 }
             }
+
+            pluginSetupCards
         }
     }
 
@@ -1195,71 +966,46 @@ struct CompanionStudioView: View {
 
     private var integrationsSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            if shouldShowPluginSetupFlow {
-                StudioCard(title: "Set Up the OpenClaw Plugin", subtitle: "This is a one-time setup on this machine") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        StudioStepRow(
-                            stepNumber: 1,
-                            title: "Install the plugin",
-                            detail: "Run this once from your terminal.",
-                            statusLabel: companionManager.clickyOpenClawPluginStatus == .notConfigured ? "Needed" : "Done",
-                            statusTone: companionManager.clickyOpenClawPluginStatus == .notConfigured ? .warning : .success
-                        )
-
-                        StudioCommandBlock(
-                            title: "Install command",
-                            command: companionManager.clickyOpenClawPluginInstallCommand
-                        )
-
-                        StudioStepRow(
-                            stepNumber: 2,
-                            title: "Enable it in OpenClaw",
-                            detail: "This turns the plugin on and restarts the Gateway.",
-                            statusLabel: companionManager.clickyOpenClawPluginStatus == .enabled ? "Done" : "Needed",
-                            statusTone: companionManager.clickyOpenClawPluginStatus == .enabled ? .success : .warning
-                        )
-
-                        StudioCommandBlock(
-                            title: "Enable + restart",
-                            command: companionManager.clickyOpenClawPluginEnableCommand
-                        )
-
-                        Text("Once that is done, Clicky will reconnect automatically. You should not need to keep running these commands.")
-                            .font(.system(size: 12))
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            } else {
-                StudioCard(title: "OpenClaw Integration", subtitle: "The desktop bridge is ready on this machine") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        StudioStatusPill(label: "Ready", tone: .success)
-
-                        Text("Clicky is already connected to OpenClaw here. You do not need to run setup commands again unless you reinstall OpenClaw or move to a different machine.")
-                            .font(.system(size: 12))
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-
-            StudioCard(title: "What You Get", subtitle: "What this integration unlocks inside Clicky") {
+            StudioCard(title: "Launch Access", subtitle: "This panel should stay product-facing and clean while diagnostics lives elsewhere") {
                 VStack(alignment: .leading, spacing: 12) {
-                    StudioStatusPill(
-                        label: companionManager.clickyOpenClawPluginStatusLabel,
-                        tone: clickyPluginStatusTone
-                    )
+                    StudioKeyValueRow(label: "Account", value: companionManager.clickyLaunchAuthStatusLabel)
+                    StudioKeyValueRow(label: "Entitlement", value: companionManager.clickyLaunchEntitlementStatusLabel)
+                    StudioKeyValueRow(label: "Trial", value: companionManager.clickyLaunchTrialStatusLabel)
+                    StudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
 
-                    Text("Clicky can speak responses, stay visually present next to your cursor, and keep your OpenClaw agent feeling native inside the desktop experience without rewriting that agent’s core identity.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+                    HStack(spacing: 10) {
+                        launchAccessButton(
+                            title: "Sign In",
+                            systemImage: "person.crop.circle.badge.plus"
+                        ) {
+                            companionManager.startClickyLaunchSignIn()
+                        }
 
-            StudioCard(title: "Remote Support", subtitle: "You can still use this with a hosted OpenClaw instance later") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(companionManager.clickyOpenClawRemoteReadinessSummary)
+                        launchAccessButton(
+                            title: "Sign Out",
+                            systemImage: "person.crop.circle.badge.xmark"
+                        ) {
+                            companionManager.signOutClickyLaunchSession()
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        launchAccessPrimaryButton(
+                            title: "Buy Launch Pass",
+                            systemImage: "creditcard"
+                        ) {
+                            companionManager.startClickyLaunchCheckout()
+                        }
+
+                        launchAccessButton(
+                            title: "Restore Access",
+                            systemImage: "arrow.clockwise.circle"
+                        ) {
+                            companionManager.refreshClickyLaunchEntitlement()
+                        }
+                    }
+
+                    Text("The Mac app initiates sign-in and purchase. Technical trial and paywall controls live in Support so this panel stays production-ready.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1270,173 +1016,208 @@ struct CompanionStudioView: View {
 
     private var diagnosticsSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            StudioCard(title: "Diagnostics", subtitle: "Internal app and integration state for debugging") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("This section is intentionally more technical. It’s here so we can debug identity, shell registration, and bridge behavior without exposing those details in the normal user flow.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
+            StudioCard(title: "Support", subtitle: "The only place where diagnostics, test controls, and exports should live") {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 10) {
+                        StudioStatusPill(
+                            label: isSupportModeEnabled ? "Support mode on" : "Support mode off",
+                            tone: isSupportModeEnabled ? .warning : .neutral
+                        )
+
+                        if isSupportModeEnabled {
+                            StudioStatusPill(label: "Design Lab visible", tone: .info)
+                        }
+                    }
+
+                    Text(isSupportModeEnabled
+                         ? "Support mode is active. Internal diagnostics, shell tools, and launch simulation controls are now visible below."
+                         : "Support mode is currently off. This keeps the main Studio production-ready while still leaving support reports available when you need them.")
+                        .font(ClickyTypography.body(size: 13))
+                        .foregroundColor(theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    StudioKeyValueRow(label: "Speech provider", value: companionManager.clickySpeechProviderMode.displayName)
-                    StudioKeyValueRow(label: "Resolved output", value: companionManager.effectiveVoiceOutputDisplayName)
-                    StudioKeyValueRow(label: "ElevenLabs voice", value: companionManager.effectiveSpeechRouting.selectedVoiceNameLabel)
-                    StudioKeyValueRow(label: "Voice id", value: companionManager.effectiveSpeechRouting.selectedVoiceIDLabel)
-                    StudioKeyValueRow(label: "Voice fetch", value: companionManager.elevenLabsStatusLabel)
-                    StudioKeyValueRow(label: "Voice import", value: elevenLabsImportStatusTitle)
-                    StudioKeyValueRow(label: "Speech fallback", value: companionManager.speechFallbackSummary ?? "No fallback")
-                    StudioKeyValueRow(label: "Voice preview", value: companionManager.speechPreviewStatusLabel)
-                    StudioKeyValueRow(label: "OpenClaw agent id", value: companionManager.inferredOpenClawAgentIdentifier ?? "Not detected")
-                    StudioKeyValueRow(label: "OpenClaw emoji", value: companionManager.inferredOpenClawAgentIdentityEmojiLabel)
-                    StudioKeyValueRow(label: "OpenClaw avatar", value: companionManager.inferredOpenClawAgentIdentityAvatarLabel)
-                    StudioKeyValueRow(label: "Shell trust", value: companionManager.clickyShellServerTrustLabel)
-                    StudioKeyValueRow(label: "Shell freshness", value: companionManager.clickyShellServerFreshnessLabel)
-                    StudioKeyValueRow(label: "Session binding", value: companionManager.clickyShellServerBindingLabel)
-                    StudioKeyValueRow(label: "Bound session", value: companionManager.clickyShellServerSessionKeyLabel)
+                    Toggle("Enable support mode", isOn: $isSupportModeEnabled)
+                        .toggleStyle(.switch)
+                        .tint(theme.primary)
+                        .animation(.spring(response: 0.28, dampingFraction: 0.88), value: isSupportModeEnabled)
 
                     HStack(spacing: 10) {
-                        Button(action: {
-                            companionManager.registerClickyShellNow()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Register Shell")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            companionManager.refreshClickyShellStatusNow()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Refresh Shell Status")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-                    }
-
-                    shellRegistrationStatusView
-
-                    if let clickyShellServerStatusSummary = companionManager.clickyShellServerStatusSummary,
-                       !clickyShellServerStatusSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        DisclosureGroup("Raw shell summary") {
-                            Text(clickyShellServerStatusSummary)
-                                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                .foregroundColor(DS.Colors.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.top, 8)
-                                .textSelection(.enabled)
-                        }
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(DS.Colors.textSecondary)
-                    }
-
-                    HStack(spacing: 10) {
-                        Button(action: {
+                        supportActionButton(title: "Copy Support Report", systemImage: "doc.on.doc") {
                             let pasteboard = NSPasteboard.general
                             pasteboard.clearContents()
                             pasteboard.setString(diagnosticsSupportReportText, forType: .string)
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "doc.on.doc")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Copy Recent Logs")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
                         }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
 
-                        Button(action: {
+                        supportActionButton(title: "Export Support Report", systemImage: "square.and.arrow.up") {
                             exportDiagnosticsSupportReport()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "square.and.arrow.up")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Export Support Report")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
                         }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            ClickyDiagnosticsStore.shared.clear()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Clear Buffer")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
                     }
+
+                    Text("Support reports include redacted recent logs and the current launch access state. Deeper debugging and simulation controls stay tucked away until support mode is enabled.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
+            if isSupportModeEnabled {
+                StudioCard(title: "Launch Simulation", subtitle: "All launch trial and paywall simulation controls stay isolated here") {
+                    VStack(alignment: .leading, spacing: 14) {
+                        StudioKeyValueRow(label: "Backend URL", value: companionManager.clickyBackendStatusLabel)
+                        StudioKeyValueRow(label: "Account", value: companionManager.clickyLaunchAuthStatusLabel)
+                        StudioKeyValueRow(label: "Entitlement", value: companionManager.clickyLaunchEntitlementStatusLabel)
+                        StudioKeyValueRow(label: "Trial", value: companionManager.clickyLaunchTrialStatusLabel)
+                        StudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
+
+                        StudioTextField(
+                            title: "Launch backend URL",
+                            text: Binding(
+                                get: { companionManager.clickyBackendBaseURL },
+                                set: { companionManager.clickyBackendBaseURL = $0 }
+                            ),
+                            placeholder: "https://api.clicky.app"
+                        )
+
+                        HStack(spacing: 10) {
+                            supportActionButton(title: "Activate Trial", systemImage: "sparkles") {
+                                companionManager.activateClickyLaunchTrial()
+                            }
+                            supportActionButton(title: "Refresh Trial", systemImage: "hourglass") {
+                                companionManager.refreshClickyLaunchTrialState()
+                            }
+                        }
+
+                        HStack(spacing: 10) {
+                            supportActionButton(title: "Consume Credit", systemImage: "minus.circle") {
+                                companionManager.consumeClickyLaunchTrialCredit()
+                            }
+                            supportActionButton(title: "Activate Paywall", systemImage: "lock.circle") {
+                                companionManager.activateClickyLaunchPaywall()
+                            }
+                        }
+
+                        Text("These actions are only for support, QA, and paywall iteration. They should never sit next to the normal purchase and restore controls.")
+                            .font(.system(size: 12))
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                StudioCard(title: "Diagnostics", subtitle: "Internal app and integration state for debugging") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("This section is intentionally technical. It should contain the debug state, shell tools, exports, and support-only actions that do not belong in the normal product flow.")
+                            .font(.system(size: 12))
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        StudioKeyValueRow(label: "Speech provider", value: companionManager.clickySpeechProviderMode.displayName)
+                        StudioKeyValueRow(label: "Resolved output", value: companionManager.effectiveVoiceOutputDisplayName)
+                        StudioKeyValueRow(label: "ElevenLabs voice", value: companionManager.effectiveSpeechRouting.selectedVoiceNameLabel)
+                        StudioKeyValueRow(label: "Voice id", value: companionManager.effectiveSpeechRouting.selectedVoiceIDLabel)
+                        StudioKeyValueRow(label: "Voice fetch", value: companionManager.elevenLabsStatusLabel)
+                        StudioKeyValueRow(label: "Voice import", value: elevenLabsImportStatusTitle)
+                        StudioKeyValueRow(label: "Speech fallback", value: companionManager.speechFallbackSummary ?? "No fallback")
+                        StudioKeyValueRow(label: "Voice preview", value: companionManager.speechPreviewStatusLabel)
+                        StudioKeyValueRow(label: "OpenClaw agent id", value: companionManager.inferredOpenClawAgentIdentifier ?? "Not detected")
+                        StudioKeyValueRow(label: "OpenClaw emoji", value: companionManager.inferredOpenClawAgentIdentityEmojiLabel)
+                        StudioKeyValueRow(label: "OpenClaw avatar", value: companionManager.inferredOpenClawAgentIdentityAvatarLabel)
+                        StudioKeyValueRow(label: "Shell trust", value: companionManager.clickyShellServerTrustLabel)
+                        StudioKeyValueRow(label: "Shell freshness", value: companionManager.clickyShellServerFreshnessLabel)
+                        StudioKeyValueRow(label: "Session binding", value: companionManager.clickyShellServerBindingLabel)
+                        StudioKeyValueRow(label: "Bound session", value: companionManager.clickyShellServerSessionKeyLabel)
+
+                        HStack(spacing: 10) {
+                            Button(action: {
+                                companionManager.registerClickyShellNow()
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("Register Shell")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(DS.Colors.surface2)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .pointerCursor()
+
+                            Button(action: {
+                                companionManager.refreshClickyShellStatusNow()
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("Refresh Shell Status")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(DS.Colors.surface2)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .pointerCursor()
+                        }
+
+                        shellRegistrationStatusView
+
+                        if let clickyShellServerStatusSummary = companionManager.clickyShellServerStatusSummary,
+                           !clickyShellServerStatusSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            DisclosureGroup("Raw shell summary") {
+                                Text(clickyShellServerStatusSummary)
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundColor(DS.Colors.textSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.top, 8)
+                                    .textSelection(.enabled)
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(DS.Colors.textSecondary)
+                        }
+
+                        HStack(spacing: 10) {
+                            supportActionButton(title: "Clear Buffer", systemImage: "trash") {
+                                ClickyDiagnosticsStore.shared.clear()
+                            }
+                        }
+                    }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                StudioCard(title: "Diagnostics Hidden", subtitle: "Production Studio stays clean until you deliberately reveal internal tools") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Enable support mode when you need launch simulation, raw shell state, or deeper diagnostics. Until then, this panel stays intentionally quiet.")
+                            .font(.system(size: 12))
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        HStack(spacing: 10) {
+                            StudioStatusPill(label: "Launch simulation hidden", tone: .neutral)
+                            StudioStatusPill(label: "Raw shell tools hidden", tone: .neutral)
+                        }
+                    }
+                }
+                .transition(.opacity)
+            }
         }
+        .animation(.spring(response: 0.32, dampingFraction: 0.88), value: isSupportModeEnabled)
     }
 
     private var sectionHeroDescription: String {
@@ -1448,7 +1229,7 @@ struct CompanionStudioView: View {
         case .voiceAppearance:
             return "Own the speech pipeline and visual shell here so later voice packs and cursor skins have a real home."
         case .integrations:
-            return "Set up the OpenClaw bridge once, then let it fade into the background so the integration feels built in."
+            return "Keep purchase, sign-in, and restore cleanly visible here while all the trial simulation and paywall debugging stays tucked away in Support."
         case .designLab:
             return "Compare three Studio directions before we commit to a full redesign. Each option keeps diagnostics isolated from the production-facing app flow."
         case .diagnostics:
@@ -1690,6 +1471,52 @@ struct CompanionStudioView: View {
         }
     }
 
+    @ViewBuilder
+    private var pluginSetupCards: some View {
+        if shouldShowPluginSetupFlow {
+            StudioCard(title: "Desktop Bridge Setup", subtitle: "A one-time setup step for this machine") {
+                VStack(alignment: .leading, spacing: 12) {
+                    StudioStepRow(
+                        stepNumber: 1,
+                        title: "Install the plugin",
+                        detail: "Run this once from your terminal.",
+                        statusLabel: companionManager.clickyOpenClawPluginStatus == .notConfigured ? "Needed" : "Done",
+                        statusTone: companionManager.clickyOpenClawPluginStatus == .notConfigured ? .warning : .success
+                    )
+
+                    StudioCommandBlock(
+                        title: "Install command",
+                        command: companionManager.clickyOpenClawPluginInstallCommand
+                    )
+
+                    StudioStepRow(
+                        stepNumber: 2,
+                        title: "Enable it in OpenClaw",
+                        detail: "This turns the plugin on and restarts the Gateway.",
+                        statusLabel: companionManager.clickyOpenClawPluginStatus == .enabled ? "Done" : "Needed",
+                        statusTone: companionManager.clickyOpenClawPluginStatus == .enabled ? .success : .warning
+                    )
+
+                    StudioCommandBlock(
+                        title: "Enable + restart",
+                        command: companionManager.clickyOpenClawPluginEnableCommand
+                    )
+                }
+            }
+        } else {
+            StudioCard(title: "Desktop Bridge", subtitle: "The OpenClaw bridge is already set up on this machine") {
+                VStack(alignment: .leading, spacing: 12) {
+                    StudioStatusPill(label: "Ready", tone: .success)
+
+                    Text("Clicky is already connected to OpenClaw here. You should not need to repeat setup unless you reinstall OpenClaw or move to a different machine.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
     private var diagnosticsSupportReportText: String {
         let contextLines = [
             "Clicky Support Report",
@@ -1726,6 +1553,77 @@ struct CompanionStudioView: View {
         } catch {
             NSSound.beep()
         }
+    }
+
+    private func supportActionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+            }
+            .foregroundColor(theme.textPrimary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(theme.card.opacity(0.72))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(theme.strokeSoft, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    private func launchAccessButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+            }
+            .foregroundColor(theme.textPrimary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(theme.card.opacity(0.78))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(theme.strokeSoft, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    private func launchAccessPrimaryButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(theme.primary)
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
     }
 
     @ViewBuilder
@@ -1786,15 +1684,7 @@ private struct StudioCard<Content: View>: View {
 
             content
         }
-        .padding(22)
-        .background(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(theme.card.opacity(0.88))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .stroke(theme.strokeSoft, lineWidth: 1)
-        )
+        .clickyGlassCard(cornerRadius: 30, padding: 22)
     }
 }
 
