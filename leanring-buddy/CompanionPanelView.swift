@@ -837,7 +837,7 @@ struct CompanionPanelView: View {
             .tracking(1.2)
     }
 
-    private func panelInlineStatus(label: String, tone: StudioStatusTone) -> some View {
+    private func panelInlineStatus(label: String, tone: PanelInlineStatusTone) -> some View {
         Text(label)
             .font(ClickyTypography.mono(size: 10, weight: .semibold))
             .foregroundColor(panelInlineStatusForeground(tone))
@@ -853,7 +853,7 @@ struct CompanionPanelView: View {
             )
     }
 
-    private func panelInlineStatusForeground(_ tone: StudioStatusTone) -> Color {
+    private func panelInlineStatusForeground(_ tone: PanelInlineStatusTone) -> Color {
         switch tone {
         case .neutral:
             return theme.textSecondary
@@ -866,7 +866,7 @@ struct CompanionPanelView: View {
         }
     }
 
-    private func panelInlineStatusBackground(_ tone: StudioStatusTone) -> Color {
+    private func panelInlineStatusBackground(_ tone: PanelInlineStatusTone) -> Color {
         switch tone {
         case .neutral:
             return Color.white.opacity(0.02)
@@ -879,7 +879,7 @@ struct CompanionPanelView: View {
         }
     }
 
-    private func panelInlineStatusBorder(_ tone: StudioStatusTone) -> Color {
+    private func panelInlineStatusBorder(_ tone: PanelInlineStatusTone) -> Color {
         switch tone {
         case .neutral:
             return theme.strokeSoft
@@ -918,6 +918,13 @@ struct CompanionPanelView: View {
         }
     }
 
+}
+
+private enum PanelInlineStatusTone {
+    case neutral
+    case success
+    case warning
+    case info
 }
 
 private struct ClickyProminentActionStyle: ViewModifier {
