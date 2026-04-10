@@ -463,6 +463,15 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    var isClickyLaunchPaywallActive: Bool {
+        switch clickyLaunchTrialState {
+        case .paywalled:
+            return true
+        default:
+            return false
+        }
+    }
+
     var hasStoredElevenLabsAPIKey: Bool {
         !(ClickySecrets.load(account: "elevenlabs_api_key") ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -1791,6 +1800,80 @@ final class CompanionManager: ObservableObject {
             } catch {
                 clickyLaunchTrialState = .failed(message: error.localizedDescription)
                 ClickyLogger.error(.app, "Failed to activate launch trial error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func consumeClickyLaunchTrialCredit() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchTrialState = .failed(message: "Sign in before consuming trial credits.")
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                let consumePayload = try await clickyBackendAuthClient.consumeTrialCredit(sessionToken: storedSession.sessionToken)
+                let updatedTrial = ClickyLaunchTrialSnapshot(
+                    status: consumePayload.trial.status,
+                    initialCredits: consumePayload.trial.initialCredits,
+                    remainingCredits: consumePayload.trial.remainingCredits,
+                    setupCompletedAt: consumePayload.trial.setupCompletedAt,
+                    trialActivatedAt: consumePayload.trial.trialActivatedAt,
+                    lastCreditConsumedAt: consumePayload.trial.lastCreditConsumedAt,
+                    welcomePromptDeliveredAt: consumePayload.trial.welcomePromptDeliveredAt,
+                    paywallActivatedAt: consumePayload.trial.paywallActivatedAt
+                )
+                let refreshedSnapshot = ClickyAuthSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    userID: storedSession.userID,
+                    email: storedSession.email,
+                    entitlement: storedSession.entitlement,
+                    trial: updatedTrial
+                )
+
+                try ClickyAuthSessionStore.save(refreshedSnapshot)
+                clickyLaunchTrialState = formatLaunchTrialState(updatedTrial, hasAccess: storedSession.entitlement.hasAccess)
+                ClickyLogger.notice(.app, "Consumed launch trial credit user=\(storedSession.email) remaining=\(updatedTrial.remainingCredits)")
+            } catch {
+                clickyLaunchTrialState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to consume launch trial credit error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func activateClickyLaunchPaywall() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchTrialState = .failed(message: "Sign in before activating the paywall.")
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                let trialPayload = try await clickyBackendAuthClient.markTrialPaywalled(sessionToken: storedSession.sessionToken)
+                let paywalledTrial = ClickyLaunchTrialSnapshot(
+                    status: trialPayload.trial.status,
+                    initialCredits: trialPayload.trial.initialCredits,
+                    remainingCredits: trialPayload.trial.remainingCredits,
+                    setupCompletedAt: trialPayload.trial.setupCompletedAt,
+                    trialActivatedAt: trialPayload.trial.trialActivatedAt,
+                    lastCreditConsumedAt: trialPayload.trial.lastCreditConsumedAt,
+                    welcomePromptDeliveredAt: trialPayload.trial.welcomePromptDeliveredAt,
+                    paywallActivatedAt: trialPayload.trial.paywallActivatedAt
+                )
+                let refreshedSnapshot = ClickyAuthSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    userID: storedSession.userID,
+                    email: storedSession.email,
+                    entitlement: storedSession.entitlement,
+                    trial: paywalledTrial
+                )
+
+                try ClickyAuthSessionStore.save(refreshedSnapshot)
+                clickyLaunchTrialState = formatLaunchTrialState(paywalledTrial, hasAccess: storedSession.entitlement.hasAccess)
+                ClickyLogger.notice(.app, "Activated launch paywall user=\(storedSession.email)")
+            } catch {
+                clickyLaunchTrialState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to activate launch paywall error=\(error.localizedDescription)")
             }
         }
     }

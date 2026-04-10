@@ -109,7 +109,10 @@ struct CompanionPanelView: View {
                 startButton
             }
 
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted && companionManager.isClickyLaunchPaywallActive {
+                panelHairline
+                paywallLockedSection
+            } else if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
                 panelHairline
                 activePersonaSummary
 
@@ -129,6 +132,30 @@ struct CompanionPanelView: View {
             }
         }
         .modifier(ClickyPanelShellStyle())
+    }
+
+    private var paywallLockedSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            panelSectionEyebrow("Launch Access")
+
+            Text("Clicky is locked")
+                .font(ClickyTypography.section(size: 26))
+                .foregroundColor(theme.textPrimary)
+
+            Text("Your trial credits are exhausted. Unlock Clicky to keep using the companion experience.")
+                .font(ClickyTypography.body(size: 13))
+                .foregroundColor(theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button(action: {
+                companionManager.startClickyLaunchCheckout()
+            }) {
+                Text("Buy Launch Pass")
+                    .frame(maxWidth: .infinity)
+            }
+            .modifier(ClickyProminentActionStyle())
+            .pointerCursor()
+        }
     }
 
     private var backendCard: some View {
@@ -885,6 +912,9 @@ struct CompanionPanelView: View {
     private var statusText: String {
         if !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted {
             return "Setup"
+        }
+        if companionManager.isClickyLaunchPaywallActive {
+            return "Locked"
         }
         if !companionManager.isOverlayVisible {
             return "Ready"

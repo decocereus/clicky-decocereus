@@ -477,6 +477,54 @@ struct CompanionStudioView: View {
                         }
                         .buttonStyle(.plain)
                         .pointerCursor()
+
+                        Button(action: {
+                            companionManager.consumeClickyLaunchTrialCredit()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "minus.circle")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Consume Credit")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+
+                        Button(action: {
+                            companionManager.activateClickyLaunchPaywall()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "lock.circle")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Activate Paywall")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
                     }
 
                     Text("The Mac app opens the browser for sign-in, then stores the returned session token in Keychain on this Mac.")
