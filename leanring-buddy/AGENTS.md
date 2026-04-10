@@ -9,6 +9,7 @@
 - The Codex app `Run` action is wired to `./script/build_and_run.sh`, which uses Xcode AppleScript automation rather than terminal `xcodebuild`.
 - Do **not** automatically reinstall the local `clicky-shell` OpenClaw plugin or restart the OpenClaw Gateway while iterating on the macOS app. Only do that when the user explicitly asks for it, or explicitly agrees to a verification step that requires it.
 - Launch/commercialization work should assume a direct-download website, a real free taste inside the Mac app, an in-app paywall, Polar-hosted checkout launched from the app, and backend-backed auth plus entitlement restore.
+- Repo-wide website work should preserve the current landing-page design and treat the web companion as an additive Clicky shell layer with per-visitor OpenClaw sessions. See `docs/web-companion-prd.md` and `docs/web-openclaw-session-architecture.md`.
 
 ## Source Files
 

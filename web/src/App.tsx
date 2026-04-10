@@ -146,6 +146,8 @@ function LandingPage() {
           entranceDirection="left"
           exitDirection="top"
           bgColor="sage"
+          description="Drop any YouTube tutorial link and watch Clicky transform it into an actionable step-by-step automation."
+          showSteps={true}
         />
 
         {/* Section 6: Clicky can be anything - z-60 */}

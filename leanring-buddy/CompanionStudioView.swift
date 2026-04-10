@@ -66,6 +66,7 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
 struct CompanionStudioView: View {
     @ObservedObject var companionManager: CompanionManager
 
+    @AppStorage("clickySupportModeEnabled") private var isSupportModeEnabled = false
     @State private var selectedSection: CompanionStudioSection = .general
     @State private var isOpenClawTokenVisible = false
     @State private var isElevenLabsAPIKeyVisible = false
@@ -88,9 +89,13 @@ struct CompanionStudioView: View {
         .clickyTheme(theme)
         .onAppear {
             NotificationCenter.default.post(name: .clickyStudioDidAppear, object: nil)
+            normalizeSelectedSection()
         }
         .onDisappear {
             NotificationCenter.default.post(name: .clickyStudioDidDisappear, object: nil)
+        }
+        .onChange(of: isSupportModeEnabled) { _, _ in
+            normalizeSelectedSection()
         }
     }
 
@@ -110,7 +115,7 @@ struct CompanionStudioView: View {
             .padding(.top, 18)
 
             List {
-                ForEach(CompanionStudioSection.allCases) { section in
+                ForEach(availableSections) { section in
                     Button(action: {
                         selectedSection = section
                     }) {
@@ -130,6 +135,18 @@ struct CompanionStudioView: View {
         .padding(.leading, 10)
         .padding(.trailing, 8)
         .padding(.top, 12)
+    }
+
+    private var availableSections: [CompanionStudioSection] {
+        CompanionStudioSection.allCases.filter { section in
+            isSupportModeEnabled || section != .diagnostics
+        }
+    }
+
+    private func normalizeSelectedSection() {
+        if !availableSections.contains(selectedSection) {
+            selectedSection = .general
+        }
     }
 
     private var detailPane: some View {
@@ -278,6 +295,21 @@ struct CompanionStudioView: View {
                     .tint(DS.Colors.accent)
 
                     Text("This leaves the fast menu bar companion intact while giving us a real desktop surface for deeper configuration.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            StudioCard(title: "Support Tools", subtitle: "Keep technical debugging surfaces out of the normal user flow until you need them") {
+                VStack(alignment: .leading, spacing: 14) {
+                    Toggle("Enable support mode", isOn: $isSupportModeEnabled)
+                        .toggleStyle(.switch)
+                        .tint(DS.Colors.accent)
+
+                    Text(isSupportModeEnabled
+                         ? "Diagnostics is currently visible in Studio for debugging and support work."
+                         : "Diagnostics is currently hidden from the main Studio navigation. Enable support mode when you need technical debugging details.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1225,12 +1257,36 @@ struct CompanionStudioView: View {
                         Button(action: {
                             let pasteboard = NSPasteboard.general
                             pasteboard.clearContents()
-                            pasteboard.setString(ClickyDiagnosticsStore.shared.formattedRecentLogText(), forType: .string)
+                            pasteboard.setString(diagnosticsSupportReportText, forType: .string)
                         }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "doc.on.doc")
                                     .font(.system(size: 12, weight: .semibold))
                                 Text("Copy Recent Logs")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(DS.Colors.surface2)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+
+                        Button(action: {
+                            exportDiagnosticsSupportReport()
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("Export Support Report")
                                     .font(.system(size: 12, weight: .semibold))
                             }
                             .foregroundColor(DS.Colors.textSecondary)
@@ -1523,6 +1579,44 @@ struct CompanionStudioView: View {
             return .warning
         case .notConfigured:
             return .neutral
+        }
+    }
+
+    private var diagnosticsSupportReportText: String {
+        let contextLines = [
+            "Clicky Support Report",
+            "Generated: \(ISO8601DateFormatter().string(from: Date()))",
+            "App Auth: \(companionManager.clickyLaunchAuthStatusLabel)",
+            "Entitlement: \(companionManager.clickyLaunchEntitlementStatusLabel)",
+            "Checkout: \(companionManager.clickyLaunchBillingStatusLabel)",
+            "Speech Provider: \(companionManager.clickySpeechProviderMode.displayName)",
+            "Resolved Output: \(companionManager.effectiveVoiceOutputDisplayName)",
+            "OpenClaw Agent: \(companionManager.inferredOpenClawAgentIdentifier ?? "Not detected")",
+            "Shell Trust: \(companionManager.clickyShellServerTrustLabel)",
+            "Shell Freshness: \(companionManager.clickyShellServerFreshnessLabel)",
+            "Session Binding: \(companionManager.clickyShellServerBindingLabel)",
+            "",
+            "Recent Logs",
+            ClickyDiagnosticsStore.shared.formattedRecentLogText()
+        ]
+
+        return contextLines.joined(separator: "\n")
+    }
+
+    private func exportDiagnosticsSupportReport() {
+        let savePanel = NSSavePanel()
+        savePanel.canCreateDirectories = true
+        savePanel.nameFieldStringValue = "clicky-support-report.txt"
+        savePanel.title = "Export Clicky Support Report"
+        savePanel.message = "This report contains redacted diagnostics and recent logs."
+
+        guard savePanel.runModal() == .OK,
+              let url = savePanel.url else { return }
+
+        do {
+            try diagnosticsSupportReportText.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            NSSound.beep()
         }
     }
 

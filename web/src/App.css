@@ -62,6 +62,69 @@ button:active {
   animation: mascotFloat 3s ease-in-out infinite;
 }
 
+/* Hero UI Cards - subtle smooth float animations */
+@keyframes heroFloat {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  33% {
+    transform: translateY(-8px) rotate(0.5deg);
+  }
+  66% {
+    transform: translateY(-4px) rotate(-0.3deg);
+  }
+}
+
+@keyframes heroFloatSlow {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(-0.5deg);
+  }
+}
+
+@keyframes heroFloatReverse {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  40% {
+    transform: translateY(-6px) rotate(0.3deg);
+  }
+  70% {
+    transform: translateY(-10px) rotate(-0.4deg);
+  }
+}
+
+.hero-float {
+  animation: heroFloat 6s ease-in-out infinite;
+}
+
+.hero-float-slow {
+  animation: heroFloatSlow 8s ease-in-out infinite;
+}
+
+.hero-float-reverse {
+  animation: heroFloatReverse 7s ease-in-out infinite;
+  animation-delay: -2s;
+}
+
+/* Slow pulse for companion cursor */
+@keyframes pulseSlow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.05);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulseSlow 2s ease-in-out infinite;
+}
+
 /* Scrollbar styling - elegant minimal */
 ::-webkit-scrollbar {
   width: 6px;
