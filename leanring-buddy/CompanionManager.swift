@@ -65,6 +65,32 @@ enum ClickySpeechPreviewStatus: Equatable {
     case failed(message: String)
 }
 
+enum ClickyLaunchAuthState: Equatable {
+    case signedOut
+    case restoring
+    case signingIn
+    case signedIn(email: String)
+    case failed(message: String)
+}
+
+enum ClickyLaunchBillingState: Equatable {
+    case idle
+    case openingCheckout
+    case waitingForCompletion
+    case canceled
+    case completed
+    case failed(message: String)
+}
+
+enum ClickyLaunchTrialState: Equatable {
+    case inactive
+    case active(remainingCredits: Int)
+    case armed
+    case paywalled
+    case unlocked
+    case failed(message: String)
+}
+
 enum ElevenLabsVoiceImportStatus: Equatable {
     case idle
     case importing
@@ -118,6 +144,17 @@ private struct ClickySpeechPlaybackOutcome {
     let finalProviderDisplayName: String
     let fallbackMessage: String?
     let encounteredElevenLabsFailure: Bool
+}
+
+private struct LaunchAssistantTurnAuthorization {
+    let session: ClickyAuthSessionSnapshot?
+    let shouldUsePaywallTurn: Bool
+}
+
+private enum ClickyLaunchEntitlementSyncMode {
+    case current
+    case refresh
+    case restore
 }
 
 @MainActor
@@ -351,6 +388,15 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var elevenLabsVoiceImportStatus: ElevenLabsVoiceImportStatus = .idle
     @Published private(set) var speechPreviewStatus: ClickySpeechPreviewStatus = .idle
     @Published private(set) var lastSpeechFallbackMessage: String?
+    @Published private(set) var clickyLaunchAuthState: ClickyLaunchAuthState = .signedOut
+    @Published private(set) var clickyLaunchEntitlementStatusLabel: String = "Unknown"
+    @Published private(set) var clickyLaunchBillingState: ClickyLaunchBillingState = .idle
+    @Published private(set) var clickyLaunchTrialState: ClickyLaunchTrialState = .inactive
+    @Published var clickyBackendBaseURL: String = UserDefaults.standard.string(forKey: "clickyBackendBaseURL") ?? CompanionRuntimeConfiguration.defaultBackendBaseURL {
+        didSet {
+            UserDefaults.standard.set(clickyBackendBaseURL, forKey: "clickyBackendBaseURL")
+        }
+    }
     @Published var elevenLabsSelectedVoiceID: String = UserDefaults.standard.string(forKey: "elevenLabsSelectedVoiceID") ?? "" {
         didSet {
             UserDefaults.standard.set(elevenLabsSelectedVoiceID, forKey: "elevenLabsSelectedVoiceID")
@@ -372,6 +418,73 @@ final class CompanionManager: ObservableObject {
 
     var activeClickyTheme: ClickyTheme {
         clickyThemePreset.theme
+    }
+
+    var clickyBackendStatusLabel: String {
+        let trimmedURL = clickyBackendBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedURL.isEmpty ? "Not configured" : trimmedURL
+    }
+
+    var clickyLaunchAuthStatusLabel: String {
+        switch clickyLaunchAuthState {
+        case .signedOut:
+            return "Signed out"
+        case .restoring:
+            return "Restoring session"
+        case .signingIn:
+            return "Waiting for browser sign-in"
+        case let .signedIn(email):
+            return email
+        case let .failed(message):
+            return message
+        }
+    }
+
+    var clickyLaunchBillingStatusLabel: String {
+        switch clickyLaunchBillingState {
+        case .idle:
+            return "Idle"
+        case .openingCheckout:
+            return "Opening checkout"
+        case .waitingForCompletion:
+            return "Waiting for purchase"
+        case .canceled:
+            return "Checkout canceled"
+        case .completed:
+            return "Checkout completed"
+        case let .failed(message):
+            return message
+        }
+    }
+
+    var clickyLaunchTrialStatusLabel: String {
+        switch clickyLaunchTrialState {
+        case .inactive:
+            return "Inactive"
+        case let .active(remainingCredits):
+            return "\(remainingCredits) credits left"
+        case .armed:
+            return "Paywall armed"
+        case .paywalled:
+            return "Paywall active"
+        case .unlocked:
+            return "Unlocked"
+        case let .failed(message):
+            return message
+        }
+    }
+
+    var isClickyLaunchPaywallActive: Bool {
+        if let storedSession = ClickyAuthSessionStore.load() {
+            return !storedSession.entitlement.hasAccess && storedSession.trial?.status == "paywalled"
+        }
+
+        switch clickyLaunchTrialState {
+        case .paywalled:
+            return true
+        default:
+            return false
+        }
     }
 
     var hasStoredElevenLabsAPIKey: Bool {
@@ -560,6 +673,174 @@ final class CompanionManager: ObservableObject {
         selectedModel = model
         UserDefaults.standard.set(model, forKey: "selectedClaudeModel")
         claudeAPI.model = model
+    }
+
+    func startClickyLaunchSignIn() {
+        clickyLaunchAuthState = .signingIn
+        ClickyLogger.notice(.app, "Starting Clicky launch sign-in")
+
+        Task { @MainActor in
+            do {
+                let payload = try await clickyBackendAuthClient.startNativeSignIn()
+                guard let browserURL = URL(string: payload.browserURL) else {
+                    throw ClickyBackendAuthClientError.invalidBackendURL
+                }
+
+                NSWorkspace.shared.open(browserURL)
+            } catch {
+                clickyLaunchAuthState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to start Clicky launch sign-in error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func signOutClickyLaunchSession() {
+        ClickyAuthSessionStore.clear()
+        clickyLaunchAuthState = .signedOut
+        clickyLaunchEntitlementStatusLabel = "Unknown"
+        clickyLaunchBillingState = .idle
+        clickyLaunchTrialState = .inactive
+        ClickyLogger.notice(.app, "Cleared Clicky launch auth session")
+    }
+
+    func startClickyLaunchCheckout() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchBillingState = .failed(message: "Sign in before starting checkout.")
+            ClickyLogger.error(.app, "Checkout blocked because no launch auth session is available")
+            return
+        }
+
+        clickyLaunchBillingState = .openingCheckout
+        ClickyLogger.notice(.app, "Starting Polar checkout user=\(storedSession.email)")
+
+        Task { @MainActor in
+            do {
+                let checkoutPayload = try await clickyBackendAuthClient.createCheckoutSession(sessionToken: storedSession.sessionToken)
+                guard let checkoutURL = URL(string: checkoutPayload.checkout.url) else {
+                    throw ClickyBackendAuthClientError.invalidBackendURL
+                }
+
+                NSWorkspace.shared.open(checkoutURL)
+                clickyLaunchBillingState = .waitingForCompletion
+                ClickyLogger.notice(.app, "Opened Polar checkout id=\(checkoutPayload.checkout.id)")
+            } catch {
+                clickyLaunchBillingState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to start Polar checkout error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func refreshClickyLaunchEntitlement() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchAuthState = .signedOut
+            clickyLaunchEntitlementStatusLabel = "Unknown"
+            ClickyLogger.error(.app, "Entitlement refresh blocked because no launch auth session is available")
+            return
+        }
+
+        ClickyLogger.info(.app, "Refreshing launch entitlement user=\(storedSession.email)")
+
+        Task { @MainActor in
+            do {
+                let refreshedSnapshot = try await synchronizeLaunchSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    fallbackUserID: storedSession.userID,
+                    fallbackEmail: storedSession.email,
+                    entitlementSyncMode: .refresh
+                )
+                try persistLaunchSessionSnapshot(refreshedSnapshot)
+                if refreshedSnapshot.entitlement.hasAccess {
+                    clickyLaunchBillingState = .completed
+                    ClickyLogger.notice(.app, "Launch entitlement active user=\(refreshedSnapshot.email)")
+                } else {
+                    ClickyLogger.notice(.app, "Launch entitlement still inactive user=\(refreshedSnapshot.email) status=\(refreshedSnapshot.entitlement.status)")
+                }
+            } catch {
+                clickyLaunchBillingState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to refresh Clicky launch entitlement error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func restoreClickyLaunchAccess() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchBillingState = .failed(message: "Sign in before restoring access.")
+            ClickyLogger.error(.app, "Restore blocked because no launch auth session is available")
+            return
+        }
+
+        clickyLaunchBillingState = .waitingForCompletion
+        ClickyLogger.info(.app, "Restoring launch access user=\(storedSession.email)")
+
+        Task { @MainActor in
+            do {
+                let restoredSnapshot = try await synchronizeLaunchSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    fallbackUserID: storedSession.userID,
+                    fallbackEmail: storedSession.email,
+                    entitlementSyncMode: .restore
+                )
+                try persistLaunchSessionSnapshot(restoredSnapshot)
+                clickyLaunchBillingState = restoredSnapshot.entitlement.hasAccess ? .completed : .idle
+                ClickyLogger.notice(
+                    .app,
+                    "Restore launch access completed user=\(restoredSnapshot.email) access=\(restoredSnapshot.entitlement.hasAccess)"
+                )
+            } catch {
+                clickyLaunchBillingState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to restore Clicky launch access error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func handleClickyLaunchCallback(url: URL) {
+        guard url.scheme?.lowercased() == "clicky" else { return }
+
+        if url.host?.lowercased() == "auth", url.path == "/callback" {
+            ClickyLogger.notice(.app, "Received Clicky auth callback url=\(url.absoluteString)")
+            handleClickyLaunchAuthCallback(url: url)
+            return
+        }
+
+        if url.host?.lowercased() == "billing", url.path == "/success" {
+            clickyLaunchBillingState = .completed
+            ClickyLogger.notice(.app, "Received Clicky billing success callback")
+            refreshClickyLaunchEntitlement()
+            return
+        }
+
+        if url.host?.lowercased() == "billing", url.path == "/cancel" {
+            clickyLaunchBillingState = .canceled
+            ClickyLogger.notice(.app, "Received Clicky billing cancel callback")
+        }
+    }
+
+    private func handleClickyLaunchAuthCallback(url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let exchangeCode = components.queryItems?.first(where: { $0.name == "code" })?.value,
+              !exchangeCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            clickyLaunchAuthState = .failed(message: ClickyBackendAuthClientError.missingExchangeCode.localizedDescription)
+            return
+        }
+
+        clickyLaunchAuthState = .signingIn
+
+        Task { @MainActor in
+            do {
+                let exchangePayload = try await clickyBackendAuthClient.exchangeNativeCode(exchangeCode)
+                let snapshot = try await synchronizeLaunchSessionSnapshot(
+                    sessionToken: exchangePayload.sessionToken,
+                    fallbackUserID: exchangePayload.userID
+                )
+
+                try persistLaunchSessionSnapshot(snapshot)
+                ClickyLogger.notice(.app, "Completed Clicky launch auth exchange user=\(snapshot.email)")
+            } catch {
+                clickyLaunchAuthState = .failed(message: error.localizedDescription)
+                clickyLaunchEntitlementStatusLabel = "Unknown"
+                ClickyLogger.error(.app, "Failed to complete Clicky launch auth exchange error=\(error.localizedDescription)")
+            }
+        }
     }
 
     func setSelectedAgentBackend(_ selectedAgentBackend: CompanionAgentBackend) {
@@ -994,6 +1275,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private static let speechPreviewSampleText = "hey, this is clicky. here is how your current voice sounds."
+    private static let launchPaywallLockedMessage = "your clicky trial is over. open studio to buy the launch pass or restore access."
 
     private func upsertElevenLabsVoice(_ voice: ElevenLabsVoiceOption) {
         var voicesByID: [String: ElevenLabsVoiceOption] = [:]
@@ -1321,6 +1603,7 @@ final class CompanionManager: ObservableObject {
             selectedAgentBackend = .openClaw
         }
 
+        restoreClickyLaunchSessionIfPossible()
         refreshAllPermissions()
         print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
@@ -1465,6 +1748,395 @@ final class CompanionManager: ObservableObject {
         audioPowerCancellable?.cancel()
         accessibilityCheckTimer?.invalidate()
         accessibilityCheckTimer = nil
+    }
+
+    private var clickyBackendAuthClient: ClickyBackendAuthClient {
+        ClickyBackendAuthClient(baseURL: clickyBackendBaseURL)
+    }
+
+    private func makeLaunchEntitlementSnapshot(
+        from payload: ClickyBackendEntitlementPayload
+    ) -> ClickyLaunchEntitlementSnapshot {
+        ClickyLaunchEntitlementSnapshot(
+            productKey: payload.productKey,
+            status: payload.status,
+            hasAccess: payload.hasAccess,
+            gracePeriodEndsAt: payload.gracePeriodEndsAt
+        )
+    }
+
+    private func makeLaunchTrialSnapshot(
+        from payload: ClickyBackendTrialPayload
+    ) -> ClickyLaunchTrialSnapshot {
+        ClickyLaunchTrialSnapshot(
+            status: payload.status,
+            initialCredits: payload.initialCredits,
+            remainingCredits: payload.remainingCredits,
+            setupCompletedAt: payload.setupCompletedAt,
+            trialActivatedAt: payload.trialActivatedAt,
+            lastCreditConsumedAt: payload.lastCreditConsumedAt,
+            welcomePromptDeliveredAt: payload.welcomePromptDeliveredAt,
+            paywallActivatedAt: payload.paywallActivatedAt
+        )
+    }
+
+    private func updatedLaunchSessionSnapshot(
+        from storedSession: ClickyAuthSessionSnapshot,
+        userID: String? = nil,
+        email: String? = nil,
+        entitlement: ClickyLaunchEntitlementSnapshot? = nil,
+        trial: ClickyLaunchTrialSnapshot? = nil
+    ) -> ClickyAuthSessionSnapshot {
+        ClickyAuthSessionSnapshot(
+            sessionToken: storedSession.sessionToken,
+            userID: userID ?? storedSession.userID,
+            email: email ?? storedSession.email,
+            entitlement: entitlement ?? storedSession.entitlement,
+            trial: trial ?? storedSession.trial
+        )
+    }
+
+    private func persistLaunchSessionSnapshot(_ snapshot: ClickyAuthSessionSnapshot) throws {
+        try ClickyAuthSessionStore.save(snapshot)
+        clickyLaunchAuthState = .signedIn(email: snapshot.email)
+        clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(snapshot.entitlement)
+        clickyLaunchTrialState = formatLaunchTrialState(
+            snapshot.trial,
+            hasAccess: snapshot.entitlement.hasAccess
+        )
+    }
+
+    private func loadLaunchEntitlement(
+        sessionToken: String,
+        mode: ClickyLaunchEntitlementSyncMode
+    ) async throws -> ClickyBackendEntitlementPayload {
+        switch mode {
+        case .current:
+            return try await clickyBackendAuthClient.fetchCurrentEntitlement(
+                sessionToken: sessionToken
+            ).entitlement
+        case .refresh:
+            return try await clickyBackendAuthClient.refreshCurrentEntitlement(
+                sessionToken: sessionToken
+            ).entitlement
+        case .restore:
+            return try await clickyBackendAuthClient.restoreLaunchAccess(
+                sessionToken: sessionToken
+            ).entitlement
+        }
+    }
+
+    private func shouldClearStoredLaunchSession(after error: Error) -> Bool {
+        guard let authError = error as? ClickyBackendAuthClientError else {
+            return false
+        }
+
+        guard case let .unexpectedStatus(code, _) = authError else {
+            return false
+        }
+
+        return code == 401 || code == 404
+    }
+
+    private func synchronizeLaunchSessionSnapshot(
+        sessionToken: String,
+        fallbackUserID: String? = nil,
+        fallbackEmail: String? = nil,
+        entitlementSyncMode: ClickyLaunchEntitlementSyncMode = .current
+    ) async throws -> ClickyAuthSessionSnapshot {
+        async let sessionPayloadTask = clickyBackendAuthClient.fetchCurrentSession(sessionToken: sessionToken)
+        async let entitlementPayloadTask = loadLaunchEntitlement(
+            sessionToken: sessionToken,
+            mode: entitlementSyncMode
+        )
+        async let trialPayloadTask = clickyBackendAuthClient.fetchCurrentTrial(sessionToken: sessionToken)
+
+        let sessionPayload = try await sessionPayloadTask
+        let entitlementPayload = try await entitlementPayloadTask
+        let trialPayload = try await trialPayloadTask
+
+        return ClickyAuthSessionSnapshot(
+            sessionToken: sessionToken,
+            userID: fallbackUserID ?? sessionPayload.user.id,
+            email: fallbackEmail ?? sessionPayload.user.email,
+            entitlement: makeLaunchEntitlementSnapshot(from: entitlementPayload),
+            trial: makeLaunchTrialSnapshot(from: trialPayload.trial)
+        )
+    }
+
+    private func activateClickyLaunchTrialNow(
+        for storedSession: ClickyAuthSessionSnapshot
+    ) async throws -> ClickyAuthSessionSnapshot {
+        // "Trial activated" means the first setup-complete assisted turn for a
+        // signed-in user who still lacks a launch entitlement.
+        let trialPayload = try await clickyBackendAuthClient.activateTrial(sessionToken: storedSession.sessionToken)
+        let activatedTrial = makeLaunchTrialSnapshot(from: trialPayload.trial)
+        let refreshedSnapshot = updatedLaunchSessionSnapshot(
+            from: storedSession,
+            trial: activatedTrial
+        )
+
+        try persistLaunchSessionSnapshot(refreshedSnapshot)
+        ClickyLogger.notice(
+            .app,
+            "Activated launch trial user=\(storedSession.email) credits=\(activatedTrial.remainingCredits)"
+        )
+        return refreshedSnapshot
+    }
+
+    private func consumeClickyLaunchTrialCreditNow(
+        for storedSession: ClickyAuthSessionSnapshot
+    ) async throws -> ClickyAuthSessionSnapshot {
+        // Credits decrement only after a real assistant turn succeeded.
+        let consumePayload = try await clickyBackendAuthClient.consumeTrialCredit(
+            sessionToken: storedSession.sessionToken
+        )
+        let updatedTrial = makeLaunchTrialSnapshot(from: consumePayload.trial)
+        let refreshedSnapshot = updatedLaunchSessionSnapshot(
+            from: storedSession,
+            trial: updatedTrial
+        )
+
+        try persistLaunchSessionSnapshot(refreshedSnapshot)
+        ClickyLogger.notice(
+            .app,
+            "Consumed launch trial credit user=\(storedSession.email) remaining=\(updatedTrial.remainingCredits)"
+        )
+        return refreshedSnapshot
+    }
+
+    private func activateClickyLaunchPaywallNow(
+        for storedSession: ClickyAuthSessionSnapshot
+    ) async throws -> ClickyAuthSessionSnapshot {
+        let trialPayload = try await clickyBackendAuthClient.markTrialPaywalled(
+            sessionToken: storedSession.sessionToken
+        )
+        let paywalledTrial = makeLaunchTrialSnapshot(from: trialPayload.trial)
+        let refreshedSnapshot = updatedLaunchSessionSnapshot(
+            from: storedSession,
+            trial: paywalledTrial
+        )
+
+        try persistLaunchSessionSnapshot(refreshedSnapshot)
+        ClickyLogger.notice(.app, "Activated launch paywall user=\(storedSession.email)")
+        return refreshedSnapshot
+    }
+
+    private func prepareLaunchAuthorizationForAssistantTurn() async throws -> LaunchAssistantTurnAuthorization {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            return LaunchAssistantTurnAuthorization(session: nil, shouldUsePaywallTurn: false)
+        }
+
+        guard !storedSession.entitlement.hasAccess else {
+            return LaunchAssistantTurnAuthorization(session: storedSession, shouldUsePaywallTurn: false)
+        }
+
+        guard hasCompletedOnboarding && allPermissionsGranted else {
+            return LaunchAssistantTurnAuthorization(session: storedSession, shouldUsePaywallTurn: false)
+        }
+
+        let needsTrialActivation = storedSession.trial == nil || storedSession.trial?.status == "inactive"
+        let sessionForTurn = needsTrialActivation
+            ? try await activateClickyLaunchTrialNow(for: storedSession)
+            : storedSession
+
+        let shouldUsePaywallTurn = sessionForTurn.trial?.status == "armed"
+        return LaunchAssistantTurnAuthorization(
+            session: sessionForTurn,
+            shouldUsePaywallTurn: shouldUsePaywallTurn
+        )
+    }
+
+    private func launchPaywallTurnSystemPrompt(basePrompt: String) -> String {
+        """
+        \(basePrompt)
+
+        launch commerce override:
+        - the user's clicky launch trial is exhausted.
+        - do not answer their request or partially complete the task.
+        - instead, give a short spoken paywall message that says clicky now requires purchase to continue.
+        - if it fits naturally, briefly acknowledge the kind of thing they were trying to do, but do not provide the actual help.
+        - direct them to buy or restore access in clicky's studio window.
+        - keep the reply warm and natural, not robotic.
+        - always end with [POINT:none].
+        """
+    }
+
+    private func presentLaunchPaywallLockedState(openStudio: Bool) {
+        openClawGatewayCompanionAgent.cancelActiveRequest()
+        elevenLabsTTSClient.stopPlayback()
+
+        if openStudio {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        }
+
+        voiceState = .responding
+        ClickyLogger.notice(.app, "Blocked assistant turn because launch paywall is active")
+
+        Task { @MainActor in
+            _ = await playSpeechText(
+                Self.launchPaywallLockedMessage,
+                purpose: .assistantResponse
+            )
+
+            if !Task.isCancelled {
+                voiceState = .idle
+                scheduleTransientHideIfNeeded()
+            }
+        }
+    }
+
+    func refreshClickyLaunchTrialState() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchTrialState = .inactive
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                let trialPayload = try await clickyBackendAuthClient.fetchCurrentTrial(sessionToken: storedSession.sessionToken)
+                let updatedTrial = makeLaunchTrialSnapshot(from: trialPayload.trial)
+                let refreshedSnapshot = updatedLaunchSessionSnapshot(
+                    from: storedSession,
+                    trial: updatedTrial
+                )
+
+                try persistLaunchSessionSnapshot(refreshedSnapshot)
+                ClickyLogger.notice(.app, "Launch trial state refreshed user=\(storedSession.email) status=\(updatedTrial.status) remaining=\(updatedTrial.remainingCredits)")
+            } catch {
+                clickyLaunchTrialState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to refresh launch trial state error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func activateClickyLaunchTrial() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchTrialState = .failed(message: "Sign in before activating the trial.")
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                _ = try await activateClickyLaunchTrialNow(for: storedSession)
+            } catch {
+                clickyLaunchTrialState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to activate launch trial error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func consumeClickyLaunchTrialCredit() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchTrialState = .failed(message: "Sign in before consuming trial credits.")
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                _ = try await consumeClickyLaunchTrialCreditNow(for: storedSession)
+            } catch {
+                clickyLaunchTrialState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to consume launch trial credit error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func activateClickyLaunchPaywall() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchTrialState = .failed(message: "Sign in before activating the paywall.")
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                _ = try await activateClickyLaunchPaywallNow(for: storedSession)
+            } catch {
+                clickyLaunchTrialState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to activate launch paywall error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func restoreClickyLaunchSessionIfPossible() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchAuthState = .signedOut
+            clickyLaunchEntitlementStatusLabel = "Unknown"
+            clickyLaunchTrialState = .inactive
+            return
+        }
+
+        clickyLaunchAuthState = .restoring
+
+        Task { @MainActor in
+            do {
+                let refreshedSnapshot = try await synchronizeLaunchSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    fallbackUserID: storedSession.userID,
+                    fallbackEmail: storedSession.email,
+                    entitlementSyncMode: .refresh
+                )
+
+                try persistLaunchSessionSnapshot(refreshedSnapshot)
+                ClickyLogger.notice(.app, "Restored Clicky launch auth session user=\(refreshedSnapshot.email)")
+            } catch {
+                if shouldClearStoredLaunchSession(after: error) {
+                    ClickyAuthSessionStore.clear()
+                    clickyLaunchAuthState = .signedOut
+                    clickyLaunchEntitlementStatusLabel = "Unknown"
+                    clickyLaunchTrialState = .inactive
+                    ClickyLogger.error(.app, "Failed to restore Clicky launch auth session error=\(error.localizedDescription)")
+                    return
+                }
+
+                clickyLaunchAuthState = .signedIn(email: storedSession.email)
+                clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(storedSession.entitlement)
+                clickyLaunchTrialState = formatLaunchTrialState(
+                    storedSession.trial,
+                    hasAccess: storedSession.entitlement.hasAccess
+                )
+                ClickyLogger.error(
+                    .app,
+                    "Failed to refresh Clicky launch session; continuing with cached state error=\(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func formatLaunchTrialState(_ trial: ClickyLaunchTrialSnapshot?, hasAccess: Bool) -> ClickyLaunchTrialState {
+        if hasAccess {
+            return .unlocked
+        }
+
+        guard let trial else {
+            return .inactive
+        }
+
+        switch trial.status {
+        case "active":
+            return .active(remainingCredits: trial.remainingCredits)
+        case "armed":
+            return .armed
+        case "paywalled":
+            return .paywalled
+        case "unlocked":
+            return .paywalled
+        default:
+            return .inactive
+        }
+    }
+
+    private func formatEntitlementStatus(_ entitlement: ClickyLaunchEntitlementSnapshot) -> String {
+        if entitlement.hasAccess {
+            if let gracePeriodEndsAt = entitlement.gracePeriodEndsAt,
+               !gracePeriodEndsAt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "Active · grace until \(gracePeriodEndsAt)"
+            }
+
+            return "Active"
+        }
+
+        return entitlement.status.capitalized
     }
 
     func refreshAllPermissions() {
@@ -1641,6 +2313,11 @@ final class CompanionManager: ObservableObject {
             guard !buddyDictationManager.isDictationInProgress else { return }
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
+
+            if isClickyLaunchPaywallActive {
+                presentLaunchPaywallLockedState(openStudio: true)
+                return
+            }
 
             // Cancel any pending transient hide so the overlay stays visible
             transientHideTask?.cancel()
@@ -1833,12 +2510,31 @@ final class CompanionManager: ObservableObject {
         elevenLabsTTSClient.stopPlayback()
 
         currentResponseTask = Task {
+            var launchAuthorization = LaunchAssistantTurnAuthorization(
+                session: nil,
+                shouldUsePaywallTurn: false
+            )
+
             // The voice input is finished. From here on the assistant is
             // thinking, not transcribing, so the overlay switches to the
             // dedicated "thinking" treatment.
             voiceState = .thinking
 
             do {
+                launchAuthorization = try await prepareLaunchAuthorizationForAssistantTurn()
+
+                if let storedSession = launchAuthorization.session,
+                   !storedSession.entitlement.hasAccess,
+                   storedSession.trial?.status == "paywalled" {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    voiceState = .responding
+                    _ = await playSpeechText(
+                        Self.launchPaywallLockedMessage,
+                        purpose: .assistantResponse
+                    )
+                    return
+                }
+
                 // Capture all connected screens so the AI has full context
                 let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
 
@@ -1855,7 +2551,10 @@ final class CompanionManager: ObservableObject {
                 let fullResponseText: String
                 switch selectedAgentBackend {
                 case .claude:
-                    let systemPrompt = companionVoiceResponseSystemPrompt()
+                    let basePrompt = companionVoiceResponseSystemPrompt()
+                    let systemPrompt = launchAuthorization.shouldUsePaywallTurn
+                        ? launchPaywallTurnSystemPrompt(basePrompt: basePrompt)
+                        : basePrompt
                     logActivePersonaForRequest(
                         transcript: transcript,
                         backend: .claude,
@@ -1878,7 +2577,10 @@ final class CompanionManager: ObservableObject {
                     )
                     fullResponseText = response.text
                 case .openClaw:
-                    let systemPrompt = openClawShellScopedSystemPrompt()
+                    let basePrompt = openClawShellScopedSystemPrompt()
+                    let systemPrompt = launchAuthorization.shouldUsePaywallTurn
+                        ? launchPaywallTurnSystemPrompt(basePrompt: basePrompt)
+                        : basePrompt
                     logActivePersonaForRequest(
                         transcript: transcript,
                         backend: .openClaw,
@@ -1986,6 +2688,36 @@ final class CompanionManager: ObservableObject {
                 ClickyAnalytics.trackAIResponseReceived(response: spokenText)
                 logAgentResponse(spokenText, backend: selectedAgentBackend)
 
+                if let storedSession = launchAuthorization.session, !storedSession.entitlement.hasAccess {
+                    if launchAuthorization.shouldUsePaywallTurn {
+                        do {
+                            _ = try await activateClickyLaunchPaywallNow(for: storedSession)
+                        } catch {
+                            ClickyLogger.error(
+                                .app,
+                                "Failed to persist launch paywall activation after paywall turn error=\(error.localizedDescription)"
+                            )
+                        }
+                    } else if storedSession.trial?.status == "active" {
+                        do {
+                            let updatedSession = try await consumeClickyLaunchTrialCreditNow(
+                                for: storedSession
+                            )
+                            if updatedSession.trial?.status == "armed" {
+                                ClickyLogger.notice(
+                                    .app,
+                                    "Launch trial exhausted user=\(updatedSession.email) nextTurn=paywall"
+                                )
+                            }
+                        } catch {
+                            ClickyLogger.error(
+                                .app,
+                                "Failed to persist launch trial credit consumption after assistant turn error=\(error.localizedDescription)"
+                            )
+                        }
+                    }
+                }
+
                 // Play the response via TTS. Keep the thinking treatment until
                 // audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2012,7 +2744,26 @@ final class CompanionManager: ObservableObject {
             } catch {
                 ClickyAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
-                speakCreditsErrorFallback()
+                if launchAuthorization.shouldUsePaywallTurn {
+                    if let storedSession = launchAuthorization.session {
+                        do {
+                            _ = try await activateClickyLaunchPaywallNow(for: storedSession)
+                        } catch {
+                            ClickyLogger.error(
+                                .app,
+                                "Failed to persist launch paywall activation after paywall fallback error=\(error.localizedDescription)"
+                            )
+                        }
+                    }
+
+                    voiceState = .responding
+                    _ = await playSpeechText(
+                        Self.launchPaywallLockedMessage,
+                        purpose: .assistantResponse
+                    )
+                } else {
+                    speakCreditsErrorFallback()
+                }
             }
 
             if !Task.isCancelled {

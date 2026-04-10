@@ -79,6 +79,12 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         companionManager.stop()
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            companionManager.handleClickyLaunchCallback(url: url)
+        }
+    }
+
     /// Registers the app as a login item so it launches automatically on
     /// startup. Uses SMAppService which shows the app in System Settings >
     /// General > Login Items, letting the user toggle it off if they want.

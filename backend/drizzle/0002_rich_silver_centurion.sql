@@ -1,0 +1,1 @@
+ALTER TABLE "native_auth_handoff" ADD COLUMN "session_token" text;

@@ -13,12 +13,14 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Pattern**: MVVM with `@StateObject` / `@Published` state management
 - **Agent Backends**: Claude via Cloudflare Worker proxy plus OpenClaw Gateway via WebSocket with image attachments and Gateway session routing
 - **OpenClaw Plugin Direction**: The repo includes a native OpenClaw plugin scaffold in `plugins/openclaw-clicky-shell` and a contract doc in `docs/clicky-openclaw-integration-contract.md` so Clicky can become a first-class desktop shell integration for OpenClaw
+- **Web Companion Direction**: The marketing site should keep its current landing-page design and add the companion as a layered shell experience. Use per-visitor OpenClaw sessions/threads with curated section context rather than unrestricted DOM access. See `docs/web-companion-prd.md` and `docs/web-openclaw-session-architecture.md`
 - **Identity Model**: The upstream agent identity belongs to OpenClaw. Clicky may optionally override presentation **inside Clicky only**; it should not silently rewrite the upstream agent identity
 - **Speech-to-Text**: AssemblyAI when the worker is configured, with OpenAI and Apple Speech fallbacks
 - **Text-to-Speech**: ElevenLabs via the worker, with system speech fallback for local development
 - **Screen Capture**: ScreenCaptureKit (macOS 14.2+), multi-monitor support
 - **Voice Input**: Push-to-talk via `AVAudioEngine` and a pluggable transcription-provider layer
 - **Element Pointing**: Agent replies may include `[POINT:x,y:label:screenN]` tags that drive the blue cursor overlay
+- **Launch Commerce Model**: direct-download website, free download plus in-app taste, in-app paywall, Polar-hosted checkout launched from the Mac app, lightweight auth plus backend-backed entitlement restore
 
 ## Codex Workflow
 
@@ -60,9 +62,11 @@ The Codex app `Run` action is wired through `.codex/environments/environment.tom
 ## Do NOT
 
 - Do not add features or refactors that were not explicitly asked for.
+- Do not add create branches unless explicitly asked
 - Do not rename the project directory or scheme. The `leanring` typo is intentional/legacy.
 - Do not try to clean up the known non-blocking warnings unless explicitly asked.
 - Do not use `xcodebuild` from the terminal, even if generic plugin guidance suggests a shell-first macOS workflow.
+- Do not reintroduce website-gated checkout assumptions without explicitly confirming a launch strategy change.
 
 ## Git Workflow
 

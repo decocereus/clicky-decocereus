@@ -13,6 +13,7 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
     case openClaw
     case voiceAppearance
     case integrations
+    case designLab
     case diagnostics
 
     var id: String { rawValue }
@@ -20,15 +21,17 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
     var title: String {
         switch self {
         case .general:
-            return "General"
+            return "Companion"
         case .openClaw:
-            return "OpenClaw"
+            return "Connection"
         case .voiceAppearance:
-            return "Persona"
+            return "Voice & Persona"
         case .integrations:
-            return "Integrations"
+            return "Launch Access"
+        case .designLab:
+            return "Design Lab"
         case .diagnostics:
-            return "Diagnostics"
+            return "Support"
         }
     }
 
@@ -42,6 +45,8 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
             return "speaker.wave.3"
         case .integrations:
             return "puzzlepiece.extension"
+        case .designLab:
+            return "square.on.square"
         case .diagnostics:
             return "stethoscope"
         }
@@ -50,15 +55,17 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
     var subtitle: String {
         switch self {
         case .general:
-            return "Runtime and backend"
+            return "Daily shell controls"
         case .openClaw:
-            return "Connection and identity"
+            return "Agent and gateway"
         case .voiceAppearance:
-            return "Tone, voice, and look"
+            return "Voice, tone, and look"
         case .integrations:
-            return "Setup and status"
+            return "Buy, restore, unlock"
+        case .designLab:
+            return "Three UI directions"
         case .diagnostics:
-            return "Internal only"
+            return "Debug and reports"
         }
     }
 }
@@ -66,6 +73,7 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
 struct CompanionStudioView: View {
     @ObservedObject var companionManager: CompanionManager
 
+    @AppStorage("clickySupportModeEnabled") private var isSupportModeEnabled = false
     @State private var selectedSection: CompanionStudioSection = .general
     @State private var isOpenClawTokenVisible = false
     @State private var isElevenLabsAPIKeyVisible = false
@@ -88,9 +96,13 @@ struct CompanionStudioView: View {
         .clickyTheme(theme)
         .onAppear {
             NotificationCenter.default.post(name: .clickyStudioDidAppear, object: nil)
+            normalizeSelectedSection()
         }
         .onDisappear {
             NotificationCenter.default.post(name: .clickyStudioDidDisappear, object: nil)
+        }
+        .onChange(of: isSupportModeEnabled) { _, _ in
+            normalizeSelectedSection()
         }
     }
 
@@ -110,9 +122,11 @@ struct CompanionStudioView: View {
             .padding(.top, 18)
 
             List {
-                ForEach(CompanionStudioSection.allCases) { section in
+                ForEach(availableSections) { section in
                     Button(action: {
-                        selectedSection = section
+                        withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) {
+                            selectedSection = section
+                        }
                     }) {
                         studioSidebarRow(for: section)
                     }
@@ -130,18 +144,44 @@ struct CompanionStudioView: View {
         .padding(.leading, 10)
         .padding(.trailing, 8)
         .padding(.top, 12)
+        .modifier(ClickyStudioShellStyle(cornerRadius: 30))
+    }
+
+    private var availableSections: [CompanionStudioSection] {
+        CompanionStudioSection.allCases.filter { section in
+            if section == .designLab {
+                return isSupportModeEnabled
+            }
+            return true
+        }
+    }
+
+    private func normalizeSelectedSection() {
+        if !availableSections.contains(selectedSection) {
+            selectedSection = .general
+        }
     }
 
     private var detailPane: some View {
         ScrollView {
             ClickyGlassCluster {
-                VStack(alignment: .leading, spacing: 24) {
-                    sectionHero
-                    sectionContent
+                HStack(alignment: .top, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 28) {
+                        sectionHero
+                        sectionContent
+                    }
+                    .frame(maxWidth: 860, alignment: .leading)
+
+                    Spacer(minLength: 0)
                 }
+                .id(selectedSection)
                 .padding(28)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .modifier(ClickyStudioShellStyle(cornerRadius: 34))
+            .padding(.trailing, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
         }
         .scrollContentBackground(.hidden)
     }
@@ -190,6 +230,11 @@ struct CompanionStudioView: View {
 
     private var sectionHero: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text(sectionChapterLabel)
+                .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                .foregroundColor(sectionAccent)
+                .tracking(1.2)
+
             Text(selectedSection.title)
                 .font(ClickyTypography.display(size: 44))
                 .foregroundColor(theme.textPrimary)
@@ -198,7 +243,17 @@ struct CompanionStudioView: View {
                 .font(ClickyTypography.mono(size: 14, weight: .medium))
                 .foregroundColor(theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if !sectionHeroBadges.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(sectionHeroBadges, id: \.label) { badge in
+                        StudioStatusPill(label: "\(badge.label): \(badge.value)", tone: badge.tone)
+                    }
+                }
+                .padding(.top, 6)
+            }
         }
+        .padding(.bottom, 6)
     }
 
     @ViewBuilder
@@ -212,6 +267,8 @@ struct CompanionStudioView: View {
             voiceAppearanceSectionContent
         case .integrations:
             integrationsSectionContent
+        case .designLab:
+            StudioDesignLabView(companionManager: companionManager)
         case .diagnostics:
             diagnosticsSectionContent
         }
@@ -219,168 +276,164 @@ struct CompanionStudioView: View {
 
     private var generalSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            StudioCard(title: "Runtime Overview", subtitle: "What shell you are currently running") {
-                VStack(spacing: 12) {
-                    StudioKeyValueRow(label: "Hotkey", value: "Control + Option")
-                    StudioKeyValueRow(label: "Overlay", value: companionManager.isOverlayVisible ? "Visible" : "Hidden")
-                    StudioKeyValueRow(label: "Speech to Text", value: companionManager.buddyDictationManager.transcriptionProviderDisplayName)
-                    StudioKeyValueRow(label: "Speech Output", value: companionManager.effectiveVoiceOutputDisplayName)
-                    StudioKeyValueRow(label: "Backend Mode", value: CompanionRuntimeConfiguration.isWorkerConfigured ? "Cloud worker configured" : "Local fallback mode")
-                }
-            }
-
-            StudioCard(title: "Agent Backend", subtitle: "Choose which brain powers the companion") {
-                VStack(alignment: .leading, spacing: 14) {
-                    Picker(
-                        "Agent Backend",
-                        selection: Binding(
-                            get: { companionManager.selectedAgentBackend },
-                            set: { companionManager.setSelectedAgentBackend($0) }
-                        )
-                    ) {
-                        ForEach(CompanionAgentBackend.allCases, id: \.self) { backend in
-                            Text(backend.displayName).tag(backend)
+            StudioCard(title: "Companion", subtitle: "The everyday shell chapter should feel like one composed surface, not three unrelated cards") {
+                VStack(alignment: .leading, spacing: 22) {
+                    StudioSubsection(title: "Shell Snapshot", subtitle: "The pieces users actually feel every day") {
+                        VStack(spacing: 12) {
+                            StudioKeyValueRow(label: "Hotkey", value: "Control + Option")
+                            StudioKeyValueRow(label: "Overlay", value: companionManager.isOverlayVisible ? "Visible" : "Hidden")
+                            StudioKeyValueRow(label: "Speech to Text", value: companionManager.buddyDictationManager.transcriptionProviderDisplayName)
+                            StudioKeyValueRow(label: "Speech Output", value: companionManager.effectiveVoiceOutputDisplayName)
+                            StudioKeyValueRow(label: "Backend Mode", value: CompanionRuntimeConfiguration.isWorkerConfigured ? "Cloud worker configured" : "Local fallback mode")
                         }
                     }
-                    .pickerStyle(.segmented)
 
-                    if companionManager.selectedAgentBackend == .claude {
-                        Picker(
-                            "Claude Model",
-                            selection: Binding(
-                                get: { companionManager.selectedModel },
-                                set: { companionManager.setSelectedModel($0) }
+                    StudioChapterDivider()
+
+                    StudioSubsection(title: "Agent", subtitle: "Choose which brain powers the companion without exposing the deeper debug controls here") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Picker(
+                                "Agent Backend",
+                                selection: Binding(
+                                    get: { companionManager.selectedAgentBackend },
+                                    set: { companionManager.setSelectedAgentBackend($0) }
+                                )
+                            ) {
+                                ForEach(CompanionAgentBackend.allCases, id: \.self) { backend in
+                                    Text(backend.displayName).tag(backend)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            if companionManager.selectedAgentBackend == .claude {
+                                Picker(
+                                    "Claude Model",
+                                    selection: Binding(
+                                        get: { companionManager.selectedModel },
+                                        set: { companionManager.setSelectedModel($0) }
+                                    )
+                                ) {
+                                    Text("Sonnet").tag("claude-sonnet-4-6")
+                                    Text("Opus").tag("claude-opus-4-6")
+                                }
+                                .pickerStyle(.segmented)
+                            } else {
+                                Text("OpenClaw is selected. Use the Connection chapter to configure local or remote Gateway access.")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(DS.Colors.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+
+                    StudioChapterDivider()
+
+                    StudioSubsection(title: "Quick Controls", subtitle: "Only the daily product controls belong here") {
+                        VStack(spacing: 14) {
+                            Toggle(
+                                "Show Clicky cursor overlay",
+                                isOn: Binding(
+                                    get: { companionManager.isClickyCursorEnabled },
+                                    set: { companionManager.setClickyCursorEnabled($0) }
+                                )
                             )
-                        ) {
-                            Text("Sonnet").tag("claude-sonnet-4-6")
-                            Text("Opus").tag("claude-opus-4-6")
+                            .toggleStyle(.switch)
+                            .tint(DS.Colors.accent)
+
+                            Text("This keeps the fast menu bar companion intact while giving Studio room for deeper configuration elsewhere.")
+                                .font(.system(size: 12))
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .pickerStyle(.segmented)
-                    } else {
-                        Text("OpenClaw is selected. Use the OpenClaw section to configure local or remote Gateway access.")
-                            .font(.system(size: 12))
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
-
-            StudioCard(title: "Quick Controls", subtitle: "The shell-level behavior users feel immediately") {
-                VStack(spacing: 14) {
-                    Toggle(
-                        "Show Clicky cursor overlay",
-                        isOn: Binding(
-                            get: { companionManager.isClickyCursorEnabled },
-                            set: { companionManager.setClickyCursorEnabled($0) }
-                        )
-                    )
-                    .toggleStyle(.switch)
-                    .tint(DS.Colors.accent)
-
-                    Text("This leaves the fast menu bar companion intact while giving us a real desktop surface for deeper configuration.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
         }
     }
 
     private var openClawSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            StudioCard(title: "Connection", subtitle: "Use your existing OpenClaw agent inside Clicky") {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 10) {
-                        StudioStatusPill(
-                            label: openClawConnectionStatusLabel,
-                            tone: openClawConnectionTone
-                        )
+            StudioCard(title: "Connection", subtitle: "Bring your existing OpenClaw agent into Clicky without turning this chapter into a wall of setup cards") {
+                VStack(alignment: .leading, spacing: 22) {
+                    StudioSubsection(title: "Gateway Status", subtitle: "The current link between Clicky and OpenClaw") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(spacing: 10) {
+                                StudioStatusPill(
+                                    label: openClawConnectionStatusLabel,
+                                    tone: openClawConnectionTone
+                                )
 
-                        StudioStatusPill(
-                            label: companionManager.isOpenClawGatewayRemote ? "Remote Gateway" : "Local Gateway",
-                            tone: companionManager.isOpenClawGatewayRemote ? .info : .success
-                        )
-                    }
+                                StudioStatusPill(
+                                    label: companionManager.isOpenClawGatewayRemote ? "Remote Gateway" : "Local Gateway",
+                                    tone: companionManager.isOpenClawGatewayRemote ? .info : .success
+                                )
+                            }
 
-                    Text(openClawConnectionSummary)
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            StudioCard(title: "Identity in Clicky", subtitle: "Choose how your existing OpenClaw agent shows up inside Clicky") {
-                VStack(alignment: .leading, spacing: 14) {
-                    StudioKeyValueRow(
-                        label: "Current agent",
-                        value: companionManager.inferredOpenClawAgentIdentityDisplayName
-                    )
-
-                    Button(action: {
-                        companionManager.refreshOpenClawAgentIdentity()
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("Refresh OpenClaw Identity")
-                                .font(.system(size: 12, weight: .semibold))
+                            Text(openClawConnectionSummary)
+                                .font(.system(size: 12))
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(DS.Colors.surface2)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                        )
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
 
-                    Picker(
-                        "Persona Scope",
-                        selection: Binding(
-                            get: { companionManager.clickyPersonaScopeMode },
-                            set: { companionManager.clickyPersonaScopeMode = $0 }
-                        )
-                    ) {
-                        Text("Use OpenClaw Identity").tag(ClickyPersonaScopeMode.useOpenClawIdentity)
-                        Text("Override in Clicky").tag(ClickyPersonaScopeMode.overrideInClicky)
-                    }
-                    .pickerStyle(.segmented)
+                    StudioChapterDivider()
 
-                    Text("Your OpenClaw agent stays itself. Clicky only changes how that agent appears inside Clicky when you choose an override.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    StudioSubsection(title: "Identity in Clicky", subtitle: "Choose how your existing OpenClaw agent shows up inside Clicky") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            StudioKeyValueRow(
+                                label: "Current agent",
+                                value: companionManager.inferredOpenClawAgentIdentityDisplayName
+                            )
 
-                    StudioKeyValueRow(
-                        label: "Clicky presents as",
-                        value: companionManager.effectiveClickyPresentationName
-                    )
+                            neutralStudioButton(
+                                title: "Refresh OpenClaw Identity",
+                                systemImage: "arrow.clockwise"
+                            ) {
+                                companionManager.refreshOpenClawAgentIdentity()
+                            }
 
-                    if companionManager.clickyPersonaScopeMode == .overrideInClicky {
-                        StudioTextField(
-                            title: "Clicky-only display name",
-                            text: Binding(
-                                get: { companionManager.clickyPersonaOverrideName },
-                                set: { companionManager.clickyPersonaOverrideName = $0 }
-                            ),
-                            placeholder: "Example: Zuko in Clicky"
-                        )
+                            Picker(
+                                "Persona Scope",
+                                selection: Binding(
+                                    get: { companionManager.clickyPersonaScopeMode },
+                                    set: { companionManager.clickyPersonaScopeMode = $0 }
+                                )
+                            ) {
+                                Text("Use OpenClaw Identity").tag(ClickyPersonaScopeMode.useOpenClawIdentity)
+                                Text("Override in Clicky").tag(ClickyPersonaScopeMode.overrideInClicky)
+                            }
+                            .pickerStyle(.segmented)
 
-                        StudioMultilineField(
-                            title: "Clicky-only persona notes",
-                            text: Binding(
-                                get: { companionManager.clickyPersonaOverrideInstructions },
-                                set: { companionManager.clickyPersonaOverrideInstructions = $0 }
-                            ),
-                            placeholder: "Only affects Clicky. Does not rewrite the agent inside OpenClaw."
-                        )
+                            Text("Your OpenClaw agent stays itself. Clicky only changes how that agent appears inside Clicky when you choose an override.")
+                                .font(.system(size: 12))
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            StudioKeyValueRow(
+                                label: "Clicky presents as",
+                                value: companionManager.effectiveClickyPresentationName
+                            )
+
+                            if companionManager.clickyPersonaScopeMode == .overrideInClicky {
+                                StudioTextField(
+                                    title: "Clicky-only display name",
+                                    text: Binding(
+                                        get: { companionManager.clickyPersonaOverrideName },
+                                        set: { companionManager.clickyPersonaOverrideName = $0 }
+                                    ),
+                                    placeholder: "Example: Zuko in Clicky"
+                                )
+
+                                StudioMultilineField(
+                                    title: "Clicky-only persona notes",
+                                    text: Binding(
+                                        get: { companionManager.clickyPersonaOverrideInstructions },
+                                        set: { companionManager.clickyPersonaOverrideInstructions = $0 }
+                                    ),
+                                    placeholder: "Only affects Clicky. Does not rewrite the agent inside OpenClaw."
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -412,69 +465,81 @@ struct CompanionStudioView: View {
                         set: { companionManager.openClawSessionKey = $0 }
                     ), placeholder: "clicky-companion")
 
-                    Button(action: {
+                    neutralStudioButton(
+                        title: openClawConnectionButtonLabel,
+                        systemImage: "bolt.horizontal.circle.fill",
+                        isEnabled: !isTestingOpenClawConnection
+                    ) {
                         companionManager.testOpenClawConnection()
-                    }) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "bolt.horizontal.circle.fill")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text(openClawConnectionButtonLabel)
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(DS.Colors.surface2)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                        )
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor(isEnabled: !isTestingOpenClawConnection)
-                    .disabled(isTestingOpenClawConnection)
 
                     connectionStatusView
                 }
             }
+
+            pluginSetupCards
         }
     }
 
     private var voiceAppearanceSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            personaPresetCard
+            StudioCard(title: "Voice & Persona", subtitle: "This chapter owns how Clicky sounds, looks, and presents itself on your Mac") {
+                VStack(alignment: .leading, spacing: 22) {
+                    StudioSubsection(title: "Persona Preset", subtitle: "Pick the default personality layer for Clicky") {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text(companionManager.activeClickyPersonaSummary)
+                                .font(ClickyTypography.body(size: 13))
+                                .foregroundColor(theme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
 
-            StudioCard(title: "Persona Notes", subtitle: "These instructions shape how Clicky speaks inside the app") {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Your upstream OpenClaw identity stays clean. These notes are Clicky-local presentation and tone guidance.")
-                        .font(ClickyTypography.body(size: 13))
-                        .foregroundColor(theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 10) {
+                                ForEach(ClickyPersonaPreset.allCases) { preset in
+                                    selectionChip(
+                                        title: preset.definition.displayName,
+                                        subtitle: preset.definition.summary,
+                                        isSelected: companionManager.clickyPersonaPreset == preset
+                                    ) {
+                                        companionManager.setClickyPersonaPreset(preset)
+                                    }
+                                }
+                            }
+                        }
+                    }
 
-                    StudioMultilineField(
-                        title: "Tone notes",
-                        text: Binding(
-                            get: { companionManager.clickyPersonaToneInstructions },
-                            set: { companionManager.clickyPersonaToneInstructions = $0 }
-                        ),
-                        placeholder: "Example: sound more encouraging, explain a little slower, and keep the tone grounded."
-                    )
+                    StudioChapterDivider()
+
+                    StudioSubsection(title: "Tone Notes", subtitle: "These instructions shape how Clicky speaks inside the app") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Your upstream OpenClaw identity stays clean. These notes are Clicky-local presentation and tone guidance.")
+                                .font(ClickyTypography.body(size: 13))
+                                .foregroundColor(theme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            StudioMultilineField(
+                                title: "Tone notes",
+                                text: Binding(
+                                    get: { companionManager.clickyPersonaToneInstructions },
+                                    set: { companionManager.clickyPersonaToneInstructions = $0 }
+                                ),
+                                placeholder: "Example: sound more encouraging, explain a little slower, and keep the tone grounded."
+                            )
+                        }
+                    }
                 }
             }
 
-            StudioCard(title: "Voice", subtitle: "Choose how Clicky speaks and preview it before the next turn") {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(spacing: 10) {
-                        ForEach(ClickySpeechProviderMode.allCases) { mode in
-                            selectionChip(
-                                title: mode.displayName,
-                                subtitle: mode == .system ? "Built in on this Mac." : "Bring your own key and voices.",
-                                isSelected: companionManager.clickySpeechProviderMode == mode
-                            ) {
-                                companionManager.clickySpeechProviderMode = mode
+            StudioCard(title: "Voice Output", subtitle: "Choose how Clicky speaks and preview it before the next turn") {
+                VStack(alignment: .leading, spacing: 22) {
+                    StudioSubsection(title: "Provider", subtitle: "Pick the voice engine for this Mac") {
+                        HStack(spacing: 10) {
+                            ForEach(ClickySpeechProviderMode.allCases) { mode in
+                                selectionChip(
+                                    title: mode.displayName,
+                                    subtitle: mode == .system ? "Built in on this Mac." : "Bring your own key and voices.",
+                                    isSelected: companionManager.clickySpeechProviderMode == mode
+                                ) {
+                                    companionManager.clickySpeechProviderMode = mode
+                                }
                             }
                         }
                     }
@@ -485,20 +550,26 @@ struct CompanionStudioView: View {
                         elevenLabsSpeechPanel
                     }
 
-                    HStack(spacing: 10) {
-                        ForEach(ClickyVoicePreset.allCases) { preset in
-                            selectionChip(
-                                title: preset.displayName,
-                                subtitle: preset.summary,
-                                isSelected: companionManager.clickyVoicePreset == preset
-                            ) {
-                                companionManager.clickyVoicePreset = preset
+                    StudioChapterDivider()
+
+                    StudioSubsection(title: "Voice Preset", subtitle: "Shape the delivery style after the provider is chosen") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(spacing: 10) {
+                                ForEach(ClickyVoicePreset.allCases) { preset in
+                                    selectionChip(
+                                        title: preset.displayName,
+                                        subtitle: preset.summary,
+                                        isSelected: companionManager.clickyVoicePreset == preset
+                                    ) {
+                                        companionManager.clickyVoicePreset = preset
+                                    }
+                                }
                             }
+
+                            StudioKeyValueRow(label: "Selected provider", value: companionManager.clickySpeechProviderMode.displayName)
+                            StudioKeyValueRow(label: "Current output", value: companionManager.effectiveVoiceOutputDisplayName)
                         }
                     }
-
-                    StudioKeyValueRow(label: "Selected provider", value: companionManager.clickySpeechProviderMode.displayName)
-                    StudioKeyValueRow(label: "Current output", value: companionManager.effectiveVoiceOutputDisplayName)
                 }
             }
 
@@ -527,29 +598,6 @@ struct CompanionStudioView: View {
                     )
                     .toggleStyle(.switch)
                     .tint(theme.primary)
-                }
-            }
-        }
-    }
-
-    private var personaPresetCard: some View {
-        StudioCard(title: "Persona Preset", subtitle: "Pick the default personality layer for Clicky") {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(companionManager.activeClickyPersonaSummary)
-                    .font(ClickyTypography.body(size: 13))
-                    .foregroundColor(theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 10) {
-                    ForEach(ClickyPersonaPreset.allCases) { preset in
-                        selectionChip(
-                            title: preset.definition.displayName,
-                            subtitle: preset.definition.summary,
-                            isSelected: companionManager.clickyPersonaPreset == preset
-                        ) {
-                            companionManager.setClickyPersonaPreset(preset)
-                        }
-                    }
                 }
             }
         }
@@ -936,71 +984,46 @@ struct CompanionStudioView: View {
 
     private var integrationsSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            if shouldShowPluginSetupFlow {
-                StudioCard(title: "Set Up the OpenClaw Plugin", subtitle: "This is a one-time setup on this machine") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        StudioStepRow(
-                            stepNumber: 1,
-                            title: "Install the plugin",
-                            detail: "Run this once from your terminal.",
-                            statusLabel: companionManager.clickyOpenClawPluginStatus == .notConfigured ? "Needed" : "Done",
-                            statusTone: companionManager.clickyOpenClawPluginStatus == .notConfigured ? .warning : .success
-                        )
-
-                        StudioCommandBlock(
-                            title: "Install command",
-                            command: companionManager.clickyOpenClawPluginInstallCommand
-                        )
-
-                        StudioStepRow(
-                            stepNumber: 2,
-                            title: "Enable it in OpenClaw",
-                            detail: "This turns the plugin on and restarts the Gateway.",
-                            statusLabel: companionManager.clickyOpenClawPluginStatus == .enabled ? "Done" : "Needed",
-                            statusTone: companionManager.clickyOpenClawPluginStatus == .enabled ? .success : .warning
-                        )
-
-                        StudioCommandBlock(
-                            title: "Enable + restart",
-                            command: companionManager.clickyOpenClawPluginEnableCommand
-                        )
-
-                        Text("Once that is done, Clicky will reconnect automatically. You should not need to keep running these commands.")
-                            .font(.system(size: 12))
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            } else {
-                StudioCard(title: "OpenClaw Integration", subtitle: "The desktop bridge is ready on this machine") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        StudioStatusPill(label: "Ready", tone: .success)
-
-                        Text("Clicky is already connected to OpenClaw here. You do not need to run setup commands again unless you reinstall OpenClaw or move to a different machine.")
-                            .font(.system(size: 12))
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-
-            StudioCard(title: "What You Get", subtitle: "What this integration unlocks inside Clicky") {
+            StudioCard(title: "Launch Access", subtitle: "This panel should stay product-facing and clean while diagnostics lives elsewhere") {
                 VStack(alignment: .leading, spacing: 12) {
-                    StudioStatusPill(
-                        label: companionManager.clickyOpenClawPluginStatusLabel,
-                        tone: clickyPluginStatusTone
-                    )
+                    StudioKeyValueRow(label: "Account", value: companionManager.clickyLaunchAuthStatusLabel)
+                    StudioKeyValueRow(label: "Entitlement", value: companionManager.clickyLaunchEntitlementStatusLabel)
+                    StudioKeyValueRow(label: "Trial", value: companionManager.clickyLaunchTrialStatusLabel)
+                    StudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
 
-                    Text("Clicky can speak responses, stay visually present next to your cursor, and keep your OpenClaw agent feeling native inside the desktop experience without rewriting that agent’s core identity.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+                    HStack(spacing: 10) {
+                        launchAccessButton(
+                            title: "Sign In",
+                            systemImage: "person.crop.circle.badge.plus"
+                        ) {
+                            companionManager.startClickyLaunchSignIn()
+                        }
 
-            StudioCard(title: "Remote Support", subtitle: "You can still use this with a hosted OpenClaw instance later") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(companionManager.clickyOpenClawRemoteReadinessSummary)
+                        launchAccessButton(
+                            title: "Sign Out",
+                            systemImage: "person.crop.circle.badge.xmark"
+                        ) {
+                            companionManager.signOutClickyLaunchSession()
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        launchAccessPrimaryButton(
+                            title: "Buy Launch Pass",
+                            systemImage: "creditcard"
+                        ) {
+                            companionManager.startClickyLaunchCheckout()
+                        }
+
+                        launchAccessButton(
+                            title: "Restore Access",
+                            systemImage: "arrow.clockwise.circle"
+                        ) {
+                            companionManager.restoreClickyLaunchAccess()
+                        }
+                    }
+
+                    Text("The Mac app initiates sign-in and purchase. Technical trial and paywall controls live in Support so this panel stays production-ready.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1011,163 +1034,292 @@ struct CompanionStudioView: View {
 
     private var diagnosticsSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            StudioCard(title: "Diagnostics", subtitle: "Internal app and integration state for debugging") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("This section is intentionally more technical. It’s here so we can debug identity, shell registration, and bridge behavior without exposing those details in the normal user flow.")
+            StudioCard(title: "Support", subtitle: "The only place where diagnostics, test controls, and exports should live") {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 10) {
+                        StudioStatusPill(
+                            label: isSupportModeEnabled ? "Support mode on" : "Support mode off",
+                            tone: isSupportModeEnabled ? .warning : .neutral
+                        )
+
+                        if isSupportModeEnabled {
+                            StudioStatusPill(label: "Design Lab visible", tone: .info)
+                        }
+                    }
+
+                    Text(isSupportModeEnabled
+                         ? "Support mode is active. Internal diagnostics, shell tools, and launch simulation controls are now visible below."
+                         : "Support mode is currently off. This keeps the main Studio production-ready while still leaving support reports available when you need them.")
+                        .font(ClickyTypography.body(size: 13))
+                        .foregroundColor(theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Toggle("Enable support mode", isOn: $isSupportModeEnabled)
+                        .toggleStyle(.switch)
+                        .tint(theme.primary)
+                        .animation(.spring(response: 0.28, dampingFraction: 0.88), value: isSupportModeEnabled)
+
+                    HStack(spacing: 10) {
+                        supportActionButton(title: "Copy Support Report", systemImage: "doc.on.doc") {
+                            let pasteboard = NSPasteboard.general
+                            pasteboard.clearContents()
+                            pasteboard.setString(diagnosticsSupportReportText, forType: .string)
+                        }
+
+                        supportActionButton(title: "Export Support Report", systemImage: "square.and.arrow.up") {
+                            exportDiagnosticsSupportReport()
+                        }
+                    }
+
+                    Text("Support reports include redacted recent logs and the current launch access state. Deeper debugging and simulation controls stay tucked away until support mode is enabled.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-
-                    StudioKeyValueRow(label: "Speech provider", value: companionManager.clickySpeechProviderMode.displayName)
-                    StudioKeyValueRow(label: "Resolved output", value: companionManager.effectiveVoiceOutputDisplayName)
-                    StudioKeyValueRow(label: "ElevenLabs voice", value: companionManager.effectiveSpeechRouting.selectedVoiceNameLabel)
-                    StudioKeyValueRow(label: "Voice id", value: companionManager.effectiveSpeechRouting.selectedVoiceIDLabel)
-                    StudioKeyValueRow(label: "Voice fetch", value: companionManager.elevenLabsStatusLabel)
-                    StudioKeyValueRow(label: "Voice import", value: elevenLabsImportStatusTitle)
-                    StudioKeyValueRow(label: "Speech fallback", value: companionManager.speechFallbackSummary ?? "No fallback")
-                    StudioKeyValueRow(label: "Voice preview", value: companionManager.speechPreviewStatusLabel)
-                    StudioKeyValueRow(label: "OpenClaw agent id", value: companionManager.inferredOpenClawAgentIdentifier ?? "Not detected")
-                    StudioKeyValueRow(label: "OpenClaw emoji", value: companionManager.inferredOpenClawAgentIdentityEmojiLabel)
-                    StudioKeyValueRow(label: "OpenClaw avatar", value: companionManager.inferredOpenClawAgentIdentityAvatarLabel)
-                    StudioKeyValueRow(label: "Shell trust", value: companionManager.clickyShellServerTrustLabel)
-                    StudioKeyValueRow(label: "Shell freshness", value: companionManager.clickyShellServerFreshnessLabel)
-                    StudioKeyValueRow(label: "Session binding", value: companionManager.clickyShellServerBindingLabel)
-                    StudioKeyValueRow(label: "Bound session", value: companionManager.clickyShellServerSessionKeyLabel)
-
-                    HStack(spacing: 10) {
-                        Button(action: {
-                            companionManager.registerClickyShellNow()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Register Shell")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            companionManager.refreshClickyShellStatusNow()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Refresh Shell Status")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-                    }
-
-                    shellRegistrationStatusView
-
-                    if let clickyShellServerStatusSummary = companionManager.clickyShellServerStatusSummary,
-                       !clickyShellServerStatusSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        DisclosureGroup("Raw shell summary") {
-                            Text(clickyShellServerStatusSummary)
-                                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                .foregroundColor(DS.Colors.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.top, 8)
-                                .textSelection(.enabled)
-                        }
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(DS.Colors.textSecondary)
-                    }
-
-                    HStack(spacing: 10) {
-                        Button(action: {
-                            let pasteboard = NSPasteboard.general
-                            pasteboard.clearContents()
-                            pasteboard.setString(ClickyDiagnosticsStore.shared.formattedRecentLogText(), forType: .string)
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "doc.on.doc")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Copy Recent Logs")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-
-                        Button(action: {
-                            ClickyDiagnosticsStore.shared.clear()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("Clear Buffer")
-                                    .font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(DS.Colors.surface2)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-                    }
                 }
             }
+
+            if isSupportModeEnabled {
+                StudioCard(title: "Launch Simulation", subtitle: "All launch trial and paywall simulation controls stay isolated here") {
+                    VStack(alignment: .leading, spacing: 14) {
+                        StudioKeyValueRow(label: "Backend URL", value: companionManager.clickyBackendStatusLabel)
+                        StudioKeyValueRow(label: "Account", value: companionManager.clickyLaunchAuthStatusLabel)
+                        StudioKeyValueRow(label: "Entitlement", value: companionManager.clickyLaunchEntitlementStatusLabel)
+                        StudioKeyValueRow(label: "Trial", value: companionManager.clickyLaunchTrialStatusLabel)
+                        StudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
+
+                        StudioTextField(
+                            title: "Launch backend URL",
+                            text: Binding(
+                                get: { companionManager.clickyBackendBaseURL },
+                                set: { companionManager.clickyBackendBaseURL = $0 }
+                            ),
+                            placeholder: "https://api.clicky.app"
+                        )
+
+                        HStack(spacing: 10) {
+                            supportActionButton(title: "Activate Trial", systemImage: "sparkles") {
+                                companionManager.activateClickyLaunchTrial()
+                            }
+                            supportActionButton(title: "Refresh Trial", systemImage: "hourglass") {
+                                companionManager.refreshClickyLaunchTrialState()
+                            }
+                        }
+
+                        HStack(spacing: 10) {
+                            supportActionButton(title: "Consume Credit", systemImage: "minus.circle") {
+                                companionManager.consumeClickyLaunchTrialCredit()
+                            }
+                            supportActionButton(title: "Activate Paywall", systemImage: "lock.circle") {
+                                companionManager.activateClickyLaunchPaywall()
+                            }
+                        }
+
+                        Text("These actions are only for support, QA, and paywall iteration. They should never sit next to the normal purchase and restore controls.")
+                            .font(.system(size: 12))
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                StudioCard(title: "Diagnostics", subtitle: "Internal app and integration state for debugging") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("This section is intentionally technical. It should contain the debug state, shell tools, exports, and support-only actions that do not belong in the normal product flow.")
+                            .font(.system(size: 12))
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        StudioKeyValueRow(label: "Speech provider", value: companionManager.clickySpeechProviderMode.displayName)
+                        StudioKeyValueRow(label: "Resolved output", value: companionManager.effectiveVoiceOutputDisplayName)
+                        StudioKeyValueRow(label: "ElevenLabs voice", value: companionManager.effectiveSpeechRouting.selectedVoiceNameLabel)
+                        StudioKeyValueRow(label: "Voice id", value: companionManager.effectiveSpeechRouting.selectedVoiceIDLabel)
+                        StudioKeyValueRow(label: "Voice fetch", value: companionManager.elevenLabsStatusLabel)
+                        StudioKeyValueRow(label: "Voice import", value: elevenLabsImportStatusTitle)
+                        StudioKeyValueRow(label: "Speech fallback", value: companionManager.speechFallbackSummary ?? "No fallback")
+                        StudioKeyValueRow(label: "Voice preview", value: companionManager.speechPreviewStatusLabel)
+                        StudioKeyValueRow(label: "OpenClaw agent id", value: companionManager.inferredOpenClawAgentIdentifier ?? "Not detected")
+                        StudioKeyValueRow(label: "OpenClaw emoji", value: companionManager.inferredOpenClawAgentIdentityEmojiLabel)
+                        StudioKeyValueRow(label: "OpenClaw avatar", value: companionManager.inferredOpenClawAgentIdentityAvatarLabel)
+                        StudioKeyValueRow(label: "Shell trust", value: companionManager.clickyShellServerTrustLabel)
+                        StudioKeyValueRow(label: "Shell freshness", value: companionManager.clickyShellServerFreshnessLabel)
+                        StudioKeyValueRow(label: "Session binding", value: companionManager.clickyShellServerBindingLabel)
+                        StudioKeyValueRow(label: "Bound session", value: companionManager.clickyShellServerSessionKeyLabel)
+
+                        HStack(spacing: 10) {
+                            Button(action: {
+                                companionManager.registerClickyShellNow()
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("Register Shell")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(DS.Colors.surface2)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .pointerCursor()
+
+                            Button(action: {
+                                companionManager.refreshClickyShellStatusNow()
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("Refresh Shell Status")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(DS.Colors.surface2)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .pointerCursor()
+                        }
+
+                        shellRegistrationStatusView
+
+                        if let clickyShellServerStatusSummary = companionManager.clickyShellServerStatusSummary,
+                           !clickyShellServerStatusSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            DisclosureGroup("Raw shell summary") {
+                                Text(clickyShellServerStatusSummary)
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundColor(DS.Colors.textSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.top, 8)
+                                    .textSelection(.enabled)
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(DS.Colors.textSecondary)
+                        }
+
+                        HStack(spacing: 10) {
+                            supportActionButton(title: "Clear Buffer", systemImage: "trash") {
+                                ClickyDiagnosticsStore.shared.clear()
+                            }
+                        }
+                    }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                StudioCard(title: "Diagnostics Hidden", subtitle: "Production Studio stays clean until you deliberately reveal internal tools") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Enable support mode when you need launch simulation, raw shell state, or deeper diagnostics. Until then, this panel stays intentionally quiet.")
+                            .font(.system(size: 12))
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        HStack(spacing: 10) {
+                            StudioStatusPill(label: "Launch simulation hidden", tone: .neutral)
+                            StudioStatusPill(label: "Raw shell tools hidden", tone: .neutral)
+                        }
+                    }
+                }
+                .transition(.opacity)
+            }
         }
+        .animation(.spring(response: 0.32, dampingFraction: 0.88), value: isSupportModeEnabled)
     }
 
     private var sectionHeroDescription: String {
         switch selectedSection {
         case .general:
-            return "Tune the shell itself: runtime mode, backend routing, and the core companion behavior users feel first."
+            return "The everyday chapter. Keep the shell soft, useful, and legible while the heavier configuration work stays deeper in the story."
         case .openClaw:
-            return "Connect Clicky to your OpenClaw agent, keep the identity clean, and only touch technical setup when you actually need to."
+            return "Bring your existing OpenClaw agent into Clicky without breaking its identity. Connection, presence, and bridge setup all live here."
         case .voiceAppearance:
-            return "Own the speech pipeline and visual shell here so later voice packs and cursor skins have a real home."
+            return "Voice, persona, and the surface look all belong to the same chapter. This is where Clicky starts feeling like itself."
         case .integrations:
-            return "Set up the OpenClaw bridge once, then let it fade into the background so the integration feels built in."
+            return "A clean commercial chapter. Sign in, unlock, and restore without any of the internal launch scaffolding leaking into the user path."
+        case .designLab:
+            return "Compare three Studio directions before we commit to a full redesign. Each option keeps diagnostics isolated from the production-facing app flow."
         case .diagnostics:
-            return "Internal activity, bridge state, and debugging details live here instead of cluttering the normal user flow."
+            return "A technical appendix for debugging, exports, and launch simulation. This is intentionally backstage."
+        }
+    }
+
+    private var sectionChapterLabel: String {
+        switch selectedSection {
+        case .general:
+            return "Chapter 01"
+        case .openClaw:
+            return "Chapter 02"
+        case .voiceAppearance:
+            return "Chapter 03"
+        case .integrations:
+            return "Chapter 04"
+        case .designLab:
+            return "Lab"
+        case .diagnostics:
+            return "Appendix"
+        }
+    }
+
+    private var sectionAccent: Color {
+        switch selectedSection {
+        case .general:
+            return theme.glowA
+        case .openClaw:
+            return theme.primary
+        case .voiceAppearance:
+            return theme.accent
+        case .integrations:
+            return theme.warning
+        case .designLab:
+            return theme.accentStrong
+        case .diagnostics:
+            return theme.glowB
+        }
+    }
+
+    private var sectionHeroBadges: [(label: String, value: String, tone: StudioStatusTone)] {
+        switch selectedSection {
+        case .general:
+            return [
+                ("Backend", companionManager.selectedAgentBackend.displayName, .info),
+                ("Speech", companionManager.effectiveVoiceOutputDisplayName, .neutral)
+            ]
+        case .openClaw:
+            return [
+                ("Gateway", openClawConnectionStatusLabel, openClawConnectionTone),
+                ("Identity", companionManager.effectiveClickyPresentationName, .neutral)
+            ]
+        case .voiceAppearance:
+            return [
+                ("Theme", companionManager.clickyThemePreset.displayName, .info),
+                ("Voice", companionManager.effectiveVoiceOutputDisplayName, .neutral)
+            ]
+        case .integrations:
+            return [
+                ("Account", companionManager.clickyLaunchAuthStatusLabel, .neutral),
+                ("Entitlement", companionManager.clickyLaunchEntitlementStatusLabel, .success),
+                ("Trial", companionManager.clickyLaunchTrialStatusLabel, .warning)
+            ]
+        case .designLab:
+            return [
+                ("Mode", "Exploration", .info)
+            ]
+        case .diagnostics:
+            return [
+                ("Support", isSupportModeEnabled ? "Enabled" : "Hidden", isSupportModeEnabled ? .warning : .neutral)
+            ]
         }
     }
 
@@ -1406,6 +1558,140 @@ struct CompanionStudioView: View {
     }
 
     @ViewBuilder
+    private var pluginSetupCards: some View {
+        if shouldShowPluginSetupFlow {
+            StudioCard(title: "Desktop Bridge Setup", subtitle: "A one-time setup step for this machine") {
+                VStack(alignment: .leading, spacing: 12) {
+                    StudioStepRow(
+                        stepNumber: 1,
+                        title: "Install the plugin",
+                        detail: "Run this once from your terminal.",
+                        statusLabel: companionManager.clickyOpenClawPluginStatus == .notConfigured ? "Needed" : "Done",
+                        statusTone: companionManager.clickyOpenClawPluginStatus == .notConfigured ? .warning : .success
+                    )
+
+                    StudioCommandBlock(
+                        title: "Install command",
+                        command: companionManager.clickyOpenClawPluginInstallCommand
+                    )
+
+                    StudioStepRow(
+                        stepNumber: 2,
+                        title: "Enable it in OpenClaw",
+                        detail: "This turns the plugin on and restarts the Gateway.",
+                        statusLabel: companionManager.clickyOpenClawPluginStatus == .enabled ? "Done" : "Needed",
+                        statusTone: companionManager.clickyOpenClawPluginStatus == .enabled ? .success : .warning
+                    )
+
+                    StudioCommandBlock(
+                        title: "Enable + restart",
+                        command: companionManager.clickyOpenClawPluginEnableCommand
+                    )
+                }
+            }
+        } else {
+            StudioCard(title: "Desktop Bridge", subtitle: "The OpenClaw bridge is already set up on this machine") {
+                VStack(alignment: .leading, spacing: 12) {
+                    StudioStatusPill(label: "Ready", tone: .success)
+
+                    Text("Clicky is already connected to OpenClaw here. You should not need to repeat setup unless you reinstall OpenClaw or move to a different machine.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var diagnosticsSupportReportText: String {
+        let contextLines = [
+            "Clicky Support Report",
+            "Generated: \(ISO8601DateFormatter().string(from: Date()))",
+            "App Auth: \(companionManager.clickyLaunchAuthStatusLabel)",
+            "Entitlement: \(companionManager.clickyLaunchEntitlementStatusLabel)",
+            "Checkout: \(companionManager.clickyLaunchBillingStatusLabel)",
+            "Speech Provider: \(companionManager.clickySpeechProviderMode.displayName)",
+            "Resolved Output: \(companionManager.effectiveVoiceOutputDisplayName)",
+            "OpenClaw Agent: \(companionManager.inferredOpenClawAgentIdentifier ?? "Not detected")",
+            "Shell Trust: \(companionManager.clickyShellServerTrustLabel)",
+            "Shell Freshness: \(companionManager.clickyShellServerFreshnessLabel)",
+            "Session Binding: \(companionManager.clickyShellServerBindingLabel)",
+            "",
+            "Recent Logs",
+            ClickyDiagnosticsStore.shared.formattedRecentLogText()
+        ]
+
+        return contextLines.joined(separator: "\n")
+    }
+
+    private func exportDiagnosticsSupportReport() {
+        let savePanel = NSSavePanel()
+        savePanel.canCreateDirectories = true
+        savePanel.nameFieldStringValue = "clicky-support-report.txt"
+        savePanel.title = "Export Clicky Support Report"
+        savePanel.message = "This report contains redacted diagnostics and recent logs."
+
+        guard savePanel.runModal() == .OK,
+              let url = savePanel.url else { return }
+
+        do {
+            try diagnosticsSupportReportText.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    private func supportActionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        neutralStudioButton(title: title, systemImage: systemImage, action: action)
+    }
+
+    private func launchAccessButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        neutralStudioButton(title: title, systemImage: systemImage, action: action)
+    }
+
+    private func launchAccessPrimaryButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+        .modifier(StudioProminentActionButtonStyle())
+        .pointerCursor()
+    }
+
+    private func neutralStudioButton(
+        title: String,
+        systemImage: String,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+            }
+            .foregroundColor(isEnabled ? theme.textPrimary : theme.textMuted)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+        .modifier(StudioActionButtonStyle(isEnabled: isEnabled))
+        .disabled(!isEnabled)
+        .pointerCursor(isEnabled: isEnabled)
+    }
+
+    @ViewBuilder
     private var shellRegistrationStatusView: some View {
         switch companionManager.clickyShellRegistrationStatus {
         case .idle:
@@ -1452,26 +1738,141 @@ private struct StudioCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(ClickyTypography.section(size: 23))
-                    .foregroundColor(theme.textPrimary)
                 Text(subtitle)
                     .font(ClickyTypography.mono(size: 12, weight: .medium))
                     .foregroundColor(theme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(title)
+                    .font(ClickyTypography.display(size: 30))
+                    .foregroundColor(theme.textPrimary)
+            }
+
+            content
+        }
+        .padding(.vertical, 6)
+        .overlay(alignment: .topLeading) {
+            Capsule(style: .continuous)
+                .fill(theme.primary.opacity(0.45))
+                .frame(width: 80, height: 3)
+                .padding(.top, 2)
+        }
+    }
+}
+
+private struct StudioSubsection<Content: View>: View {
+    @Environment(\.clickyTheme) private var theme
+
+    let title: String
+    let subtitle: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(ClickyTypography.section(size: 20))
+                    .foregroundColor(theme.textPrimary)
+
+                Text(subtitle)
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             content
         }
-        .padding(22)
-        .background(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(theme.card.opacity(0.88))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .stroke(theme.strokeSoft, lineWidth: 1)
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct StudioChapterDivider: View {
+    @Environment(\.clickyTheme) private var theme
+
+    var body: some View {
+        Rectangle()
+            .fill(theme.strokeSoft.opacity(0.8))
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
+    }
+}
+
+private struct StudioActionButtonStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .foregroundColor(isEnabled ? theme.textPrimary : theme.textMuted)
+                .buttonStyle(.glass)
+                .tint(theme.primary.opacity(0.16))
+        } else {
+            content
+                .foregroundColor(isEnabled ? theme.textPrimary : theme.textMuted)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(theme.card.opacity(isEnabled ? 0.7 : 0.4))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(theme.strokeSoft, lineWidth: 0.9)
+                )
+        }
+    }
+}
+
+private struct StudioProminentActionButtonStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .foregroundColor(.black.opacity(0.82))
+                .buttonStyle(.glassProminent)
+                .tint(theme.accent)
+        } else {
+            content
+                .foregroundColor(.white)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(theme.accent)
+                )
+        }
+    }
+}
+
+private struct ClickyStudioShellStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+        if #available(macOS 26.0, *) {
+            content
+                .background(
+                    shape
+                        .fill(.clear)
+                        .glassEffect(.regular.tint(theme.primary.opacity(0.05)).interactive(), in: shape)
+                )
+                .overlay(
+                    shape
+                        .stroke(theme.strokeSoft, lineWidth: 0.9)
+                )
+        } else {
+            content
+                .background(
+                    shape
+                        .fill(theme.card.opacity(0.9))
+                )
+                .overlay(
+                    shape
+                        .stroke(theme.strokeSoft, lineWidth: 0.9)
+                )
+        }
     }
 }
 

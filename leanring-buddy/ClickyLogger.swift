@@ -120,14 +120,83 @@ enum ClickyLogger {
     }
 
     private static func log(category: ClickyLogCategory, level: ClickyLogLevel, message: String) {
-        logger(for: category).log(level: level.osLogType, "\(message, privacy: .public)")
+        let redactedMessage = ClickyLogRedactor.redact(message)
+        logger(for: category).log(level: level.osLogType, "\(redactedMessage, privacy: .public)")
 
         Task { @MainActor in
             ClickyDiagnosticsStore.shared.append(
                 category: category,
                 level: level,
-                message: message
+                message: redactedMessage
             )
         }
+    }
+}
+
+private enum ClickyLogRedactor {
+    private static let knownSecretAccounts = [
+        "elevenlabs_api_key",
+        "clicky_auth_session",
+    ]
+
+    private static let userDefaultSecretKeys = [
+        "openClawGatewayAuthToken",
+    ]
+
+    static func redact(_ message: String) -> String {
+        var redactedMessage = message
+
+        let patternReplacements: [(String, String)] = [
+            (#"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,]+"#, "$1[REDACTED]"),
+            (#"(?i)(\"access[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(\"refresh[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(\"session[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(\"client[_-]?secret\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(api[_ -]?key\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
+            (#"(?i)(token\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
+            (#"(?i)(secret\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
+            (#"(?i)(code=)[^&\s]+"#, "$1[REDACTED]"),
+            (#"(?i)(token=)[^&\s]+"#, "$1[REDACTED]"),
+            (#"(?i)(secret=)[^&\s]+"#, "$1[REDACTED]"),
+        ]
+
+        for (pattern, template) in patternReplacements {
+            redactedMessage = replacing(pattern: pattern, in: redactedMessage, with: template)
+        }
+
+        for secretValue in sensitiveValues() where !secretValue.isEmpty {
+            redactedMessage = redactedMessage.replacingOccurrences(of: secretValue, with: "[REDACTED]")
+        }
+
+        return redactedMessage
+    }
+
+    private static func sensitiveValues() -> [String] {
+        var values: [String] = []
+
+        for account in knownSecretAccounts {
+            if let value = ClickySecrets.load(account: account)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                values.append(value)
+            }
+        }
+
+        for key in userDefaultSecretKeys {
+            if let value = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                values.append(value)
+            }
+        }
+
+        return values
+    }
+
+    private static func replacing(pattern: String, in source: String, with template: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return source
+        }
+
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        return regex.stringByReplacingMatches(in: source, range: range, withTemplate: template)
     }
 }

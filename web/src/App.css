@@ -1,0 +1,374 @@
+/* App-specific styles - Elegant Edition */
+
+/* Ensure smooth scrolling behavior */
+html {
+  scroll-behavior: auto;
+}
+
+/* Pin spacer styling */
+.pin-spacer {
+  background-color: transparent !important;
+}
+
+/* Ensure sections stack properly */
+section {
+  will-change: transform;
+}
+
+/* Card hover effects */
+.shadow-elegant {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Button hover states */
+button {
+  transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+/* Speech bubble animations */
+@keyframes bubblePop {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.bubble-animate {
+  animation: bubblePop 0.3s ease-out forwards;
+}
+
+/* Mascot gentle float animation */
+@keyframes mascotFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.mascot-float {
+  animation: mascotFloat 3s ease-in-out infinite;
+}
+
+/* Hero UI Cards - subtle smooth float animations */
+@keyframes heroFloat {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  33% {
+    transform: translateY(-8px) rotate(0.5deg);
+  }
+  66% {
+    transform: translateY(-4px) rotate(-0.3deg);
+  }
+}
+
+@keyframes heroFloatSlow {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(-0.5deg);
+  }
+}
+
+@keyframes heroFloatReverse {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  40% {
+    transform: translateY(-6px) rotate(0.3deg);
+  }
+  70% {
+    transform: translateY(-10px) rotate(-0.4deg);
+  }
+}
+
+.hero-float {
+  animation: heroFloat 6s ease-in-out infinite;
+}
+
+.hero-float-slow {
+  animation: heroFloatSlow 8s ease-in-out infinite;
+}
+
+.hero-float-reverse {
+  animation: heroFloatReverse 7s ease-in-out infinite;
+  animation-delay: -2s;
+}
+
+/* Slow pulse for companion cursor */
+@keyframes pulseSlow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.05);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulseSlow 2s ease-in-out infinite;
+}
+
+@keyframes companionListenBar {
+  0%, 100% {
+    opacity: 0.48;
+    transform: scaleY(0.58);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1.12);
+  }
+}
+
+.companion-listen-bar {
+  animation: companionListenBar 0.9s ease-in-out infinite;
+  transform-origin: center bottom;
+  will-change: transform, opacity;
+}
+
+@keyframes companionProcessingDot {
+  0%, 100% {
+    opacity: 0.32;
+    transform: translateY(0) scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.08);
+  }
+}
+
+.companion-processing-dot {
+  animation: companionProcessingDot 0.78s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes companionSpinnerRing {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.companion-spinner-ring {
+  animation: companionSpinnerRing 0.9s linear infinite;
+  border-style: solid;
+  border-width: 2px;
+  will-change: transform;
+}
+
+@keyframes companionSpeakBar {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scaleY(0.62);
+  }
+  35% {
+    opacity: 0.9;
+    transform: scaleY(1.22);
+  }
+  65% {
+    opacity: 1;
+    transform: scaleY(0.82);
+  }
+}
+
+.companion-speak-bar {
+  animation: companionSpeakBar 0.72s ease-in-out infinite;
+  transform-origin: center bottom;
+  will-change: transform, opacity;
+}
+
+/* Scrollbar styling - elegant minimal */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* Selection styling */
+::selection {
+  background: rgba(155, 143, 191, 0.2);
+  color: inherit;
+}
+
+/* Focus states */
+button:focus-visible,
+a:focus-visible {
+  outline: 1px solid #9B8FBF;
+  outline-offset: 2px;
+}
+
+/* Image loading placeholder */
+img {
+  background: linear-gradient(135deg, #f5f5f5 0%, #eeeeee 100%);
+}
+
+/* Hairline dividers */
+.hairline {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,0,0,0.08), transparent);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .rounded-3xl {
+    border-radius: 20px;
+  }
+  
+  section {
+    overflow-x: hidden;
+  }
+}
+
+@media (max-width: 480px) {
+  .rounded-3xl {
+    border-radius: 16px;
+  }
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Typography refinements */
+.font-serif-italic {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Smooth color transitions */
+.text-lavender {
+  color: #9B8FBF;
+}
+
+.text-sage {
+  color: #7A9B8A;
+}
+
+/* Background color utilities */
+.bg-warm {
+  background-color: #FAF8F5;
+}
+
+.bg-sage {
+  background-color: #E8EDE9;
+}
+
+.bg-lavender {
+  background-color: #EAE8F0;
+}
+
+.bg-rose {
+  background-color: #F5E8E8;
+}
+
+/* Z-index layering for sections */
+.z-10 { z-index: 10; }
+.z-20 { z-index: 20; }
+.z-30 { z-index: 30; }
+.z-40 { z-index: 40; }
+.z-50 { z-index: 50; }
+.z-60 { z-index: 60; }
+.z-70 { z-index: 70; }
+.z-80 { z-index: 80; }
+.z-90 { z-index: 90; }
+.z-100 { z-index: 100; }
+
+@keyframes companionTargetGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(155, 143, 191, 0.22);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    box-shadow: 0 0 0 18px rgba(155, 143, 191, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes companionTargetPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(122, 155, 196, 0.24);
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(122, 155, 196, 0);
+    opacity: 0;
+    transform: scale(1.05);
+  }
+}
+
+[data-companion-highlight='true'],
+[data-companion-highlight='pulse'] {
+  position: relative;
+  isolation: isolate;
+}
+
+[data-companion-highlight='true']::after,
+[data-companion-highlight='pulse']::after {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  border-radius: 28px;
+  border: 1px solid rgba(155, 143, 191, 0.5);
+  box-shadow: 0 0 0 10px rgba(155, 143, 191, 0.1);
+  pointer-events: none;
+}
+
+[data-companion-highlight='true']::after {
+  animation: companionTargetGlow 1.8s ease-out forwards;
+}
+
+[data-companion-highlight='pulse']::after {
+  animation: companionTargetPulse 0.82s ease-out 2;
+}
+
+[data-companion-highlight='true'][data-companion-target-kind='cta']::after,
+[data-companion-highlight='pulse'][data-companion-target-kind='cta']::after {
+  inset: -8px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 6px rgba(155, 143, 191, 0.12);
+}

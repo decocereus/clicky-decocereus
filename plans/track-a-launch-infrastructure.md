@@ -1,134 +1,189 @@
-# Plan: Track A - Launch Infrastructure
+# Track A - Launch Infrastructure
 
-> Source PRD: Clicky product vision, launch/distribution discussion, auth/billing/update requirements from the current collaboration.
+> Current-state checklist for Clicky's launch infrastructure. This replaces the earlier phase-only planning view with a status-driven view of what is locked, what is implemented, what is partial, and what is still required before launch.
 
-## Architectural decisions
+## Locked Decisions
 
-Durable decisions that apply across this track:
+These are the decisions we are currently building around:
 
-- **Distribution**: Clicky ships outside the Mac App Store as a signed, notarized direct download from the project website.
-- **Update system**: Clicky uses Sparkle for appcast-based updates, optional auto-update, and in-app "check for updates."
-- **Billing**: Polar is the billing/checkout system.
-- **Entitlements**: The Mac app and web app share one entitlement source of truth through a tiny backend plus small database.
-- **Backend scope**: Minimal backend only. Responsible for auth, billing webhook processing, entitlement state, device/app unlock checks, and support telemetry endpoints if needed later.
-- **Persistence split**:
-  - **Local-only**: UI preferences, persona settings, BYO provider settings, cached voice choices, diagnostics toggle state.
-  - **Backend-backed**: user identity, purchase/license/subscription state, entitlement state, webhook event dedupe, update channels if introduced later.
-- **Secrets**: Local BYO provider API keys remain on device where possible and should be stored in Keychain, not in the backend database.
-- **Diagnostics**: Diagnostics are hidden by default behind a support/developer toggle and can be copied/exported for support.
-- **Frontend website**: The public website / web app UI will be built by the user directly, not by Codex. This plan covers backend contracts and app integration points that the frontend depends on.
+- Clicky ships as a direct-download macOS app outside the Mac App Store.
+- The website is a marketing and distribution surface, not the primary billing surface.
+- The Mac app initiates auth and purchase flows.
+- Auth is required for restore and entitlement sync.
+- Google sign-in is the launch auth method.
+- Checkout is Polar-hosted and opened from the Mac app.
+- The launch commercial offer is a single launch pass product, not a multi-tier pricing model.
+- Entitlements are user-level, not device-bound.
+- Sparkle is the update mechanism.
 
----
+## Done
 
-## Phase 1: Support Mode And Diagnostics Gate
+These items are effectively implemented in code or documented strongly enough to count as completed for this track.
 
-**User stories**:
-- As a normal user, I should not see technical debugging information by default.
-- As a support user, I should be able to enable diagnostics, inspect logs, and export them for debugging.
+### Contracts and backend shape
 
-### What to build
+- [x] Launch auth, billing, entitlement, and restore contracts are documented in [launch-phase-0-contracts.md](/Users/amartyasingh/Documents/projects/clicky-decocereus/docs/launch-phase-0-contracts.md).
+- [x] Backend stack is chosen and scaffolded:
+  - Cloudflare Workers + Hono
+  - Neon Postgres
+  - Drizzle
+  - Better Auth
+  - Polar
+- [x] Better Auth tables and app-owned billing/entitlement tables are present in migrations.
 
-Hide the current Diagnostics surface behind a support-mode toggle in Settings. When support mode is off, diagnostics are absent from the normal navigation. When enabled, the diagnostics panel exposes structured logs, latest request/response traces where safe, support export actions, and redaction-aware copy/export behavior.
+### Auth foundation
 
-### Acceptance criteria
+- [x] Google sign-in is wired through Better Auth.
+- [x] Native auth handoff is implemented:
+  - `GET /v1/auth/native/start`
+  - `GET /v1/auth/native/callback`
+  - `POST /v1/auth/native/exchange`
+- [x] The web handoff page exists and routes correctly at `/auth/native`.
+- [x] The Mac app can initiate sign-in from Studio.
+- [x] The Mac app can receive `clicky://auth/callback?...` and exchange the handoff code.
+- [x] The Mac app stores the resulting session in Keychain.
+- [x] The Mac app restores an existing session on launch.
 
-- [ ] Diagnostics are hidden by default for normal users.
-- [ ] A support/developer toggle enables the diagnostics section.
-- [ ] Diagnostics can copy/export structured logs in a support-friendly format.
-- [ ] Sensitive local secrets are excluded or redacted from any exported bundle.
+### Entitlement model
 
----
+- [x] Entitlement schema exists in the backend.
+- [x] `GET /v1/entitlements/me` is implemented.
+- [x] The Mac app tracks entitlement state separately from raw auth state.
+- [x] Studio surfaces account and entitlement state.
 
-## Phase 2: Auth Foundation And Tiny Backend
+### Polar integration core
 
-**User stories**:
-- As a user, I can create/sign in to a Clicky account.
-- As the product owner, I have one backend identity surface shared by Mac and web.
+- [x] `POST /v1/billing/checkout` creates real Polar checkout sessions.
+- [x] Checkout audit records are persisted.
+- [x] `POST /v1/webhooks/polar` verifies Polar webhooks.
+- [x] `order.paid` updates launch entitlement state.
+- [x] `order.refunded` updates launch entitlement state.
+- [x] The Mac app can open Polar checkout from Studio.
+- [x] The Mac app has a manual `Refresh Access` path.
+- [x] Billing callback URLs exist:
+  - `GET /v1/billing/callback/success`
+  - `GET /v1/billing/callback/cancel`
+- [x] The Mac app handles `clicky://billing/success` and `clicky://billing/cancel`.
 
-### What to build
+### Website/backend integration
 
-Introduce a minimal backend and data store for authentication and identity. The backend issues authenticated app sessions and gives the Mac app a stable way to ask "who is this user?" and "what should be unlocked for them?" The web app consumes the same identity layer.
+- [x] The website can talk to backend auth and `/v1/*` endpoints with CORS enabled.
+- [x] The website no longer owns billing UX at launch.
+- [x] The website contains a native auth handoff bridge without needing custom checkout UI.
 
-### Acceptance criteria
+## Partial / Needs Verification
 
-- [ ] Users can sign in and sign out.
-- [ ] The Mac app can establish an authenticated session against the backend.
-- [ ] The backend stores only the minimum identity/account data needed for entitlement sync.
-- [ ] The auth/session model is shared between the Mac app and web app.
+These are implemented enough to exist, but are not proven or polished enough to count as fully done for launch.
 
----
+### Live auth and purchase proof
 
-## Phase 3: Polar Billing And Entitlement Sync
+- [ ] Google sign-in flow needs one full end-to-end live verification with the Mac app, browser, and backend.
+  Current state:
+  - code path exists
+  - local envs were verified
+  - OAuth URL generation works
+  - needs one real browser consent loop
 
-**User stories**:
-- As a paying user, purchasing on the web should unlock Clicky on Mac.
-- As the product owner, I need reliable entitlement state after payment events.
+- [ ] Polar purchase flow needs one full end-to-end live verification with a public webhook URL.
+  Current state:
+  - checkout creation works structurally
+  - webhook processing exists
+  - needs a real purchase and real webhook delivery
 
-### What to build
+### Restore and refresh semantics
 
-Integrate Polar billing with the tiny backend so successful purchases update a durable entitlement record. The Mac app should fetch and cache entitlement state after login. Webhooks should be idempotent and the entitlement model should support at least one-time purchase at launch, with room for subscription plans later.
+- [ ] `POST /v1/billing/restore` exists but is still placeholder-ish.
+- [ ] `POST /v1/entitlements/refresh` exists but still behaves more like a read than a provider-backed sync.
+- [ ] Offline grace behavior is documented, but not yet proven under real stale-session scenarios.
 
-### Acceptance criteria
+### Mac app access flow
 
-- [ ] Polar checkout updates backend entitlement state.
-- [ ] Mac app can fetch and reflect current entitlement state after login.
-- [ ] Webhook handling is idempotent and deduped.
-- [ ] Launch pricing can be represented cleanly as a one-time purchase.
+- [ ] Studio has account, entitlement, purchase, and refresh controls, but this is still a technical access surface rather than the final user-facing purchase experience.
+- [ ] Launch access state exists, but the full “signed out / limited / unlocked / degraded” product flow is not yet presented in a polished way to normal users.
 
----
+### Website contract drift
 
-## Phase 4: Mac Unlock Flow And Session Recovery
+- [ ] The website handoff route is implemented, but the docs/checklist should be updated to reflect the current website architecture instead of the earlier, simpler scaffold.
 
-**User stories**:
-- As a user, I can install the Mac app, sign in, and unlock it after purchase.
-- As a returning user, my entitlement should restore without friction.
+## Remaining Before Launch
 
-### What to build
+These are the real launch-blocking items still left.
 
-Add a proper locked/unlocked state machine to the Mac app. On first launch, the app should guide the user to sign in or purchase. On later launches, it should restore the signed-in state and re-check entitlements quietly. Failure states should be understandable and recoverable.
+### 1. Support Mode and Diagnostics Hardening
 
-### Acceptance criteria
+- [ ] Hide Diagnostics behind a support/developer toggle.
+- [ ] Remove diagnostics from the normal user flow by default.
+- [ ] Add safer copy/export behavior for logs.
+- [ ] Ensure sensitive local values are not logged in plain form.
 
-- [ ] Locked users see a clear sign-in / purchase-required flow.
-- [ ] Purchased users unlock successfully after sign-in.
-- [ ] Returning users restore entitlement automatically when possible.
-- [ ] The app handles expired, invalid, or missing entitlements gracefully.
+### 2. Free Taste and In-App Paywall
 
----
+- [ ] Choose and document the exact free-taste boundary.
+- [ ] Enforce the free-taste boundary in the Mac app.
+- [ ] Build the actual in-app paywall UX for normal users.
+- [ ] Make the paywall explain:
+  - what the user got to try
+  - what is now locked
+  - how to sign in, buy, or restore
 
-## Phase 5: Sparkle Update Pipeline
+### 3. Real Restore and Unlock Behavior
 
-**User stories**:
-- As a user, I can update Clicky from inside the app.
-- As the product owner, I can publish updates and have clients discover them reliably.
+- [ ] Make `billing/restore` actually provider-backed.
+- [ ] Make `entitlements/refresh` actually sync provider state when needed.
+- [ ] Tighten unlock behavior after successful purchase.
+- [ ] Tighten returning-user restore behavior across reinstalls.
+- [ ] Confirm refund/revocation behavior is acceptable.
+- [ ] Confirm offline/stale entitlement grace behavior is acceptable.
 
-### What to build
+### 4. Live Purchase Verification
 
-Finish the Sparkle distribution path: appcast generation, signed update artifacts, in-app update settings, and manual/automatic update behavior. Users should be able to opt into auto-update behavior, and the Mac app should be able to surface update availability clearly.
+- [ ] Expose the backend on a public URL for Polar webhook delivery.
+- [ ] Configure Polar webhook endpoint against the public backend.
+- [ ] Run one full real purchase from the Mac app.
+- [ ] Verify:
+  - checkout opens correctly
+  - webhook is received
+  - entitlement flips to active
+  - Mac app reflects access after refresh
 
-### Acceptance criteria
+### 5. Sparkle Runtime Enablement
 
-- [ ] The app can check for updates from a published appcast.
-- [ ] Users can enable/disable automatic updates.
-- [ ] The app can download and install updates through the standard Sparkle flow.
-- [ ] Release signing and update signing are documented and repeatable.
+- [ ] Turn Sparkle on in the running app, not just in release scripts.
+- [ ] Add/update user-facing update controls if needed.
+- [ ] Verify appcast discovery and update flow from the app runtime.
 
----
+### 6. Launch Ops and Docs
 
-## Phase 6: Website Download And Launch Readiness Handoff
+- [ ] Write a concise launch-ops checklist covering:
+  - Google callback configuration
+  - backend envs
+  - Polar product and optional discount
+  - public webhook URL
+  - release/update steps
+- [ ] Update launch docs so they match the current implementation, not the earlier plan narrative.
 
-**User stories**:
-- As a new user, I can buy Clicky on the website and download the Mac app.
-- As the site owner, I can ship the web experience separately from the Mac app backend work.
+## Remaining Nice-to-Have
 
-### What to build
+These are useful, but they should not block the first launch unless they expose a real product or support risk.
 
-Define the backend/API requirements that the user-built web frontend needs: auth endpoints, entitlement endpoints, download gating rules, checkout callbacks, and account pages. The frontend implementation itself is owned by the user and stays outside Codex scope, but the backend contract and Mac app integration points must be clear and stable.
+- [ ] Better support export bundle UX beyond basic log copy/export.
+- [ ] Cleaner website/backend contract documentation for future contributors.
+- [ ] More refined account/purchase UX outside Studio once the main launch flow is proven.
+- [ ] Device-binding exploration if abuse becomes a real issue later.
 
-### Acceptance criteria
+## Immediate Next Steps
 
-- [ ] Backend/API requirements for the website are documented and stable.
-- [ ] Download flow assumptions for the Mac app are clear.
-- [ ] The user can build the web frontend independently against those contracts.
-- [ ] Launch operations checklist exists for site + app + billing + updates.
+If we were executing from this checklist right now, the next best sequence would be:
 
+1. Make `billing/restore` and `entitlements/refresh` real.
+2. Implement free-taste enforcement in the Mac app.
+3. Build the actual paywall UX.
+4. Run one real purchase with a public webhook URL.
+5. Harden whatever breaks in restore/unlock/offline behavior.
+6. Gate Diagnostics behind support mode.
+7. Enable Sparkle runtime behavior in the app.
+
+## Notes
+
+- The codebase has moved beyond the original planning phases. This file should now be treated as the canonical launch status view.
+- When work lands, prefer updating this file by moving items between `Partial`, `Remaining Before Launch`, and `Done` rather than writing a second launch plan.
