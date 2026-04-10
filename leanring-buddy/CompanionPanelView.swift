@@ -340,7 +340,7 @@ struct CompanionPanelView: View {
     // MARK: - Permissions
 
     private var settingsSection: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 4) {
             Text("PERMISSIONS")
                 .font(ClickyTypography.mono(size: 10, weight: .semibold))
                 .foregroundColor(theme.textMuted)
@@ -362,230 +362,68 @@ struct CompanionPanelView: View {
 
     private var accessibilityPermissionRow: some View {
         let isGranted = companionManager.hasAccessibilityPermission
-        return HStack {
-            HStack(spacing: 8) {
-                Image(systemName: "hand.raised")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
-                    .frame(width: 16)
-
-                Text("Accessibility")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
-
-            Spacer()
-
-            if isGranted {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DS.Colors.success)
-                        .frame(width: 6, height: 6)
-                    Text("Granted")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
-                }
-            } else {
-                HStack(spacing: 6) {
-                    Button(action: {
-                        // Triggers the system accessibility prompt (AXIsProcessTrustedWithOptions)
-                        // on first attempt, then opens System Settings on subsequent attempts.
-                        WindowPositionManager.requestAccessibilityPermission()
-                    }) {
-                        Text("Grant")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(DS.Colors.textOnAccent)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(DS.Colors.accent)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-
-                    Button(action: {
-                        // Reveals the app in Finder so the user can drag it into
-                        // the Accessibility list if it doesn't appear automatically
-                        // (common with unsigned dev builds).
-                        WindowPositionManager.revealAppInFinder()
-                        WindowPositionManager.openAccessibilitySettings()
-                    }) {
-                        Text("Find App")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.8)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                }
-            }
-        }
-        .padding(.vertical, 6)
+        return panelPermissionRow(
+            label: "Accessibility",
+            systemImage: "hand.raised",
+            detail: "Needed so Clicky can act on the desktop when you ask it to.",
+            isGranted: isGranted,
+            primaryAction: {
+                WindowPositionManager.requestAccessibilityPermission()
+            },
+            primaryTitle: "Grant",
+            secondaryAction: {
+                WindowPositionManager.revealAppInFinder()
+                WindowPositionManager.openAccessibilitySettings()
+            },
+            secondaryTitle: "Find App"
+        )
     }
 
     private var screenRecordingPermissionRow: some View {
         let isGranted = companionManager.hasScreenRecordingPermission
-        return HStack {
-            HStack(spacing: 8) {
-                Image(systemName: "rectangle.dashed.badge.record")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
-                    .frame(width: 16)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Screen Recording")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(DS.Colors.textSecondary)
-
-                    Text(isGranted
-                         ? "Only takes a screenshot when you use the hotkey"
-                         : "Quit and reopen after granting")
-                        .font(.system(size: 10))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-            }
-
-            Spacer()
-
-            if isGranted {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DS.Colors.success)
-                        .frame(width: 6, height: 6)
-                    Text("Granted")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
-                }
-            } else {
-                Button(action: {
-                    // Triggers the native macOS screen recording prompt on first
-                    // attempt (auto-adds app to the list), then opens System Settings
-                    // on subsequent attempts.
-                    WindowPositionManager.requestScreenRecordingPermission()
-                }) {
-                    Text("Grant")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(DS.Colors.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
-        }
-        .padding(.vertical, 6)
+        return panelPermissionRow(
+            label: "Screen Recording",
+            systemImage: "rectangle.dashed.badge.record",
+            detail: isGranted ? "Only takes a screenshot when you use the hotkey." : "macOS may require a quit and reopen after granting this.",
+            isGranted: isGranted,
+            primaryAction: {
+                WindowPositionManager.requestScreenRecordingPermission()
+            },
+            primaryTitle: "Grant"
+        )
     }
 
     private var screenContentPermissionRow: some View {
         let isGranted = companionManager.hasScreenContentPermission
-        return HStack {
-            HStack(spacing: 8) {
-                Image(systemName: "eye")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
-                    .frame(width: 16)
-
-                Text("Screen Content")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
-
-            Spacer()
-
-            if isGranted {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DS.Colors.success)
-                        .frame(width: 6, height: 6)
-                    Text("Granted")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
-                }
-            } else {
-                Button(action: {
-                    companionManager.requestScreenContentPermission()
-                }) {
-                    Text("Grant")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(DS.Colors.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
-        }
-        .padding(.vertical, 6)
+        return panelPermissionRow(
+            label: "Screen Content",
+            systemImage: "eye",
+            detail: "Lets Clicky inspect screen text and context after recording is already allowed.",
+            isGranted: isGranted,
+            primaryAction: {
+                companionManager.requestScreenContentPermission()
+            },
+            primaryTitle: "Grant"
+        )
     }
 
     private var microphonePermissionRow: some View {
         let isGranted = companionManager.hasMicrophonePermission
-        return HStack {
-            HStack(spacing: 8) {
-                Image(systemName: "mic")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
-                    .frame(width: 16)
-
-                Text("Microphone")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
-
-            Spacer()
-
-            if isGranted {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DS.Colors.success)
-                        .frame(width: 6, height: 6)
-                    Text("Granted")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
+        return panelPermissionRow(
+            label: "Microphone",
+            systemImage: "mic",
+            detail: "Needed for push-to-talk and voice capture.",
+            isGranted: isGranted,
+            primaryAction: {
+                let status = AVCaptureDevice.authorizationStatus(for: .audio)
+                if status == .notDetermined {
+                    AVCaptureDevice.requestAccess(for: .audio) { _ in }
+                } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                    NSWorkspace.shared.open(url)
                 }
-            } else {
-                Button(action: {
-                    // Triggers the native macOS microphone permission dialog on
-                    // first attempt. If already denied, opens System Settings.
-                    let status = AVCaptureDevice.authorizationStatus(for: .audio)
-                    if status == .notDetermined {
-                        AVCaptureDevice.requestAccess(for: .audio) { _ in }
-                    } else {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                }) {
-                    Text("Grant")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(DS.Colors.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
-        }
-        .padding(.vertical, 6)
+            },
+            primaryTitle: "Grant"
+        )
     }
 
     private func permissionRow(
@@ -638,6 +476,67 @@ struct CompanionPanelView: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    private func panelPermissionRow(
+        label: String,
+        systemImage: String,
+        detail: String,
+        isGranted: Bool,
+        primaryAction: @escaping () -> Void,
+        primaryTitle: String,
+        secondaryAction: (() -> Void)? = nil,
+        secondaryTitle: String? = nil
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(isGranted ? theme.textMuted : theme.warning)
+                    .frame(width: 16, height: 16)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(label)
+                        .font(ClickyTypography.body(size: 13, weight: .semibold))
+                        .foregroundColor(theme.textPrimary)
+
+                    Text(detail)
+                        .font(ClickyTypography.body(size: 12))
+                        .foregroundColor(theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                if isGranted {
+                    panelInlineStatus(label: "Granted", tone: .success)
+                } else {
+                    panelInlineStatus(label: "Needed", tone: .warning)
+                }
+            }
+
+            if !isGranted {
+                HStack(spacing: 10) {
+                    Button(action: primaryAction) {
+                        Text(primaryTitle)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(ClickyProminentActionStyle())
+                    .pointerCursor()
+
+                    if let secondaryAction, let secondaryTitle {
+                        Button(action: secondaryAction) {
+                            Text(secondaryTitle)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .modifier(ClickySecondaryGlassButtonStyle())
+                        .pointerCursor()
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 8)
     }
 
 
@@ -936,6 +835,61 @@ struct CompanionPanelView: View {
             .font(ClickyTypography.mono(size: 10, weight: .semibold))
             .foregroundColor(theme.textMuted)
             .tracking(1.2)
+    }
+
+    private func panelInlineStatus(label: String, tone: StudioStatusTone) -> some View {
+        Text(label)
+            .font(ClickyTypography.mono(size: 10, weight: .semibold))
+            .foregroundColor(panelInlineStatusForeground(tone))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(panelInlineStatusBackground(tone))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(panelInlineStatusBorder(tone), lineWidth: 0.8)
+            )
+    }
+
+    private func panelInlineStatusForeground(_ tone: StudioStatusTone) -> Color {
+        switch tone {
+        case .neutral:
+            return theme.textSecondary
+        case .success:
+            return theme.success
+        case .warning:
+            return theme.warning
+        case .info:
+            return theme.accentStrong
+        }
+    }
+
+    private func panelInlineStatusBackground(_ tone: StudioStatusTone) -> Color {
+        switch tone {
+        case .neutral:
+            return Color.white.opacity(0.02)
+        case .success:
+            return theme.success.opacity(0.12)
+        case .warning:
+            return theme.warning.opacity(0.12)
+        case .info:
+            return theme.primary.opacity(0.12)
+        }
+    }
+
+    private func panelInlineStatusBorder(_ tone: StudioStatusTone) -> Color {
+        switch tone {
+        case .neutral:
+            return theme.strokeSoft
+        case .success:
+            return theme.success.opacity(0.3)
+        case .warning:
+            return theme.warning.opacity(0.3)
+        case .info:
+            return theme.primary.opacity(0.3)
+        }
     }
 
     private var panelHairline: some View {
