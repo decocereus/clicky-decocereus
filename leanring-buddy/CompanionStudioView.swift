@@ -478,36 +478,63 @@ struct CompanionStudioView: View {
 
     private var voiceAppearanceSectionContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            personaPresetCard
+            StudioCard(title: "Voice & Persona", subtitle: "This chapter owns how Clicky sounds, looks, and presents itself on your Mac") {
+                VStack(alignment: .leading, spacing: 22) {
+                    StudioSubsection(title: "Persona Preset", subtitle: "Pick the default personality layer for Clicky") {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text(companionManager.activeClickyPersonaSummary)
+                                .font(ClickyTypography.body(size: 13))
+                                .foregroundColor(theme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
 
-            StudioCard(title: "Persona Notes", subtitle: "These instructions shape how Clicky speaks inside the app") {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Your upstream OpenClaw identity stays clean. These notes are Clicky-local presentation and tone guidance.")
-                        .font(ClickyTypography.body(size: 13))
-                        .foregroundColor(theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 10) {
+                                ForEach(ClickyPersonaPreset.allCases) { preset in
+                                    selectionChip(
+                                        title: preset.definition.displayName,
+                                        subtitle: preset.definition.summary,
+                                        isSelected: companionManager.clickyPersonaPreset == preset
+                                    ) {
+                                        companionManager.setClickyPersonaPreset(preset)
+                                    }
+                                }
+                            }
+                        }
+                    }
 
-                    StudioMultilineField(
-                        title: "Tone notes",
-                        text: Binding(
-                            get: { companionManager.clickyPersonaToneInstructions },
-                            set: { companionManager.clickyPersonaToneInstructions = $0 }
-                        ),
-                        placeholder: "Example: sound more encouraging, explain a little slower, and keep the tone grounded."
-                    )
+                    StudioChapterDivider()
+
+                    StudioSubsection(title: "Tone Notes", subtitle: "These instructions shape how Clicky speaks inside the app") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Your upstream OpenClaw identity stays clean. These notes are Clicky-local presentation and tone guidance.")
+                                .font(ClickyTypography.body(size: 13))
+                                .foregroundColor(theme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            StudioMultilineField(
+                                title: "Tone notes",
+                                text: Binding(
+                                    get: { companionManager.clickyPersonaToneInstructions },
+                                    set: { companionManager.clickyPersonaToneInstructions = $0 }
+                                ),
+                                placeholder: "Example: sound more encouraging, explain a little slower, and keep the tone grounded."
+                            )
+                        }
+                    }
                 }
             }
 
-            StudioCard(title: "Voice", subtitle: "Choose how Clicky speaks and preview it before the next turn") {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(spacing: 10) {
-                        ForEach(ClickySpeechProviderMode.allCases) { mode in
-                            selectionChip(
-                                title: mode.displayName,
-                                subtitle: mode == .system ? "Built in on this Mac." : "Bring your own key and voices.",
-                                isSelected: companionManager.clickySpeechProviderMode == mode
-                            ) {
-                                companionManager.clickySpeechProviderMode = mode
+            StudioCard(title: "Voice Output", subtitle: "Choose how Clicky speaks and preview it before the next turn") {
+                VStack(alignment: .leading, spacing: 22) {
+                    StudioSubsection(title: "Provider", subtitle: "Pick the voice engine for this Mac") {
+                        HStack(spacing: 10) {
+                            ForEach(ClickySpeechProviderMode.allCases) { mode in
+                                selectionChip(
+                                    title: mode.displayName,
+                                    subtitle: mode == .system ? "Built in on this Mac." : "Bring your own key and voices.",
+                                    isSelected: companionManager.clickySpeechProviderMode == mode
+                                ) {
+                                    companionManager.clickySpeechProviderMode = mode
+                                }
                             }
                         }
                     }
@@ -518,20 +545,26 @@ struct CompanionStudioView: View {
                         elevenLabsSpeechPanel
                     }
 
-                    HStack(spacing: 10) {
-                        ForEach(ClickyVoicePreset.allCases) { preset in
-                            selectionChip(
-                                title: preset.displayName,
-                                subtitle: preset.summary,
-                                isSelected: companionManager.clickyVoicePreset == preset
-                            ) {
-                                companionManager.clickyVoicePreset = preset
+                    StudioChapterDivider()
+
+                    StudioSubsection(title: "Voice Preset", subtitle: "Shape the delivery style after the provider is chosen") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(spacing: 10) {
+                                ForEach(ClickyVoicePreset.allCases) { preset in
+                                    selectionChip(
+                                        title: preset.displayName,
+                                        subtitle: preset.summary,
+                                        isSelected: companionManager.clickyVoicePreset == preset
+                                    ) {
+                                        companionManager.clickyVoicePreset = preset
+                                    }
+                                }
                             }
+
+                            StudioKeyValueRow(label: "Selected provider", value: companionManager.clickySpeechProviderMode.displayName)
+                            StudioKeyValueRow(label: "Current output", value: companionManager.effectiveVoiceOutputDisplayName)
                         }
                     }
-
-                    StudioKeyValueRow(label: "Selected provider", value: companionManager.clickySpeechProviderMode.displayName)
-                    StudioKeyValueRow(label: "Current output", value: companionManager.effectiveVoiceOutputDisplayName)
                 }
             }
 
@@ -560,29 +593,6 @@ struct CompanionStudioView: View {
                     )
                     .toggleStyle(.switch)
                     .tint(theme.primary)
-                }
-            }
-        }
-    }
-
-    private var personaPresetCard: some View {
-        StudioCard(title: "Persona Preset", subtitle: "Pick the default personality layer for Clicky") {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(companionManager.activeClickyPersonaSummary)
-                    .font(ClickyTypography.body(size: 13))
-                    .foregroundColor(theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 10) {
-                    ForEach(ClickyPersonaPreset.allCases) { preset in
-                        selectionChip(
-                            title: preset.definition.displayName,
-                            subtitle: preset.definition.summary,
-                            isSelected: companionManager.clickyPersonaPreset == preset
-                        ) {
-                            companionManager.setClickyPersonaPreset(preset)
-                        }
-                    }
                 }
             }
         }

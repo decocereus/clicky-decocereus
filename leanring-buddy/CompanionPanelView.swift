@@ -41,46 +41,53 @@ struct CompanionPanelView: View {
     // MARK: - Header
 
     private var panelHeader: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("clicky")
-                    .font(ClickyTypography.brand(size: 34))
+                    .font(ClickyTypography.brand(size: 30))
                     .foregroundColor(theme.accent)
 
-                Text(statusText.uppercased())
-                    .font(ClickyTypography.mono(size: 11, weight: .semibold))
-                    .foregroundColor(theme.textMuted)
-                    .tracking(1.2)
+                HStack(spacing: 8) {
+                    panelStatusPill
+
+                    if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+                        Text(companionManager.selectedAgentBackend.displayName)
+                            .font(ClickyTypography.mono(size: 10, weight: .semibold))
+                            .foregroundColor(theme.textMuted)
+                    }
+                }
             }
 
             Spacer()
 
-            Button(action: {
-                openStudio()
-            }) {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(theme.textSecondary)
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .modifier(ClickyTinyGlassCircleStyle())
+            HStack(spacing: 8) {
+                Button(action: {
+                    openStudio()
+                }) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(theme.textSecondary)
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .modifier(ClickyTinyGlassCircleStyle())
 
-            Button(action: {
-                NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
-            }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(theme.textSecondary)
-                    .frame(width: 30, height: 30)
+                Button(action: {
+                    NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(theme.textSecondary)
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .modifier(ClickyTinyGlassCircleStyle())
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .modifier(ClickyTinyGlassCircleStyle())
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
+        .padding(.horizontal, 14)
+        .padding(.top, 2)
     }
 
     @ViewBuilder
@@ -136,6 +143,22 @@ struct CompanionPanelView: View {
         .modifier(ClickyPanelShellStyle())
     }
 
+    private var panelStatusPill: some View {
+        Text(statusText.uppercased())
+            .font(ClickyTypography.mono(size: 10, weight: .semibold))
+            .foregroundColor(theme.textPrimary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(theme.primary.opacity(0.12))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(theme.strokeSoft, lineWidth: 0.8)
+            )
+    }
+
     private var paywallLockedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             panelSectionEyebrow("Launch Access")
@@ -182,12 +205,12 @@ struct CompanionPanelView: View {
     }
 
     private var openClawInlineSummary: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             panelSectionEyebrow("OpenClaw")
 
             HStack {
                 Text(companionManager.effectiveClickyPresentationName)
-                    .font(ClickyTypography.section(size: 24))
+                    .font(ClickyTypography.section(size: 22))
                     .foregroundColor(theme.textPrimary)
 
                 Spacer()
@@ -202,14 +225,26 @@ struct CompanionPanelView: View {
                 .foregroundColor(theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button(action: {
-                openStudio()
-            }) {
-                Text("Connection settings live in Studio")
-                    .frame(maxWidth: .infinity)
+            HStack(spacing: 10) {
+                Button(action: {
+                    openStudio()
+                }) {
+                    Text("Open Studio")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+
+                Button(action: {
+                    companionManager.testOpenClawConnection()
+                }) {
+                    Text("Test Gateway")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor(isEnabled: !isTestingOpenClawConnection)
+                .disabled(isTestingOpenClawConnection)
             }
-            .modifier(ClickySecondaryGlassButtonStyle())
-            .pointerCursor()
         }
     }
 
