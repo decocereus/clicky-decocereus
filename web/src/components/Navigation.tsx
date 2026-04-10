@@ -57,7 +57,12 @@ export function Navigation() {
             >
               Pricing
             </button>
-            <button className="bg-charcoal text-warm px-5 py-2.5 rounded-full text-sm font-medium hover:bg-lavender transition-colors">
+            <button
+              id="nav-download-cta"
+              data-companion-cta-id="nav-download-cta"
+              data-companion-target-kind="cta"
+              className="bg-charcoal text-warm px-5 py-2.5 rounded-full text-sm font-medium hover:bg-lavender transition-colors"
+            >
               Download
             </button>
           </div>
@@ -94,7 +99,12 @@ export function Navigation() {
             >
               Pricing
             </button>
-            <button className="bg-charcoal text-warm px-6 py-3 rounded-full text-lg font-medium mt-4">
+            <button
+              id="nav-mobile-download-cta"
+              data-companion-cta-id="nav-mobile-download-cta"
+              data-companion-target-kind="cta"
+              className="bg-charcoal text-warm px-6 py-3 rounded-full text-lg font-medium mt-4"
+            >
               Download
             </button>
           </div>

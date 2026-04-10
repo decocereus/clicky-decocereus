@@ -23,6 +23,13 @@ import {
 } from "./entitlements/routes"
 import { getLaunchEntitlementSnapshot } from "./entitlements/service"
 import {
+  handleCreateWebCompanionSession,
+  handleEndWebCompanionSession,
+  handleGetWebCompanionSession,
+  handleRecordWebCompanionEvent,
+  handleSendWebCompanionMessage,
+} from "./web-companion/routes"
+import {
   handleActivateTrial,
   handleConsumeTrialCredit,
   handleGetTrial,
@@ -31,13 +38,42 @@ import {
 
 const app = new Hono<{ Bindings: Env }>()
 
+function expandLocalhostOrigin(origin: string | undefined) {
+  if (!origin) {
+    return []
+  }
+
+  const trimmedOrigin = origin.trim()
+  if (!trimmedOrigin) {
+    return []
+  }
+
+  const origins = new Set([trimmedOrigin])
+
+  try {
+    const url = new URL(trimmedOrigin)
+    const isLoopbackHost =
+      url.hostname === "localhost" || url.hostname === "127.0.0.1"
+
+    if (isLoopbackHost) {
+      const alternateUrl = new URL(url.toString())
+      alternateUrl.hostname = url.hostname === "localhost" ? "127.0.0.1" : "localhost"
+      origins.add(alternateUrl.origin)
+    }
+  } catch {
+    // Ignore invalid URLs and just keep the original value.
+  }
+
+  return [...origins]
+}
+
 const corsOptions = {
   origin: (origin: string, c: { env: Env }) => {
     const allowedOrigins = new Set(
       [
-        c.env.BETTER_AUTH_URL,
-        c.env.WEB_ORIGIN,
-      ].filter((value): value is string => Boolean(value)),
+        ...expandLocalhostOrigin(c.env.BETTER_AUTH_URL),
+        ...expandLocalhostOrigin(c.env.WEB_ORIGIN),
+      ],
     )
 
     return allowedOrigins.has(origin) ? origin : ""
@@ -55,6 +91,17 @@ app.use(
 )
 
 app.use("/v1/*", cors(corsOptions))
+
+app.onError((error, c) => {
+  console.error("[clicky-backend]", error)
+
+  return c.json(
+    {
+      error: error instanceof Error ? error.message : "Internal Server Error",
+    },
+    500,
+  )
+})
 
 app.get("/", (c) => {
   return c.json({
@@ -96,6 +143,11 @@ app.get("/v1", (c) => {
       "POST /v1/webhooks/polar",
       "GET /v1/billing/callback/success",
       "GET /v1/billing/callback/cancel",
+      "POST /v1/web-companion/sessions",
+      "GET /v1/web-companion/sessions/:sessionId",
+      "POST /v1/web-companion/sessions/:sessionId/events",
+      "POST /v1/web-companion/sessions/:sessionId/messages",
+      "POST /v1/web-companion/sessions/:sessionId/end",
       "GET /v1/auth/native/start",
       "GET /v1/auth/native/callback",
       "POST /v1/auth/native/exchange",
@@ -124,6 +176,11 @@ app.post("/v1/billing/restore", handleRestoreBilling)
 app.post("/v1/webhooks/polar", handlePolarWebhook)
 app.get("/v1/billing/callback/success", handleBillingSuccessCallback)
 app.get("/v1/billing/callback/cancel", handleBillingCancelCallback)
+app.post("/v1/web-companion/sessions", handleCreateWebCompanionSession)
+app.get("/v1/web-companion/sessions/:sessionId", handleGetWebCompanionSession)
+app.post("/v1/web-companion/sessions/:sessionId/events", handleRecordWebCompanionEvent)
+app.post("/v1/web-companion/sessions/:sessionId/messages", handleSendWebCompanionMessage)
+app.post("/v1/web-companion/sessions/:sessionId/end", handleEndWebCompanionSession)
 
 app.get("/v1/auth/native/start", async (c) => {
   try {

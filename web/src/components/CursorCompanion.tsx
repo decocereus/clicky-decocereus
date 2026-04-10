@@ -1,222 +1,560 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
-interface Message {
-  text: string;
-  duration: number;
+import { useOptionalCursorCompanionExperience } from './WebCompanionExperience'
+import { type Position, SmoothFollower } from './ui/smooth-cursor'
+
+type CompanionRenderState =
+  | 'idle'
+  | 'listening'
+  | 'transcribing'
+  | 'thinking'
+  | 'responding'
+type NavigationPhase = 'following' | 'navigating' | 'pointing' | 'returning'
+type BubblePlacement = 'right-below' | 'left-below' | 'right-above' | 'left-above'
+
+const FOLLOW_OFFSET = {
+  x: 35,
+  y: 25,
+}
+const GUIDE_CLEARANCE_X = 26
+const GUIDE_CLEARANCE_Y = 8
+const GUIDE_VIEWPORT_PADDING = 28
+
+const LISTENING_BAR_HEIGHTS = [6, 10, 14, 10, 6]
+const RESPONDING_BAR_HEIGHTS = [7, 11, 15, 11, 7]
+
+function TriangleGlyph({ color }: { color: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      style={{ transform: 'rotate(-35deg)' }}
+    >
+      <path d="M12 2L22 20H2L12 2Z" fill={color} />
+    </svg>
+  )
 }
 
-const MESSAGES: Message[] = [
-  { text: "Hi, I'm Clicky! 👋", duration: 3000 },
-  { text: "I'm attached to your cursor ✨", duration: 3500 },
-  { text: "I see what you see 👀", duration: 3000 },
-  { text: "Let's explore together! 🚀", duration: 4000 },
-];
+function ListeningGlyph({ color }: { color: string }) {
+  return (
+    <div className="flex items-center gap-[2px]">
+      {LISTENING_BAR_HEIGHTS.map((height, index) => (
+        <span
+          key={`listen-${height}-${index}`}
+          className="companion-listen-bar block w-[2.5px] rounded-full"
+          style={{
+            height,
+            backgroundColor: color,
+            animationDelay: `${index * 90}ms`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function TranscribingGlyph({ color }: { color: string }) {
+  return (
+    <span
+      className="companion-spinner-ring block h-[14px] w-[14px] rounded-full"
+      style={{
+        borderColor: `${color}33`,
+        borderTopColor: color,
+      }}
+    />
+  )
+}
+
+function ThinkingGlyph({ color }: { color: string }) {
+  return (
+    <div className="flex items-center gap-[3px]">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <span
+          key={`processing-${index}`}
+          className="companion-processing-dot block h-[4px] w-[4px] rounded-full"
+          style={{
+            backgroundColor: color,
+            animationDelay: `${index * 120}ms`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function RespondingGlyph({ color }: { color: string }) {
+  return (
+    <div className="flex items-center gap-[2px]">
+      {RESPONDING_BAR_HEIGHTS.map((height, index) => (
+        <span
+          key={`speak-${height}-${index}`}
+          className="companion-speak-bar block w-[2.5px] rounded-full"
+          style={{
+            height,
+            backgroundColor: color,
+            animationDelay: `${index * 80}ms`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function CompanionGlyph({
+  color,
+  state,
+}: {
+  color: string
+  state: CompanionRenderState
+}) {
+  switch (state) {
+    case 'listening':
+      return <ListeningGlyph color={color} />
+    case 'transcribing':
+      return <TranscribingGlyph color={color} />
+    case 'thinking':
+      return <ThinkingGlyph color={color} />
+    case 'responding':
+      return <RespondingGlyph color={color} />
+    case 'idle':
+    default:
+      return <TriangleGlyph color={color} />
+  }
+}
+
+function measureGuidanceGeometry(targetId: string) {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const element = document.getElementById(targetId)
+  if (!element) {
+    return null
+  }
+
+  const rect = element.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) {
+    return null
+  }
+
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+  const targetCenterX = rect.left + rect.width / 2
+  const targetCenterY = rect.top + rect.height / 2
+  const placeLeft = targetCenterX > viewportWidth * 0.58
+  const placeAbove = targetCenterY > viewportHeight * 0.68
+
+  const desiredCompanionX = placeLeft
+    ? rect.left - GUIDE_CLEARANCE_X
+    : rect.right + GUIDE_CLEARANCE_X
+  const desiredCompanionY = placeAbove
+    ? rect.top + Math.min(rect.height * 0.28, 18)
+    : rect.top + Math.min(rect.height * 0.55, 24) + GUIDE_CLEARANCE_Y
+
+  const clampedCompanionX = Math.max(
+    GUIDE_VIEWPORT_PADDING,
+    Math.min(desiredCompanionX, viewportWidth - GUIDE_VIEWPORT_PADDING)
+  )
+  const clampedCompanionY = Math.max(
+    GUIDE_VIEWPORT_PADDING,
+    Math.min(desiredCompanionY, viewportHeight - GUIDE_VIEWPORT_PADDING)
+  )
+
+  const placement: BubblePlacement =
+    placeLeft && placeAbove
+      ? 'left-above'
+      : placeLeft
+        ? 'left-below'
+        : placeAbove
+          ? 'right-above'
+          : 'right-below'
+
+  return {
+    placement,
+    position: {
+      x: clampedCompanionX - FOLLOW_OFFSET.x,
+      y: clampedCompanionY - FOLLOW_OFFSET.y,
+    } satisfies Position,
+  }
+}
 
 export function CursorCompanion() {
-  const companionRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ x: -100, y: -100 });
-  const [isVisible, setIsVisible] = useState(false);
-  const [showGlow, setShowGlow] = useState(false);
-  const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
-  const [showBubble, setShowBubble] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const mousePos = useRef({ x: 0, y: 0 });
-  const currentPos = useRef({ x: -100, y: -100 });
-  const rafRef = useRef<number | undefined>(undefined);
+  const companionExperience = useOptionalCursorCompanionExperience()
+  const [isMounted, setIsMounted] = useState(false)
+  const [isVisible, setIsVisible] = useState(false)
+  const [bubblePlacement, setBubblePlacement] =
+    useState<BubblePlacement>('right-below')
+  const [manualTargetPosition, setManualTargetPosition] = useState<Position | null>(
+    null
+  )
+  const [navigationPhase, setNavigationPhase] =
+    useState<NavigationPhase>('following')
+  const pointerPositionRef = useRef<Position>({ x: 0, y: 0 })
 
-  // Mount
+  const companionStatus = companionExperience?.status ?? 'idle'
+  const companionVisualState =
+    companionExperience?.companionVisualState ?? 'idle'
+  const bubbleText = companionExperience?.bubbleText ?? null
+  const guidanceTarget = companionExperience?.guidanceTarget ?? null
+  const isActive = companionStatus === 'active'
+
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
-  }, []);
+    setIsMounted(true)
+    if (typeof window !== 'undefined') {
+      pointerPositionRef.current = {
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      }
+    }
+    return () => setIsMounted(false)
+  }, [])
 
-  // Smooth follow - minimal spring, more direct
-  const updatePosition = useCallback(() => {
-    // Very soft interpolation - smooth but not springy
-    const t = 0.12;
-    
-    const targetX = mousePos.current.x + 24;
-    const targetY = mousePos.current.y + 24;
-    
-    currentPos.current.x += (targetX - currentPos.current.x) * t;
-    currentPos.current.y += (targetY - currentPos.current.y) * t;
-
-    setPosition({
-      x: currentPos.current.x,
-      y: currentPos.current.y,
-    });
-
-    rafRef.current = requestAnimationFrame(updatePosition);
-  }, []);
-
-  // Initialize
   useEffect(() => {
-    if (!mounted) return;
+    if (!isMounted) {
+      return undefined
+    }
 
-    const timer = setTimeout(() => {
-      // Start tracking
-      rafRef.current = requestAnimationFrame(updatePosition);
-      
-      // Fade in companion
-      setIsVisible(true);
-      
-      // Show glow effect
-      setTimeout(() => setShowGlow(true), 300);
-      
-      // Start messages
-      setTimeout(() => {
-        setShowBubble(true);
-        startMessageCycle();
-      }, 800);
-    }, 600);
+    const timer = window.setTimeout(() => {
+      setIsVisible(true)
+    }, 600)
 
     return () => {
-      clearTimeout(timer);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [mounted, updatePosition]);
+      window.clearTimeout(timer)
+    }
+  }, [isMounted])
 
-  // Track mouse
+  const shellColors = useMemo(() => {
+    if (!isActive) {
+      return {
+        core: '#92A4BE',
+        outerGlow: 'rgba(146, 164, 190, 0.22)',
+        innerGlow: 'rgba(146, 164, 190, 0.14)',
+        ring: 'rgba(146, 164, 190, 0.3)',
+      }
+    }
+
+    switch (companionVisualState) {
+      case 'listening':
+        return {
+          core: '#7A9BC4',
+          outerGlow: 'rgba(122, 155, 196, 0.74)',
+          innerGlow: 'rgba(122, 155, 196, 0.5)',
+          ring: 'rgba(122, 155, 196, 0.52)',
+        }
+      case 'transcribing':
+        return {
+          core: '#88A3CB',
+          outerGlow: 'rgba(136, 163, 203, 0.68)',
+          innerGlow: 'rgba(136, 163, 203, 0.42)',
+          ring: 'rgba(136, 163, 203, 0.5)',
+        }
+      case 'thinking':
+        return {
+          core: '#8F96BC',
+          outerGlow: 'rgba(143, 150, 188, 0.62)',
+          innerGlow: 'rgba(143, 150, 188, 0.38)',
+          ring: 'rgba(143, 150, 188, 0.48)',
+        }
+      case 'responding':
+        return {
+          core: '#6E8CC4',
+          outerGlow: 'rgba(110, 140, 196, 0.78)',
+          innerGlow: 'rgba(110, 140, 196, 0.52)',
+          ring: 'rgba(110, 140, 196, 0.56)',
+        }
+      case 'idle':
+      default:
+        return {
+          core: '#7A9BC4',
+          outerGlow: 'rgba(122, 155, 196, 0.44)',
+          innerGlow: 'rgba(122, 155, 196, 0.28)',
+          ring: 'rgba(122, 155, 196, 0.4)',
+        }
+    }
+  }, [companionVisualState, isActive])
+
+  const shellScale = useMemo(() => {
+    if (navigationPhase === 'navigating') {
+      return 1.16
+    }
+
+    if (navigationPhase === 'returning') {
+      return 1.08
+    }
+
+    switch (companionVisualState) {
+      case 'listening':
+        return 1.08
+      case 'transcribing':
+        return 1.06
+      case 'thinking':
+        return 1.04
+      case 'responding':
+        return 1.12
+      case 'idle':
+      default:
+        return 1
+    }
+  }, [companionVisualState, navigationPhase])
+
+  const bubblePositionStyles = useMemo(() => {
+    switch (bubblePlacement) {
+      case 'left-above':
+        return {
+          bottom: '18px',
+          right: 'calc(100% - 10px)',
+        }
+      case 'left-below':
+        return {
+          right: 'calc(100% - 10px)',
+          top: '18px',
+        }
+      case 'right-above':
+        return {
+          bottom: '18px',
+          left: '10px',
+        }
+      case 'right-below':
+      default:
+        return {
+          left: '10px',
+          top: '18px',
+        }
+    }
+  }, [bubblePlacement])
+
+  const shouldShowBubble =
+    Boolean(bubbleText) &&
+    navigationPhase !== 'navigating' &&
+    navigationPhase !== 'returning'
+  const followerTargetPosition =
+    navigationPhase === 'following' ? null : manualTargetPosition
+  const followerRotationMode =
+    navigationPhase === 'navigating' || navigationPhase === 'returning'
+      ? 'velocity'
+      : 'none'
+
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      mousePos.current = { x: e.clientX, y: e.clientY };
-    };
-    window.addEventListener('mousemove', handleMouseMove, { passive: true });
-    return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
+    if (!guidanceTarget || !isMounted) {
+      return
+    }
 
-  // Message cycle
-  const startMessageCycle = useCallback(() => {
-    let index = 0;
-    
-    const showNextMessage = () => {
-      setCurrentMessageIndex(index);
-      setShowBubble(true);
-      
-      setTimeout(() => {
-        setShowBubble(false);
-        
-        // Wait before next message
-        setTimeout(() => {
-          index = (index + 1) % MESSAGES.length;
-          showNextMessage();
-        }, 1500);
-      }, MESSAGES[index].duration);
-    };
-    
-    showNextMessage();
-  }, []);
+    const initialGeometry = measureGuidanceGeometry(guidanceTarget.id)
+    if (!initialGeometry) {
+      return
+    }
 
-  // Don't render on touch
-  if (typeof window === 'undefined' || 'ontouchstart' in window) {
-    return null;
+    pointerPositionRef.current = {
+      x: Math.max(pointerPositionRef.current.x, 0),
+      y: Math.max(pointerPositionRef.current.y, 0),
+    }
+
+    const returnTarget = {
+      x: pointerPositionRef.current.x,
+      y: pointerPositionRef.current.y,
+    }
+    const travelDistance = Math.hypot(
+      initialGeometry.position.x - returnTarget.x,
+      initialGeometry.position.y - returnTarget.y
+    )
+    const navigationDurationMs = Math.min(
+      Math.max(360 + travelDistance * 0.22, 420),
+      760
+    )
+    const pointingHoldMs =
+      guidanceTarget.actionType === 'pulse' ? 1100 : 1550
+
+    let geometryFrameId: number | null = null
+    let navigationTimer: number | null = null
+    let returnTimer: number | null = null
+    let resumeTimer: number | null = null
+
+    const updateGeometry = () => {
+      const nextGeometry = measureGuidanceGeometry(guidanceTarget.id)
+      if (nextGeometry) {
+        setManualTargetPosition(nextGeometry.position)
+        setBubblePlacement(nextGeometry.placement)
+      }
+
+      geometryFrameId = window.requestAnimationFrame(updateGeometry)
+    }
+
+    setBubblePlacement(initialGeometry.placement)
+    setManualTargetPosition(initialGeometry.position)
+    setNavigationPhase('navigating')
+    geometryFrameId = window.requestAnimationFrame(updateGeometry)
+
+    navigationTimer = window.setTimeout(() => {
+      setNavigationPhase('pointing')
+
+      returnTimer = window.setTimeout(() => {
+        if (geometryFrameId !== null) {
+          window.cancelAnimationFrame(geometryFrameId)
+          geometryFrameId = null
+        }
+
+        setNavigationPhase('returning')
+        setManualTargetPosition(returnTarget)
+
+        resumeTimer = window.setTimeout(() => {
+          setNavigationPhase('following')
+          setManualTargetPosition(null)
+        }, 420)
+      }, pointingHoldMs)
+    }, navigationDurationMs)
+
+    return () => {
+      if (geometryFrameId !== null) {
+        window.cancelAnimationFrame(geometryFrameId)
+      }
+      if (navigationTimer !== null) {
+        window.clearTimeout(navigationTimer)
+      }
+      if (returnTimer !== null) {
+        window.clearTimeout(returnTimer)
+      }
+      if (resumeTimer !== null) {
+        window.clearTimeout(resumeTimer)
+      }
+    }
+  }, [guidanceTarget, isMounted])
+
+  if (typeof window === 'undefined' || !isMounted) {
+    return null
   }
-  if (!mounted) return null;
-
-  const currentMessage = MESSAGES[currentMessageIndex];
 
   return createPortal(
-    <div
-      ref={companionRef}
-      className="fixed pointer-events-none z-[9999]"
-      style={{
-        left: position.x,
-        top: position.y,
-        transform: 'translate(-50%, -50%)',
-        opacity: isVisible ? 1 : 0,
-        transition: 'opacity 0.8s ease-out',
+    <SmoothFollower
+      desktopOnly
+      offset={FOLLOW_OFFSET}
+      onPointerMove={(position) => {
+        pointerPositionRef.current = position
       }}
+      rotationMode={followerRotationMode}
+      scaleMode="none"
+      targetPosition={followerTargetPosition}
+      visible={isVisible}
+      zIndex={9999}
     >
-      {/* Text Bubble - positioned UNDER the companion */}
-      <div
-        className="absolute top-full left-1/2 mt-3 transition-all duration-500 ease-out"
-        style={{ 
-          minWidth: 'max-content',
-          opacity: showBubble ? 1 : 0,
-          transform: showBubble 
-            ? 'translateX(-50%) translateY(0)' 
-            : 'translateX(-50%) translateY(-12px)',
-        }}
-      >
-        <div className="bg-white rounded-xl px-4 py-2 shadow-xl border border-gray-100">
-          <p className="text-sm font-semibold text-charcoal whitespace-nowrap">
-            {currentMessage?.text}
-          </p>
+      <div className="relative isolate">
+        {shouldShowBubble ? (
           <div
-            className="absolute bottom-full left-1/2 -translate-x-1/2 w-0 h-0"
+            className="absolute transition-all duration-300 ease-out"
             style={{
-              borderLeft: '6px solid transparent',
-              borderRight: '6px solid transparent',
-              borderBottom: '7px solid white',
+              ...bubblePositionStyles,
+              opacity: shouldShowBubble ? 1 : 0,
+              transform: shouldShowBubble
+                ? 'translate3d(0,0,0) scale(1)'
+                : 'translate3d(0,8px,0) scale(0.96)',
             }}
-          />
-        </div>
-      </div>
+          >
+            <div className="max-w-[min(220px,calc(100vw-3rem))] rounded-2xl border border-white/70 bg-white/96 px-3.5 py-2 shadow-[0_16px_42px_rgba(26,26,26,0.16)] backdrop-blur-md">
+              <p className="text-[13px] font-medium leading-5 text-charcoal whitespace-pre-wrap">
+                {bubbleText}
+              </p>
+            </div>
+          </div>
+        ) : null}
 
-      {/* Companion with glow */}
-      <div className="relative">
-        {/* Animated glow ring */}
-        <div 
-          className="absolute inset-0 rounded-full transition-all duration-700"
-          style={{
-            background: 'radial-gradient(circle, rgba(122, 155, 196, 0.6) 0%, transparent 70%)',
-            transform: 'scale(3)',
-            opacity: showGlow ? 0.6 : 0,
-            filter: 'blur(4px)',
-          }}
-        />
-        
-        {/* Pulsing inner glow */}
-        <div 
-          className="absolute inset-0 rounded-full animate-pulse"
-          style={{
-            background: 'radial-gradient(circle, rgba(122, 155, 196, 0.4) 0%, transparent 60%)',
-            transform: 'scale(2)',
-            opacity: showGlow ? 0.8 : 0,
-          }}
-        />
-        
-        {/* Sparkles */}
-        {showGlow && (
-          <>
-            <div 
-              className="absolute -top-2 -right-2 w-1.5 h-1.5 bg-white rounded-full animate-ping"
-              style={{ animationDuration: '2s' }}
-            />
-            <div 
-              className="absolute -bottom-1 -left-3 w-1 h-1 bg-lavender rounded-full animate-ping"
-              style={{ animationDuration: '2.5s', animationDelay: '0.5s' }}
-            />
-            <div 
-              className="absolute top-0 -left-2 w-0.5 h-0.5 bg-white rounded-full animate-ping"
-              style={{ animationDuration: '3s', animationDelay: '1s' }}
-            />
-          </>
-        )}
-        
-        {/* Triangle cursor */}
         <div
+          className="relative flex h-8 w-8 items-center justify-center transition-transform duration-300 ease-out"
           style={{
-            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))',
+            transform: `scale(${shellScale})`,
           }}
         >
-          <svg
-            viewBox="0 0 24 24"
-            width="20"
-            height="20"
-            style={{ transform: 'rotate(-45deg)' }}
-          >
-            <path
-              d="M12 2L22 20H2L12 2Z"
-              fill="#7A9BC4"
+          <div
+            className="absolute inset-0 rounded-full transition-all duration-500"
+            style={{
+              background: `radial-gradient(circle, ${shellColors.outerGlow} 0%, transparent 72%)`,
+              transform:
+                companionVisualState === 'responding'
+                  ? 'scale(3.4)'
+                  : companionVisualState === 'listening'
+                    ? 'scale(3.15)'
+                    : companionVisualState === 'transcribing'
+                      ? 'scale(3.02)'
+                      : companionVisualState === 'thinking'
+                      ? 'scale(2.9)'
+                      : isActive
+                        ? 'scale(2.75)'
+                        : 'scale(2.3)',
+              opacity:
+                companionVisualState === 'responding'
+                  ? 0.92
+                  : companionVisualState === 'listening'
+                    ? 0.82
+                    : companionVisualState === 'transcribing'
+                      ? 0.74
+                      : companionVisualState === 'thinking'
+                      ? 0.68
+                      : isActive
+                        ? 0.56
+                        : 0.3,
+              filter: 'blur(5px)',
+            }}
+          />
+
+          <div
+            className="absolute inset-0 rounded-full transition-all duration-500"
+            style={{
+              background: `radial-gradient(circle, ${shellColors.innerGlow} 0%, transparent 65%)`,
+              transform:
+                companionVisualState === 'responding'
+                  ? 'scale(2.25)'
+                  : companionVisualState === 'listening'
+                    ? 'scale(2.1)'
+                    : companionVisualState === 'transcribing'
+                      ? 'scale(2.02)'
+                      : companionVisualState === 'thinking'
+                      ? 'scale(1.95)'
+                      : 'scale(1.75)',
+              opacity:
+                companionVisualState === 'responding'
+                  ? 0.96
+                  : companionVisualState === 'listening'
+                    ? 0.88
+                    : companionVisualState === 'transcribing'
+                      ? 0.78
+                      : companionVisualState === 'thinking'
+                      ? 0.7
+                      : isActive
+                        ? 0.64
+                        : 0.2,
+            }}
+          />
+
+          {isActive ? (
+            <div
+              className="absolute inset-0 rounded-full"
+              style={{
+                border: `1px solid ${shellColors.ring}`,
+                transform:
+                  companionVisualState === 'idle'
+                    ? 'scale(1.25)'
+                    : 'scale(1.38)',
+                opacity: companionVisualState === 'responding' ? 0.78 : 0.62,
+              }}
             />
-          </svg>
+          ) : null}
+
+          <div
+            className="relative flex h-7 w-7 items-center justify-center rounded-full"
+            style={{
+              filter: 'drop-shadow(0 3px 10px rgba(26,26,26,0.14))',
+            }}
+          >
+            <CompanionGlyph
+              color={shellColors.core}
+              state={companionVisualState}
+            />
+          </div>
         </div>
       </div>
-    </div>,
+    </SmoothFollower>,
     document.body
-  );
+  )
 }
 
-export default CursorCompanion;
+export default CursorCompanion

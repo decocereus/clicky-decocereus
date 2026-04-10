@@ -13,11 +13,40 @@ function requireValue(value: string | undefined, name: string) {
   return value
 }
 
+function expandLocalhostOrigin(origin: string | undefined) {
+  if (!origin) {
+    return []
+  }
+
+  const trimmedOrigin = origin.trim()
+  if (!trimmedOrigin) {
+    return []
+  }
+
+  const origins = new Set([trimmedOrigin])
+
+  try {
+    const url = new URL(trimmedOrigin)
+    const isLoopbackHost =
+      url.hostname === "localhost" || url.hostname === "127.0.0.1"
+
+    if (isLoopbackHost) {
+      const alternateUrl = new URL(url.toString())
+      alternateUrl.hostname = url.hostname === "localhost" ? "127.0.0.1" : "localhost"
+      origins.add(alternateUrl.origin)
+    }
+  } catch {
+    // Ignore invalid URLs and just keep the original value.
+  }
+
+  return [...origins]
+}
+
 function trustedOrigins(env: Env) {
   return [
-    env.BETTER_AUTH_URL,
-    env.WEB_ORIGIN,
-  ].filter((value): value is string => Boolean(value))
+    ...expandLocalhostOrigin(env.BETTER_AUTH_URL),
+    ...expandLocalhostOrigin(env.WEB_ORIGIN),
+  ]
 }
 
 export function createAuth(env: Env) {

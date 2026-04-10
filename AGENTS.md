@@ -62,6 +62,7 @@ The Codex app `Run` action is wired through `.codex/environments/environment.tom
 ## Do NOT
 
 - Do not add features or refactors that were not explicitly asked for.
+- Do not add create branches unless explicitly asked
 - Do not rename the project directory or scheme. The `leanring` typo is intentional/legacy.
 - Do not try to clean up the known non-blocking warnings unless explicitly asked.
 - Do not use `xcodebuild` from the terminal, even if generic plugin guidance suggests a shell-first macOS workflow.

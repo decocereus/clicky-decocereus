@@ -141,7 +141,13 @@ export function PricingSection() {
             </div>
 
             {/* CTA Button */}
-            <button className="w-full bg-charcoal text-warm py-4 rounded-full font-medium text-base hover:bg-lavender transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2 mb-10 group">
+            <button
+              id="pricing-download-cta"
+              data-companion-cta-id="pricing-download-cta"
+              data-companion-section-id="pricing"
+              data-companion-target-kind="cta"
+              className="w-full bg-charcoal text-warm py-4 rounded-full font-medium text-base hover:bg-lavender transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2 mb-10 group"
+            >
               <Download size={18} className="group-hover:translate-y-0.5 transition-transform" />
               Download for macOS
             </button>

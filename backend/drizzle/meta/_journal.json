@@ -36,6 +36,13 @@
       "when": 1775823213902,
       "tag": "0004_panoramic_synch",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775823663771,
+      "tag": "0005_salty_roland_deschain",
+      "breakpoints": true
     }
   ]
 }

@@ -127,6 +127,7 @@ export function FooterSection() {
   return (
     <section
       ref={sectionRef}
+      id="footer"
       className="relative w-full min-h-screen bg-sage overflow-hidden z-90"
     >
       {/* Background decorative elements */}
@@ -236,6 +237,10 @@ export function FooterSection() {
 
         {/* Download CTA */}
         <a
+          id="footer-download-cta"
+          data-companion-cta-id="footer-download-cta"
+          data-companion-section-id="footer"
+          data-companion-target-kind="cta"
           href="#"
           className="group flex items-center gap-2 bg-charcoal text-warm px-6 py-3 rounded-full font-medium text-sm hover:bg-charcoal/90 transition-all shadow-lg hover:shadow-xl mb-16"
         >
