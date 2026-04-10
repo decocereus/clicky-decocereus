@@ -1,5 +1,6 @@
 import {
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -36,6 +37,14 @@ export const nativeAuthHandoffStatusEnum = pgEnum("native_auth_handoff_status", 
   "authenticated",
   "exchanged",
   "expired",
+])
+
+export const launchTrialStatusEnum = pgEnum("launch_trial_status", [
+  "inactive",
+  "active",
+  "armed",
+  "paywalled",
+  "unlocked",
 ])
 
 export const polarCustomerLinks = pgTable(
@@ -134,5 +143,27 @@ export const nativeAuthHandoffs = pgTable(
     stateIndex: uniqueIndex("native_auth_handoff_state_idx").on(table.state),
     codeIndex: uniqueIndex("native_auth_handoff_code_idx").on(table.code),
     statusIndex: index("native_auth_handoff_status_idx").on(table.status),
+  }),
+)
+
+export const launchTrialStates = pgTable(
+  "launch_trial_state",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    status: launchTrialStatusEnum("status").default("inactive").notNull(),
+    initialCredits: integer("initial_credits").notNull(),
+    remainingCredits: integer("remaining_credits").notNull(),
+    setupCompletedAt: timestamp("setup_completed_at", { withTimezone: true }),
+    trialActivatedAt: timestamp("trial_activated_at", { withTimezone: true }),
+    lastCreditConsumedAt: timestamp("last_credit_consumed_at", { withTimezone: true }),
+    welcomePromptDeliveredAt: timestamp("welcome_prompt_delivered_at", { withTimezone: true }),
+    paywallActivatedAt: timestamp("paywall_activated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    userIdIndex: uniqueIndex("launch_trial_state_user_id_idx").on(table.userId),
+    statusIndex: index("launch_trial_state_status_idx").on(table.status),
   }),
 )

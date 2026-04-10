@@ -29,6 +29,13 @@
       "when": 1775754064095,
       "tag": "0003_clammy_rawhide_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775823213902,
+      "tag": "0004_panoramic_synch",
+      "breakpoints": true
     }
   ]
 }

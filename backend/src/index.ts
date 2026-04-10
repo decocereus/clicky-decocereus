@@ -22,6 +22,12 @@ import {
   handleRefreshEntitlements,
 } from "./entitlements/routes"
 import { getLaunchEntitlementSnapshot } from "./entitlements/service"
+import {
+  handleActivateTrial,
+  handleConsumeTrialCredit,
+  handleGetTrial,
+  handleMarkTrialPaywalled,
+} from "./trial/routes"
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -81,6 +87,10 @@ app.get("/v1", (c) => {
       "GET /v1/me",
       "GET /v1/entitlements/me",
       "POST /v1/entitlements/refresh",
+      "GET /v1/trial/me",
+      "POST /v1/trial/activate",
+      "POST /v1/trial/consume",
+      "POST /v1/trial/paywall-activate",
       "POST /v1/billing/checkout",
       "POST /v1/billing/restore",
       "POST /v1/webhooks/polar",
@@ -105,6 +115,10 @@ app.get("/v1/me", async (c) => {
 
 app.get("/v1/entitlements/me", handleGetEntitlements)
 app.post("/v1/entitlements/refresh", handleRefreshEntitlements)
+app.get("/v1/trial/me", handleGetTrial)
+app.post("/v1/trial/activate", handleActivateTrial)
+app.post("/v1/trial/consume", handleConsumeTrialCredit)
+app.post("/v1/trial/paywall-activate", handleMarkTrialPaywalled)
 app.post("/v1/billing/checkout", handleCreateCheckout)
 app.post("/v1/billing/restore", handleRestoreBilling)
 app.post("/v1/webhooks/polar", handlePolarWebhook)
