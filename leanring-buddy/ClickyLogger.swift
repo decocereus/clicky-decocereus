@@ -147,17 +147,17 @@ private enum ClickyLogRedactor {
         var redactedMessage = message
 
         let patternReplacements: [(String, String)] = [
-            #"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,]+"#: "$1[REDACTED]",
-            #"(?i)(\"access[_-]?token\"\s*:\s*\")[^\"]+(\")"#: "$1[REDACTED]$2",
-            #"(?i)(\"refresh[_-]?token\"\s*:\s*\")[^\"]+(\")"#: "$1[REDACTED]$2",
-            #"(?i)(\"session[_-]?token\"\s*:\s*\")[^\"]+(\")"#: "$1[REDACTED]$2",
-            #"(?i)(\"client[_-]?secret\"\s*:\s*\")[^\"]+(\")"#: "$1[REDACTED]$2",
-            #"(?i)(api[_ -]?key\s*[:=]\s*)[^\s,]+"#: "$1[REDACTED]",
-            #"(?i)(token\s*[:=]\s*)[^\s,]+"#: "$1[REDACTED]",
-            #"(?i)(secret\s*[:=]\s*)[^\s,]+"#: "$1[REDACTED]",
-            #"(?i)(code=)[^&\s]+"#: "$1[REDACTED]",
-            #"(?i)(token=)[^&\s]+"#: "$1[REDACTED]",
-            #"(?i)(secret=)[^&\s]+"#: "$1[REDACTED]",
+            (#"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,]+"#, "$1[REDACTED]"),
+            (#"(?i)(\"access[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(\"refresh[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(\"session[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(\"client[_-]?secret\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(api[_ -]?key\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
+            (#"(?i)(token\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
+            (#"(?i)(secret\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
+            (#"(?i)(code=)[^&\s]+"#, "$1[REDACTED]"),
+            (#"(?i)(token=)[^&\s]+"#, "$1[REDACTED]"),
+            (#"(?i)(secret=)[^&\s]+"#, "$1[REDACTED]"),
         ]
 
         for (pattern, template) in patternReplacements {
