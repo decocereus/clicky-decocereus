@@ -1019,7 +1019,7 @@ struct CompanionStudioView: View {
                             title: "Restore Access",
                             systemImage: "arrow.clockwise.circle"
                         ) {
-                            companionManager.refreshClickyLaunchEntitlement()
+                            companionManager.restoreClickyLaunchAccess()
                         }
                     }
 

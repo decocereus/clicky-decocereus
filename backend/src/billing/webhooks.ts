@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm"
 import { createDb } from "../db/client"
 import {
   billingWebhookEvents,
+  checkoutSessionAudits,
   entitlements,
   polarCustomerLinks,
 } from "../db/schema"
@@ -124,10 +125,26 @@ export async function processPolarWebhook(
           updatedAt: sql`now()`,
         },
       })
+
+    if (event.data.checkoutId) {
+      await db
+        .update(checkoutSessionAudits)
+        .set({
+          status: "completed",
+          completedAt: refreshedAt,
+          metadata: {
+            checkoutId: event.data.checkoutId,
+            customerId: event.data.customerId,
+            orderId: event.data.id,
+          },
+        })
+        .where(eq(checkoutSessionAudits.providerCheckoutId, event.data.checkoutId))
+    }
   }
 
   if (event.type === "order.refunded" && event.data.customer.externalId) {
     const userId = event.data.customer.externalId
+    const refundedAt = new Date()
     await db
       .insert(entitlements)
       .values({
@@ -135,8 +152,8 @@ export async function processPolarWebhook(
         productKey: LAUNCH_PRODUCT_KEY,
         status: "refunded",
         source: "polar",
-        refreshedAt: new Date(),
-        expiresAt: new Date(),
+        refreshedAt: refundedAt,
+        expiresAt: refundedAt,
         rawReference: event.data.id,
         metadata: {
           checkoutId: event.data.checkoutId,
@@ -149,8 +166,8 @@ export async function processPolarWebhook(
         target: [entitlements.userId, entitlements.productKey],
         set: {
           status: "refunded",
-          refreshedAt: new Date(),
-          expiresAt: new Date(),
+          refreshedAt: refundedAt,
+          expiresAt: refundedAt,
           rawReference: event.data.id,
           metadata: {
             checkoutId: event.data.checkoutId,
@@ -161,6 +178,22 @@ export async function processPolarWebhook(
           updatedAt: sql`now()`,
         },
       })
+
+    if (event.data.checkoutId) {
+      await db
+        .update(checkoutSessionAudits)
+        .set({
+          status: "completed",
+          completedAt: refundedAt,
+          metadata: {
+            checkoutId: event.data.checkoutId,
+            customerId: event.data.customerId,
+            orderId: event.data.id,
+            refundedAmount: event.data.refundedAmount,
+          },
+        })
+        .where(eq(checkoutSessionAudits.providerCheckoutId, event.data.checkoutId))
+    }
   }
 
   await db

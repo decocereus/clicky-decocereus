@@ -2,11 +2,17 @@ import { useEffect, useRef, useLayoutEffect } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { CursorCompanion } from '../components/CursorCompanion';
-import { Download, Sparkles } from 'lucide-react';
+import { useWebCompanionExperience } from '../components/WebCompanionExperience';
+import { Download, LoaderCircle, Mic, Sparkles } from 'lucide-react';
 
 gsap.registerPlugin(ScrollTrigger);
 
 export function HeroSection() {
+  const {
+    errorMessage: companionErrorMessage,
+    startExperience,
+    status: companionStatus,
+  } = useWebCompanionExperience();
   const sectionRef = useRef<HTMLDivElement>(null);
   const headlineRef = useRef<HTMLDivElement>(null);
   const subheadRef = useRef<HTMLParagraphElement>(null);
@@ -113,6 +119,14 @@ export function HeroSection() {
 
     return () => ctx.revert();
   }, []);
+
+  const isRequestingCompanion = companionStatus === 'requesting-permission';
+  const isCompanionActive = companionStatus === 'active';
+  const tryClickyLabel = isRequestingCompanion
+    ? 'Starting Clicky...'
+    : isCompanionActive
+    ? 'Step 1 complete'
+    : 'Try Clicky';
 
   return (
     <section
@@ -284,24 +298,77 @@ export function HeroSection() {
             anticipating your needs before they become tasks.
           </p>
 
-          <div ref={ctaRef} className="mt-10">
-            <button className="group relative flex items-center gap-3 bg-charcoal text-warm px-8 py-4 rounded-full text-base font-medium hover:bg-charcoal/90 transition-all shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 overflow-hidden">
-              {/* Animated gradient background */}
-              <span className="absolute inset-0 bg-gradient-to-r from-lavender via-charcoal to-lavender opacity-0 group-hover:opacity-20 transition-opacity duration-500" />
-              
-              {/* Sparkle icon */}
-              <Sparkles size={18} className="relative z-10 group-hover:rotate-12 transition-transform duration-300" />
-              
-              <span className="relative z-10">Download for macOS</span>
-              
-              {/* Download icon */}
-              <Download size={18} className="relative z-10 group-hover:translate-y-0.5 transition-transform duration-300" />
-            </button>
-            
-            {/* Subtle tag below button */}
-            <p className="text-center text-muted-elegant text-xs mt-3">
-              Free 14-day trial • No credit card required
+          <div ref={ctaRef} className="mt-10 flex flex-col items-center gap-4">
+            <div className="flex flex-col items-center gap-3 sm:flex-row">
+              <button
+                id="hero-download-cta"
+                data-companion-cta-id="hero-download-cta"
+                data-companion-section-id="hero-section"
+                data-companion-target-kind="cta"
+                className="group relative flex items-center gap-3 bg-charcoal text-warm px-8 py-4 rounded-full text-base font-medium hover:bg-charcoal/90 transition-all shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 overflow-hidden"
+              >
+                <span className="absolute inset-0 bg-gradient-to-r from-lavender via-charcoal to-lavender opacity-0 group-hover:opacity-20 transition-opacity duration-500" />
+                <Sparkles size={18} className="relative z-10 group-hover:rotate-12 transition-transform duration-300" />
+                <span className="relative z-10">Download for macOS</span>
+                <Download size={18} className="relative z-10 group-hover:translate-y-0.5 transition-transform duration-300" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void startExperience();
+                }}
+                disabled={isRequestingCompanion || isCompanionActive}
+                className="group flex items-center gap-3 rounded-full border border-charcoal/10 bg-white/84 px-7 py-4 text-base font-medium text-charcoal shadow-[0_12px_36px_rgba(26,26,26,0.08)] backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-charcoal/15 hover:shadow-[0_18px_42px_rgba(26,26,26,0.12)] disabled:cursor-default disabled:opacity-70"
+              >
+                {isRequestingCompanion ? (
+                  <LoaderCircle size={18} className="animate-spin" />
+                ) : (
+                  <Mic size={18} className="transition-transform duration-300 group-hover:scale-110" />
+                )}
+                <span>{tryClickyLabel}</span>
+              </button>
+            </div>
+
+            <p className="text-center text-muted-elegant text-xs">
+              {isCompanionActive
+                ? (
+                  <>
+                    Step 1 complete. Step 2: hold{' '}
+                    <span className="inline-flex items-center gap-1 align-middle">
+                      <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
+                        Ctrl
+                      </kbd>
+                      <span>+</span>
+                      <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
+                        Option
+                      </kbd>
+                    </span>{' '}
+                    to talk to Clicky. The cursor companion will stay intentional and not over-talk.
+                  </>
+                )
+                : (
+                  <>
+                    2-step demo: 1. Allow mic access. 2. Hold{' '}
+                    <span className="inline-flex items-center gap-1 align-middle">
+                      <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
+                        Ctrl
+                      </kbd>
+                      <span>+</span>
+                      <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
+                        Option
+                      </kbd>
+                    </span>{' '}
+                    and talk to Clicky.
+                  </>
+                )}
             </p>
+
+            {companionErrorMessage ? (
+              <p className="max-w-md text-center text-xs leading-5 text-rose-600">
+                {companionErrorMessage}
+              </p>
+            ) : null}
           </div>
         </div>
     </section>

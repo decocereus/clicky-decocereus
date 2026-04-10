@@ -49,6 +49,20 @@ struct ClickyBackendEntitlementEnvelopePayload: Decodable {
     }
 }
 
+struct ClickyBackendEntitlementSyncPayload: Decodable {
+    let userID: String
+    let entitlement: ClickyBackendEntitlementPayload
+    let refreshed: Bool?
+    let restored: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case userID = "userId"
+        case entitlement
+        case refreshed
+        case restored
+    }
+}
+
 struct ClickyBackendNativeAuthExchangePayload: Decodable {
     let tokenType: String
     let sessionToken: String
@@ -198,6 +212,30 @@ struct ClickyBackendAuthClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try JSONDecoder().decode(ClickyBackendEntitlementEnvelopePayload.self, from: data)
+    }
+
+    func refreshCurrentEntitlement(sessionToken: String) async throws -> ClickyBackendEntitlementSyncPayload {
+        var request = URLRequest(url: try endpointURL(path: "/v1/entitlements/refresh"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(ClickyBackendEntitlementSyncPayload.self, from: data)
+    }
+
+    func restoreLaunchAccess(sessionToken: String) async throws -> ClickyBackendEntitlementSyncPayload {
+        var request = URLRequest(url: try endpointURL(path: "/v1/billing/restore"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(ClickyBackendEntitlementSyncPayload.self, from: data)
     }
 
     func createCheckoutSession(sessionToken: String) async throws -> ClickyBackendCheckoutPayload {

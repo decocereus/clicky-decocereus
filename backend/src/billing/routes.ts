@@ -9,8 +9,8 @@ import {
   getMissingCheckoutConfiguration,
 } from "./config"
 import { createPolarClient } from "./polar"
+import { reconcileLaunchEntitlementFromPolar } from "./reconcile"
 import { processPolarWebhook } from "./webhooks"
-import { getLaunchEntitlementSnapshot } from "../entitlements/service"
 import type { Env } from "../env"
 
 export async function handleCreateCheckout(c: Context<{ Bindings: Env }>) {
@@ -102,16 +102,16 @@ export async function handleRestoreBilling(c: Context<{ Bindings: Env }>) {
     return sessionResult.response
   }
 
-  const launchEntitlement = await getLaunchEntitlementSnapshot(
+  const restoreResult = await reconcileLaunchEntitlementFromPolar(
     c.env,
     sessionResult.session.user.id,
   )
 
   return c.json({
     userId: sessionResult.session.user.id,
-    entitlement: launchEntitlement,
-    restored: false,
-    nextStep: "Provider-backed restore is not implemented yet.",
+    entitlement: restoreResult.entitlement,
+    providerState: restoreResult.providerState,
+    restored: restoreResult.providerState.didCheckProvider,
   })
 }
 

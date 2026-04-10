@@ -1,6 +1,7 @@
 import type { Context } from "hono"
 
 import { requireSession } from "../auth/session"
+import { reconcileLaunchEntitlementFromPolar } from "../billing/reconcile"
 import { getLaunchEntitlementSnapshot } from "./service"
 import type { Env } from "../env"
 
@@ -33,14 +34,14 @@ export async function handleRefreshEntitlements(c: Context<{ Bindings: Env }>) {
     return sessionResult.response
   }
 
-  const launchEntitlement = await getLaunchEntitlementSnapshot(
+  const refreshResult = await reconcileLaunchEntitlementFromPolar(
     c.env,
     sessionResult.session.user.id,
   )
 
   return c.json({
-    ...entitlementResponse(sessionResult.session.user.id, launchEntitlement),
-    refreshed: false,
-    nextStep: "Polar-backed refresh is not implemented yet.",
+    ...entitlementResponse(sessionResult.session.user.id, refreshResult.entitlement),
+    providerState: refreshResult.providerState,
+    refreshed: refreshResult.providerState.didCheckProvider,
   })
 }
