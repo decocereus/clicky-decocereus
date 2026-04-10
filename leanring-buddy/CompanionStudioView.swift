@@ -165,9 +165,14 @@ struct CompanionStudioView: View {
     private var detailPane: some View {
         ScrollView {
             ClickyGlassCluster {
-                VStack(alignment: .leading, spacing: 24) {
-                    sectionHero
-                    sectionContent
+                HStack(alignment: .top, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 28) {
+                        sectionHero
+                        sectionContent
+                    }
+                    .frame(maxWidth: 860, alignment: .leading)
+
+                    Spacer(minLength: 0)
                 }
                 .id(selectedSection)
                 .padding(28)
@@ -1851,7 +1856,7 @@ private struct ClickyStudioShellStyle: ViewModifier {
                 .background(
                     shape
                         .fill(.clear)
-                        .glassEffect(.regular.tint(theme.primary.opacity(0.07)).interactive(), in: shape)
+                        .glassEffect(.regular.tint(theme.primary.opacity(0.05)).interactive(), in: shape)
                 )
                 .overlay(
                     shape
