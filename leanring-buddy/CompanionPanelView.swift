@@ -918,6 +918,14 @@ struct CompanionPanelView: View {
         }
     }
 
+    private var isTestingOpenClawConnection: Bool {
+        if case .testing = companionManager.openClawConnectionStatus {
+            return true
+        }
+
+        return false
+    }
+
 }
 
 private enum PanelInlineStatusTone {
