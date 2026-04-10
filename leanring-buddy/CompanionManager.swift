@@ -151,6 +151,12 @@ private struct LaunchAssistantTurnAuthorization {
     let shouldUsePaywallTurn: Bool
 }
 
+private enum ClickyLaunchEntitlementSyncMode {
+    case current
+    case refresh
+    case restore
+}
+
 @MainActor
 final class CompanionManager: ObservableObject {
     @Published private(set) var voiceState: CompanionVoiceState = .idle
@@ -739,7 +745,8 @@ final class CompanionManager: ObservableObject {
                 let refreshedSnapshot = try await synchronizeLaunchSessionSnapshot(
                     sessionToken: storedSession.sessionToken,
                     fallbackUserID: storedSession.userID,
-                    fallbackEmail: storedSession.email
+                    fallbackEmail: storedSession.email,
+                    entitlementSyncMode: .refresh
                 )
                 try persistLaunchSessionSnapshot(refreshedSnapshot)
                 if refreshedSnapshot.entitlement.hasAccess {
@@ -751,6 +758,37 @@ final class CompanionManager: ObservableObject {
             } catch {
                 clickyLaunchBillingState = .failed(message: error.localizedDescription)
                 ClickyLogger.error(.app, "Failed to refresh Clicky launch entitlement error=\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func restoreClickyLaunchAccess() {
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            clickyLaunchBillingState = .failed(message: "Sign in before restoring access.")
+            ClickyLogger.error(.app, "Restore blocked because no launch auth session is available")
+            return
+        }
+
+        clickyLaunchBillingState = .waitingForCompletion
+        ClickyLogger.info(.app, "Restoring launch access user=\(storedSession.email)")
+
+        Task { @MainActor in
+            do {
+                let restoredSnapshot = try await synchronizeLaunchSessionSnapshot(
+                    sessionToken: storedSession.sessionToken,
+                    fallbackUserID: storedSession.userID,
+                    fallbackEmail: storedSession.email,
+                    entitlementSyncMode: .restore
+                )
+                try persistLaunchSessionSnapshot(restoredSnapshot)
+                clickyLaunchBillingState = restoredSnapshot.entitlement.hasAccess ? .completed : .idle
+                ClickyLogger.notice(
+                    .app,
+                    "Restore launch access completed user=\(restoredSnapshot.email) access=\(restoredSnapshot.entitlement.hasAccess)"
+                )
+            } catch {
+                clickyLaunchBillingState = .failed(message: error.localizedDescription)
+                ClickyLogger.error(.app, "Failed to restore Clicky launch access error=\(error.localizedDescription)")
             }
         }
     }
@@ -1768,13 +1806,49 @@ final class CompanionManager: ObservableObject {
         )
     }
 
+    private func loadLaunchEntitlement(
+        sessionToken: String,
+        mode: ClickyLaunchEntitlementSyncMode
+    ) async throws -> ClickyBackendEntitlementPayload {
+        switch mode {
+        case .current:
+            return try await clickyBackendAuthClient.fetchCurrentEntitlement(
+                sessionToken: sessionToken
+            ).entitlement
+        case .refresh:
+            return try await clickyBackendAuthClient.refreshCurrentEntitlement(
+                sessionToken: sessionToken
+            ).entitlement
+        case .restore:
+            return try await clickyBackendAuthClient.restoreLaunchAccess(
+                sessionToken: sessionToken
+            ).entitlement
+        }
+    }
+
+    private func shouldClearStoredLaunchSession(after error: Error) -> Bool {
+        guard let authError = error as? ClickyBackendAuthClientError else {
+            return false
+        }
+
+        guard case let .unexpectedStatus(code, _) = authError else {
+            return false
+        }
+
+        return code == 401 || code == 404
+    }
+
     private func synchronizeLaunchSessionSnapshot(
         sessionToken: String,
         fallbackUserID: String? = nil,
-        fallbackEmail: String? = nil
+        fallbackEmail: String? = nil,
+        entitlementSyncMode: ClickyLaunchEntitlementSyncMode = .current
     ) async throws -> ClickyAuthSessionSnapshot {
         async let sessionPayloadTask = clickyBackendAuthClient.fetchCurrentSession(sessionToken: sessionToken)
-        async let entitlementPayloadTask = clickyBackendAuthClient.fetchCurrentEntitlement(sessionToken: sessionToken)
+        async let entitlementPayloadTask = loadLaunchEntitlement(
+            sessionToken: sessionToken,
+            mode: entitlementSyncMode
+        )
         async let trialPayloadTask = clickyBackendAuthClient.fetchCurrentTrial(sessionToken: sessionToken)
 
         let sessionPayload = try await sessionPayloadTask
@@ -1785,7 +1859,7 @@ final class CompanionManager: ObservableObject {
             sessionToken: sessionToken,
             userID: fallbackUserID ?? sessionPayload.user.id,
             email: fallbackEmail ?? sessionPayload.user.email,
-            entitlement: makeLaunchEntitlementSnapshot(from: entitlementPayload.entitlement),
+            entitlement: makeLaunchEntitlementSnapshot(from: entitlementPayload),
             trial: makeLaunchTrialSnapshot(from: trialPayload.trial)
         )
     }
@@ -1999,17 +2073,32 @@ final class CompanionManager: ObservableObject {
                 let refreshedSnapshot = try await synchronizeLaunchSessionSnapshot(
                     sessionToken: storedSession.sessionToken,
                     fallbackUserID: storedSession.userID,
-                    fallbackEmail: storedSession.email
+                    fallbackEmail: storedSession.email,
+                    entitlementSyncMode: .refresh
                 )
 
                 try persistLaunchSessionSnapshot(refreshedSnapshot)
                 ClickyLogger.notice(.app, "Restored Clicky launch auth session user=\(refreshedSnapshot.email)")
             } catch {
-                ClickyAuthSessionStore.clear()
-                clickyLaunchAuthState = .signedOut
-                clickyLaunchEntitlementStatusLabel = "Unknown"
-                clickyLaunchTrialState = .inactive
-                ClickyLogger.error(.app, "Failed to restore Clicky launch auth session error=\(error.localizedDescription)")
+                if shouldClearStoredLaunchSession(after: error) {
+                    ClickyAuthSessionStore.clear()
+                    clickyLaunchAuthState = .signedOut
+                    clickyLaunchEntitlementStatusLabel = "Unknown"
+                    clickyLaunchTrialState = .inactive
+                    ClickyLogger.error(.app, "Failed to restore Clicky launch auth session error=\(error.localizedDescription)")
+                    return
+                }
+
+                clickyLaunchAuthState = .signedIn(email: storedSession.email)
+                clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(storedSession.entitlement)
+                clickyLaunchTrialState = formatLaunchTrialState(
+                    storedSession.trial,
+                    hasAccess: storedSession.entitlement.hasAccess
+                )
+                ClickyLogger.error(
+                    .app,
+                    "Failed to refresh Clicky launch session; continuing with cached state error=\(error.localizedDescription)"
+                )
             }
         }
     }
