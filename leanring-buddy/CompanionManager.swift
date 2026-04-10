@@ -654,10 +654,12 @@ final class CompanionManager: ObservableObject {
     func startClickyLaunchCheckout() {
         guard let storedSession = ClickyAuthSessionStore.load() else {
             clickyLaunchBillingState = .failed(message: "Sign in before starting checkout.")
+            ClickyLogger.error(.app, "Checkout blocked because no launch auth session is available")
             return
         }
 
         clickyLaunchBillingState = .openingCheckout
+        ClickyLogger.notice(.app, "Starting Polar checkout user=\(storedSession.email)")
 
         Task { @MainActor in
             do {
@@ -680,8 +682,11 @@ final class CompanionManager: ObservableObject {
         guard let storedSession = ClickyAuthSessionStore.load() else {
             clickyLaunchAuthState = .signedOut
             clickyLaunchEntitlementStatusLabel = "Unknown"
+            ClickyLogger.error(.app, "Entitlement refresh blocked because no launch auth session is available")
             return
         }
+
+        ClickyLogger.info(.app, "Refreshing launch entitlement user=\(storedSession.email)")
 
         Task { @MainActor in
             do {
@@ -702,6 +707,9 @@ final class CompanionManager: ObservableObject {
                 clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(refreshedSnapshot.entitlement)
                 if refreshedSnapshot.entitlement.hasAccess {
                     clickyLaunchBillingState = .completed
+                    ClickyLogger.notice(.app, "Launch entitlement active user=\(refreshedSnapshot.email)")
+                } else {
+                    ClickyLogger.notice(.app, "Launch entitlement still inactive user=\(refreshedSnapshot.email) status=\(refreshedSnapshot.entitlement.status)")
                 }
             } catch {
                 clickyLaunchBillingState = .failed(message: error.localizedDescription)
@@ -714,18 +722,21 @@ final class CompanionManager: ObservableObject {
         guard url.scheme?.lowercased() == "clicky" else { return }
 
         if url.host?.lowercased() == "auth", url.path == "/callback" {
+            ClickyLogger.notice(.app, "Received Clicky auth callback url=\(url.absoluteString)")
             handleClickyLaunchAuthCallback(url: url)
             return
         }
 
         if url.host?.lowercased() == "billing", url.path == "/success" {
             clickyLaunchBillingState = .completed
+            ClickyLogger.notice(.app, "Received Clicky billing success callback")
             refreshClickyLaunchEntitlement()
             return
         }
 
         if url.host?.lowercased() == "billing", url.path == "/cancel" {
             clickyLaunchBillingState = .canceled
+            ClickyLogger.notice(.app, "Received Clicky billing cancel callback")
         }
     }
 
