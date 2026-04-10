@@ -668,18 +668,15 @@ struct CompanionPanelView: View {
 
             Spacer()
 
-            HStack(spacing: 0) {
-                modelOptionButton(label: "Sonnet", modelID: "claude-sonnet-4-6")
-                modelOptionButton(label: "Opus", modelID: "claude-opus-4-6")
+            Picker("Model", selection: Binding(
+                get: { companionManager.selectedModel },
+                set: { companionManager.setSelectedModel($0) }
+            )) {
+                Text("Sonnet").tag("claude-sonnet-4-6")
+                Text("Opus").tag("claude-opus-4-6")
             }
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.025))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(theme.strokeSoft, lineWidth: 0.8)
-            )
+            .pickerStyle(.segmented)
+            .frame(width: 170)
         }
         .padding(.vertical, 4)
     }
@@ -692,39 +689,17 @@ struct CompanionPanelView: View {
 
             Spacer()
 
-            HStack(spacing: 0) {
-                agentBackendOptionButton(label: "Claude", backend: .claude)
-                agentBackendOptionButton(label: "OpenClaw", backend: .openClaw)
+            Picker("Agent", selection: Binding(
+                get: { companionManager.selectedAgentBackend },
+                set: { companionManager.setSelectedAgentBackend($0) }
+            )) {
+                Text("Claude").tag(CompanionAgentBackend.claude)
+                Text("OpenClaw").tag(CompanionAgentBackend.openClaw)
             }
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.025))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(theme.strokeSoft, lineWidth: 0.8)
-            )
+            .pickerStyle(.segmented)
+            .frame(width: 190)
         }
         .padding(.vertical, 4)
-    }
-
-    private func agentBackendOptionButton(label: String, backend: CompanionAgentBackend) -> some View {
-        let isSelected = companionManager.selectedAgentBackend == backend
-        return Button(action: {
-            companionManager.setSelectedAgentBackend(backend)
-        }) {
-            Text(label)
-                .font(ClickyTypography.body(size: 11, weight: .semibold))
-                .foregroundColor(isSelected ? theme.textPrimary : theme.textMuted)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? theme.accent.opacity(0.10) : Color.clear)
-                )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
     }
 
     private var activePersonaSummary: some View {
@@ -745,25 +720,6 @@ struct CompanionPanelView: View {
                 .fill(theme.primary)
                 .frame(width: 10, height: 10)
         }
-    }
-
-    private func modelOptionButton(label: String, modelID: String) -> some View {
-        let isSelected = companionManager.selectedModel == modelID
-        return Button(action: {
-            companionManager.setSelectedModel(modelID)
-        }) {
-            Text(label)
-                .font(ClickyTypography.body(size: 11, weight: .semibold))
-                .foregroundColor(isSelected ? theme.textPrimary : theme.textMuted)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? theme.accent.opacity(0.10) : Color.clear)
-                )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
     }
 
     private var openClawGatewaySettingsSection: some View {
@@ -1007,7 +963,7 @@ private struct ClickySecondaryGlassButtonStyle: ViewModifier {
             content
                 .font(ClickyTypography.body(size: 12, weight: .semibold))
                 .buttonStyle(.glass)
-                .tint(theme.accent.opacity(0.72))
+                .tint(theme.primary.opacity(0.14))
         } else {
             content
                 .font(ClickyTypography.body(size: 12, weight: .semibold))
@@ -1051,7 +1007,7 @@ private struct ClickyPanelShellStyle: ViewModifier {
                 .background(
                     shape
                         .fill(.clear)
-                        .glassEffect(.regular.tint(theme.primary.opacity(0.12)).interactive(), in: shape)
+                        .glassEffect(.regular.tint(theme.primary.opacity(0.07)).interactive(), in: shape)
                 )
                 .overlay(
                     shape

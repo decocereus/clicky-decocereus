@@ -1646,12 +1646,9 @@ struct CompanionStudioView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(theme.primary)
-            )
         }
         .buttonStyle(.plain)
+        .modifier(StudioProminentActionButtonStyle())
         .pointerCursor()
     }
 
@@ -1674,7 +1671,7 @@ struct CompanionStudioView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
-        .modifier(StudioNeutralButtonChrome(isEnabled: isEnabled))
+        .modifier(StudioActionButtonStyle(isEnabled: isEnabled))
         .disabled(!isEnabled)
         .pointerCursor(isEnabled: isEnabled)
     }
@@ -1738,21 +1735,12 @@ private struct StudioCard<Content: View>: View {
 
             content
         }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(theme.card.opacity(0.28))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .stroke(theme.strokeSoft.opacity(0.7), lineWidth: 0.8)
-        )
+        .padding(.vertical, 6)
         .overlay(alignment: .topLeading) {
             Capsule(style: .continuous)
                 .fill(theme.primary.opacity(0.45))
                 .frame(width: 80, height: 3)
-                .padding(.top, 14)
-                .padding(.leading, 24)
+                .padding(.top, 2)
         }
     }
 }
@@ -1794,34 +1782,47 @@ private struct StudioChapterDivider: View {
     }
 }
 
-private struct StudioNeutralButtonChrome: ViewModifier {
+private struct StudioActionButtonStyle: ViewModifier {
     @Environment(\.clickyTheme) private var theme
 
     let isEnabled: Bool
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-
         if #available(macOS 26.0, *) {
             content
-                .background(
-                    shape
-                        .fill(.clear)
-                        .glassEffect(.regular.tint(theme.primary.opacity(isEnabled ? 0.1 : 0.05)).interactive(), in: shape)
-                )
-                .overlay(
-                    shape
-                        .stroke(theme.strokeSoft, lineWidth: 0.9)
-                )
+                .foregroundColor(isEnabled ? theme.textPrimary : theme.textMuted)
+                .buttonStyle(.glass)
+                .tint(theme.primary.opacity(0.16))
         } else {
             content
+                .foregroundColor(isEnabled ? theme.textPrimary : theme.textMuted)
                 .background(
-                    shape
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(theme.card.opacity(isEnabled ? 0.7 : 0.4))
                 )
                 .overlay(
-                    shape
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(theme.strokeSoft, lineWidth: 0.9)
+                )
+        }
+    }
+}
+
+private struct StudioProminentActionButtonStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .foregroundColor(.black.opacity(0.82))
+                .buttonStyle(.glassProminent)
+                .tint(theme.accent)
+        } else {
+            content
+                .foregroundColor(.white)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(theme.accent)
                 )
         }
     }
@@ -1840,7 +1841,7 @@ private struct ClickyStudioShellStyle: ViewModifier {
                 .background(
                     shape
                         .fill(.clear)
-                        .glassEffect(.regular.tint(theme.primary.opacity(0.12)).interactive(), in: shape)
+                        .glassEffect(.regular.tint(theme.primary.opacity(0.07)).interactive(), in: shape)
                 )
                 .overlay(
                     shape
