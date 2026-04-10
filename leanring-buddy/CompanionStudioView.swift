@@ -13,6 +13,7 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
     case openClaw
     case voiceAppearance
     case integrations
+    case designLab
     case diagnostics
 
     var id: String { rawValue }
@@ -27,8 +28,10 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
             return "Persona"
         case .integrations:
             return "Integrations"
+        case .designLab:
+            return "Design Lab"
         case .diagnostics:
-            return "Diagnostics"
+            return "Support"
         }
     }
 
@@ -42,6 +45,8 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
             return "speaker.wave.3"
         case .integrations:
             return "puzzlepiece.extension"
+        case .designLab:
+            return "square.on.square"
         case .diagnostics:
             return "stethoscope"
         }
@@ -57,8 +62,10 @@ private enum CompanionStudioSection: String, CaseIterable, Identifiable, Hashabl
             return "Tone, voice, and look"
         case .integrations:
             return "Setup and status"
+        case .designLab:
+            return "Three UI directions"
         case .diagnostics:
-            return "Internal only"
+            return "Debug and reports"
         }
     }
 }
@@ -229,6 +236,8 @@ struct CompanionStudioView: View {
             voiceAppearanceSectionContent
         case .integrations:
             integrationsSectionContent
+        case .designLab:
+            StudioDesignLabView(companionManager: companionManager)
         case .diagnostics:
             diagnosticsSectionContent
         }
@@ -1440,8 +1449,10 @@ struct CompanionStudioView: View {
             return "Own the speech pipeline and visual shell here so later voice packs and cursor skins have a real home."
         case .integrations:
             return "Set up the OpenClaw bridge once, then let it fade into the background so the integration feels built in."
+        case .designLab:
+            return "Compare three Studio directions before we commit to a full redesign. Each option keeps diagnostics isolated from the production-facing app flow."
         case .diagnostics:
-            return "Internal activity, bridge state, and debugging details live here instead of cluttering the normal user flow."
+            return "Diagnostics, support exports, and internal controls live here instead of cluttering the main product experience."
         }
     }
 
