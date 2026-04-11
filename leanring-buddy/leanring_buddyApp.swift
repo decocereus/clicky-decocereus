@@ -11,6 +11,9 @@ import AppKit
 import OSLog
 import ServiceManagement
 import SwiftUI
+#if canImport(Sparkle)
+import Sparkle
+#endif
 
 @main
 struct leanring_buddyApp: App {
@@ -29,6 +32,12 @@ struct leanring_buddyApp: App {
                     appDelegate.showStudioWindow(source: "app-settings")
                 }
                 .keyboardShortcut(",", modifiers: [.command])
+
+                Divider()
+
+                Button("Check for Updates…") {
+                    appDelegate.checkForUpdates()
+                }
             }
 
             CommandMenu("Clicky") {
@@ -57,6 +66,7 @@ struct leanring_buddyApp: App {
 @MainActor
 final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarPanelManager: MenuBarPanelManager?
+    private var checkForUpdatesObserver: NSObjectProtocol?
     let companionManager = CompanionManager()
     private var sparkleUpdaterController: SPUStandardUpdaterController?
     private lazy var studioWindowController = StudioWindowController(companionManager: companionManager)
@@ -84,6 +94,13 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             companionManager: companionManager,
             studioWindowPresenter: self
         )
+        checkForUpdatesObserver = NotificationCenter.default.addObserver(
+            forName: .clickyCheckForUpdates,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.checkForUpdates()
+        }
         companionManager.start()
         // Auto-open the panel if the user still needs to do something:
         // either they haven't onboarded yet, or permissions were revoked.
@@ -94,7 +111,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         menuBarPanelManager?.showStudioOnLaunch()
         #endif
         registerAsLoginItemIfNeeded()
-        // startSparkleUpdater()
+        startSparkleUpdater()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -111,6 +128,15 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         companionManager.handleApplicationDidBecomeActive()
+    }
+
+    func checkForUpdates() {
+        if sparkleUpdaterController == nil {
+            startSparkleUpdater()
+        }
+
+        ClickyUnifiedTelemetry.lifecycle.info("Manual Sparkle update check requested")
+        sparkleUpdaterController?.checkForUpdates(nil)
     }
 
     func showStudioWindow(source: String = "app") {
@@ -141,6 +167,8 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startSparkleUpdater() {
+        guard sparkleUpdaterController == nil else { return }
+
         let updaterController = SPUStandardUpdaterController(
             startingUpdater: false,
             updaterDelegate: nil,
@@ -148,13 +176,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         )
         self.sparkleUpdaterController = updaterController
 
-        do {
-            try updaterController.updater.start()
-        } catch {
-            ClickyUnifiedTelemetry.lifecycle.error(
-                "Sparkle updater failed to start error=\(error.localizedDescription, privacy: .public)"
-            )
-        }
+        updaterController.startUpdater()
+        ClickyUnifiedTelemetry.lifecycle.info("Sparkle updater started")
+        ClickyLogger.notice(.app, "Sparkle updater started")
     }
 
     private func terminateOtherRunningClickyInstances() {
@@ -176,12 +200,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-@MainActor
 private final class StudioWindowController: NSWindowController, NSWindowDelegate {
     init(companionManager: CompanionManager) {
-        let studioRootView = CompanionStudioView(companionManager: companionManager)
-            .frame(minWidth: 980, minHeight: 680)
-
+        let studioRootView = CompanionStudioNextView(companionManager: companionManager)
         let hostingController = NSHostingController(rootView: studioRootView)
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = NSColor.clear.cgColor
@@ -194,12 +215,6 @@ private final class StudioWindowController: NSWindowController, NSWindowDelegate
         )
 
         window.contentViewController = hostingController
-        window.contentView?.wantsLayer = true
-        window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
-        window.contentView?.superview?.wantsLayer = true
-        window.contentView?.superview?.layer?.backgroundColor = NSColor.clear.cgColor
-        window.contentView?.superview?.superview?.wantsLayer = true
-        window.contentView?.superview?.superview?.layer?.backgroundColor = NSColor.clear.cgColor
         window.title = "Clicky Studio"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true

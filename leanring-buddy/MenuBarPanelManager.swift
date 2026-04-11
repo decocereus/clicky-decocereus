@@ -18,6 +18,7 @@ import SwiftUI
 extension Notification.Name {
     static let clickyDismissPanel = Notification.Name("clickyDismissPanel")
     static let clickyOpenStudio = Notification.Name("clickyOpenStudio")
+    static let clickyCheckForUpdates = Notification.Name("clickyCheckForUpdates")
     static let clickyShowPanel = Notification.Name("clickyShowPanel")
     static let clickyStudioDidAppear = Notification.Name("clickyStudioDidAppear")
     static let clickyStudioDidDisappear = Notification.Name("clickyStudioDidDisappear")

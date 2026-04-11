@@ -37,6 +37,15 @@ If an agent changes SwiftUI/AppKit UI in the desktop app, they must read this fi
 - For Studio specifically, the real window should be treated as the shell. Do not rely on a managed Settings-scene frame as the visible outer container if it causes chrome regressions.
 - Preserve native traffic lights in Studio whenever possible. If Studio needs deeper window control, prefer a custom AppKit-managed window host over piling extra fake chrome into SwiftUI.
 
+## Studio Direction
+
+- Studio should feel like a chapter-driven command deck, not a generic settings form.
+- The left rail should carry identity, a compact live snapshot, and section navigation.
+- The main canvas should open with a strong section hero, a compact status band, and then the deeper cards for that chapter.
+- Production-facing controls should stay prominent and calm. Support-only controls should still feel backstage even when visible.
+- Motion should feel deliberate and architectural: section switches, hero changes, and major reveal states may animate, but avoid fussy micro-interactions everywhere.
+- Studio may feel more editorial and expansive than the menu bar companion, but it should still read as a native Mac app rather than a transplanted web page.
+
 ## Color System
 
 - Match the desktop app to the web brand palette.

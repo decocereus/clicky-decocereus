@@ -11,7 +11,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **App Type**: Menu bar-only (`LSUIElement=true`) in production, with a unified Studio window for deeper configuration
 - **Framework**: SwiftUI (macOS native) with AppKit bridging for the menu bar panel and cursor overlay
 - **Studio Window Host**: custom AppKit-managed `NSWindow` hosting SwiftUI content so Clicky can control the real outer shell, keep native traffic lights, and avoid Settings-scene chrome regressions
-- **Pattern**: MVVM with `@StateObject` / `@Published` state management
+- **State Pattern**: Prefer the simplest state ownership model that fits the surrounding feature. Preserve existing patterns in-place, use SwiftUI-native state by default, and only introduce additional view-model-style abstraction when the feature genuinely needs it.
 - **Agent Backends**: Claude via Cloudflare Worker proxy plus OpenClaw Gateway via WebSocket with image attachments and Gateway session routing
 - **OpenClaw Plugin Direction**: The repo includes a native OpenClaw plugin scaffold in `plugins/openclaw-clicky-shell` and a contract doc in `docs/clicky-openclaw-integration-contract.md` so Clicky can become a first-class desktop shell integration for OpenClaw
 - **Web Companion Direction**: The marketing site should keep its current landing-page design and add the companion as a layered shell experience. Use per-visitor OpenClaw sessions/threads with curated section context, a semantic target registry for pointing, and a generated site-layout reference image rather than unrestricted DOM access or browser screen-share prompts. See `docs/web-companion-prd.md` and `docs/web-openclaw-session-architecture.md`
@@ -26,12 +26,18 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 
 ## Codex Workflow
 
+- Instruction priority for this repo:
+  1. Repo `AGENTS.md` files define product constraints, workflow guardrails, and launch assumptions.
+  2. The Build macOS Apps plugin is the default source of macOS implementation guidance.
+  3. `docs/macos-design.md` is the design source of truth for desktop UI.
+  4. SwiftUI and Liquid Glass skills provide implementation-quality guidance unless they conflict with a more specific repo rule.
 - Before starting any work in this repo, use the Build macOS Apps plugin as the default source of platform guidance.
 - Pick the smallest relevant Build macOS Apps skill set for the task first, then say which skills are guiding the work. Most common fits here are `swiftui-patterns`, `window-management`, `appkit-interop`, `telemetry`, `view-refactor`, `build-run-debug`, `test-triage`, `signing-entitlements`, and `packaging-notarization`.
 - For any macOS UI work, read `docs/macos-design.md` first and treat it as the design source of truth for the desktop app.
 - When the task touches the menu bar companion, prioritize `liquid-glass` guidance first and preserve the compact single-shell panel design described in `docs/macos-design.md`.
 - Treat the plugin as the default reference for macOS-specific decisions: scene structure, menu bar behavior, window activation/focus, toolbar and command design, app bundle behavior, unified logging, telemetry, packaging, and other desktop-native details.
 - Actively guide the user to take advantage of the plugin. When relevant, suggest Codex Run button wiring, project-local run scripts, `.codex/environments/environment.toml`, unified logging, or targeted telemetry so future debugging loops are tighter.
+- Clarify only when a decision would materially change architecture, UX, launch behavior, or verification cost. Otherwise, make the smallest safe assumption, state it, and keep moving.
 - Repo-specific override: do **not** follow generic shell-first `xcodebuild` advice here. This project must not use `xcodebuild` from the terminal because it can invalidate TCC permissions and force the app to re-request screen recording, accessibility, and similar grants.
 - If plugin guidance would normally suggest shell build/run automation, adapt it for this repo by preferring Xcode-launched build/run loops and non-destructive debugging paths first. Only discuss terminal build automation if the user explicitly wants that tradeoff and understands the TCC cost.
 - If the user wants deeper observability, prefer lightweight `OSLog` / unified logging instrumentation and plugin-guided telemetry patterns over ad hoc prints.
