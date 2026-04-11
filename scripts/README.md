@@ -1,6 +1,6 @@
 # Release Scripts
 
-## `release.sh` — Ship a new version of makesomething
+## `release.sh` — Ship a new version of Clicky
 
 Automates the full release pipeline: build → sign → DMG → notarize → Sparkle appcast → GitHub Release.
 
@@ -38,7 +38,7 @@ The script checks GitHub for the latest release (e.g. `v1.5`, build 6) and autom
 6. Signs the DMG with the Sparkle EdDSA key
 7. Generates `appcast.xml` for Sparkle auto-updates
 8. Creates a GitHub Release with the DMG attached
-9. Pushes the updated `appcast.xml` to the releases repo
+9. Commits and pushes the updated `appcast.xml` in this repo
 
 ### One-time setup (prerequisites)
 

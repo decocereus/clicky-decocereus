@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		9F4E1C162F4A000100000001 /* Sparkle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4E1C172F4A000100000001 /* Sparkle.xcframework */; };
+		9F4E1C182F4A000100000001 /* Sparkle.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4E1C172F4A000100000001 /* Sparkle.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		28F22CCD2F56440300A0FC59 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -23,10 +28,25 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		9F4E1C192F4A000100000001 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				9F4E1C182F4A000100000001 /* Sparkle.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		28F22CBF2F56440300A0FC59 /* Clicky.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Clicky.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9F4E1C172F4A000100000001 /* Sparkle.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Sparkle.xcframework; path = Vendor/Sparkle/Sparkle.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -52,6 +72,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9F4E1C162F4A000100000001 /* Sparkle.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +99,7 @@
 				28F22CC12F56440300A0FC59 /* leanring-buddy */,
 				28F22CCF2F56440300A0FC59 /* leanring-buddyTests */,
 				28F22CD92F56440300A0FC59 /* leanring-buddyUITests */,
+				9F4E1C172F4A000100000001 /* Sparkle.xcframework */,
 				28F22CC02F56440300A0FC59 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -101,6 +123,7 @@
 			buildPhases = (
 				28F22CBB2F56440300A0FC59 /* Sources */,
 				28F22CBC2F56440300A0FC59 /* Frameworks */,
+				9F4E1C192F4A000100000001 /* Embed Frameworks */,
 				28F22CBD2F56440300A0FC59 /* Resources */,
 			);
 			buildRules = (
@@ -408,7 +431,6 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "leanring-buddy/Info.plist";
-				INFOPLIST_KEY_AnthropicAPIKey = "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";
 				INFOPLIST_KEY_AnthropicAPIURL = "https://api.anthropic.com/v1/messages";
 				INFOPLIST_KEY_AnthropicModel = "claude-sonnet-4-6";
 				INFOPLIST_KEY_CFBundleDisplayName = Clicky;
@@ -449,7 +471,6 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "leanring-buddy/Info.plist";
-				INFOPLIST_KEY_AnthropicAPIKey = "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";
 				INFOPLIST_KEY_AnthropicAPIURL = "https://api.anthropic.com/v1/messages";
 				INFOPLIST_KEY_AnthropicModel = "claude-sonnet-4-6";
 				INFOPLIST_KEY_CFBundleDisplayName = Clicky;

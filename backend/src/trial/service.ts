@@ -5,6 +5,39 @@ import { launchTrialStates } from "../db/schema"
 import type { Env } from "../env"
 import { LAUNCH_TRIAL_INITIAL_CREDITS } from "../launch/config"
 
+function defaultTrialSnapshot() {
+  return {
+    status: "inactive",
+    initialCredits: LAUNCH_TRIAL_INITIAL_CREDITS,
+    remainingCredits: LAUNCH_TRIAL_INITIAL_CREDITS,
+    setupCompletedAt: null,
+    trialActivatedAt: null,
+    lastCreditConsumedAt: null,
+    welcomePromptDeliveredAt: null,
+    paywallActivatedAt: null,
+  }
+}
+
+function isMissingLaunchTrialSchema(error: unknown) {
+  if (typeof error !== "object" || error === null) {
+    return false
+  }
+
+  const candidate = error as {
+    cause?: { code?: string; message?: string }
+    message?: string
+  }
+
+  const postgresCode = candidate.cause?.code
+  const message = `${candidate.message ?? ""} ${candidate.cause?.message ?? ""}`.toLowerCase()
+
+  if (postgresCode === "42P01" || postgresCode === "42704") {
+    return message.includes("launch_trial_state") || message.includes("launch_trial_status")
+  }
+
+  return false
+}
+
 function serializeDate(value: Date | null | undefined) {
   return value ? value.toISOString() : null
 }
@@ -33,21 +66,23 @@ function formatTrialState(trialState: {
 
 export async function getLaunchTrialSnapshot(env: Env, userId: string) {
   const db = createDb(env)
-  const trialState = await db.query.launchTrialStates.findFirst({
-    where: eq(launchTrialStates.userId, userId),
-  })
+  let trialState: typeof launchTrialStates.$inferSelect | undefined
+
+  try {
+    trialState = await db.query.launchTrialStates.findFirst({
+      where: eq(launchTrialStates.userId, userId),
+    })
+  } catch (error) {
+    if (isMissingLaunchTrialSchema(error)) {
+      console.warn("[clicky-backend] launch trial schema missing; returning default snapshot")
+      return defaultTrialSnapshot()
+    }
+
+    throw error
+  }
 
   if (!trialState) {
-    return {
-      status: "inactive",
-      initialCredits: LAUNCH_TRIAL_INITIAL_CREDITS,
-      remainingCredits: LAUNCH_TRIAL_INITIAL_CREDITS,
-      setupCompletedAt: null,
-      trialActivatedAt: null,
-      lastCreditConsumedAt: null,
-      welcomePromptDeliveredAt: null,
-      paywallActivatedAt: null,
-    }
+    return defaultTrialSnapshot()
   }
 
   return formatTrialState(trialState)

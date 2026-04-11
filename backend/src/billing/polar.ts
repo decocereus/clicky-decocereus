@@ -1,6 +1,6 @@
 import { Polar } from "@polar-sh/sdk"
 
-import type { Env } from "../env"
+import { readEnvValue, type Env } from "../env"
 
 function requireValue(value: string | undefined, name: string) {
   if (!value) {
@@ -12,6 +12,6 @@ function requireValue(value: string | undefined, name: string) {
 
 export function createPolarClient(env: Env) {
   return new Polar({
-    accessToken: requireValue(env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN"),
+    accessToken: requireValue(readEnvValue(env, "POLAR_ACCESS_TOKEN"), "POLAR_ACCESS_TOKEN"),
   })
 }

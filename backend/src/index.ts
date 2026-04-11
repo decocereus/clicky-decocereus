@@ -16,7 +16,7 @@ import {
   handleBillingSuccessCallback,
   handlePolarWebhook,
 } from "./billing/routes"
-import type { Env } from "./env"
+import { readEnvValue, type Env } from "./env"
 import {
   handleGetEntitlements,
   handleRefreshEntitlements,
@@ -73,8 +73,8 @@ const corsOptions = {
   origin: (origin: string, c: { env: Env }) => {
     const allowedOrigins = new Set(
       [
-        ...expandLocalhostOrigin(c.env.BETTER_AUTH_URL),
-        ...expandLocalhostOrigin(c.env.WEB_ORIGIN),
+        ...expandLocalhostOrigin(readEnvValue(c.env, "BETTER_AUTH_URL")),
+        ...expandLocalhostOrigin(readEnvValue(c.env, "WEB_ORIGIN")),
       ],
     )
 
@@ -107,7 +107,7 @@ app.onError((error, c) => {
 
 app.get("/", (c) => {
   return c.json({
-    name: c.env.APP_NAME,
+    name: readEnvValue(c.env, "APP_NAME") ?? "Clicky Backend",
     service: "clicky-backend",
     status: "ok",
   })
@@ -153,6 +153,7 @@ app.get("/v1", (c) => {
       "POST /v1/web-companion/sessions/:sessionId/transcribe",
       "POST /v1/web-companion/sessions/:sessionId/end",
       "GET /v1/auth/native/start",
+      "GET /v1/auth/native/google/start",
       "GET /v1/auth/native/callback",
       "POST /v1/auth/native/exchange",
     ],
@@ -205,6 +206,96 @@ app.get("/v1/auth/native/start", async (c) => {
       500,
     )
   }
+})
+
+app.get("/v1/auth/native/google/start", async (c) => {
+  const callbackUrl = c.req.query("callbackUrl")?.trim()
+
+  if (!callbackUrl) {
+    return c.json(
+      {
+        error: "Native auth callback URL is required.",
+      },
+      400,
+    )
+  }
+
+  const auth = createAuth(c.env)
+  const signInRequestUrl = new URL("/api/auth/sign-in/social", c.req.url)
+  const webOrigin = readEnvValue(c.env, "WEB_ORIGIN")?.trim() || new URL(c.req.url).origin
+  const headers = new Headers({
+    "content-type": "application/json",
+    origin: webOrigin,
+    referer: `${webOrigin}/auth/native`,
+  })
+  const cookieHeader = c.req.header("cookie")
+  const userAgent = c.req.header("user-agent")
+  const xForwardedFor = c.req.header("x-forwarded-for")
+  const xForwardedProto = c.req.header("x-forwarded-proto")
+  const xForwardedHost = c.req.header("x-forwarded-host")
+
+  if (cookieHeader) {
+    headers.set("cookie", cookieHeader)
+  }
+
+  if (userAgent) {
+    headers.set("user-agent", userAgent)
+  }
+
+  if (xForwardedFor) {
+    headers.set("x-forwarded-for", xForwardedFor)
+  }
+
+  if (xForwardedProto) {
+    headers.set("x-forwarded-proto", xForwardedProto)
+  }
+
+  if (xForwardedHost) {
+    headers.set("x-forwarded-host", xForwardedHost)
+  }
+
+  const authResponse = await auth.handler(
+    new Request(signInRequestUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        provider: "google",
+        disableRedirect: true,
+        callbackURL: callbackUrl,
+      }),
+    }),
+  )
+
+  if (!authResponse.ok) {
+    return authResponse
+  }
+
+  const payload = await authResponse.json().catch(() => null) as { url?: string } | null
+  const redirectUrl = payload?.url?.trim()
+
+  if (!redirectUrl) {
+    return c.json(
+      {
+        error: "Google sign-in URL was missing from Better Auth.",
+      },
+      500,
+    )
+  }
+
+  const redirectHeaders = new Headers({
+    Location: redirectUrl,
+  })
+
+  for (const [headerName, headerValue] of authResponse.headers.entries()) {
+    if (headerName.toLowerCase() === "set-cookie") {
+      redirectHeaders.append(headerName, headerValue)
+    }
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: redirectHeaders,
+  })
 })
 
 app.get("/v1/auth/native/callback", async (c) => {

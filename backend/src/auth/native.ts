@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm"
 
 import { createDb } from "../db/client"
 import { nativeAuthHandoffs } from "../db/schema"
-import type { Env } from "../env"
+import { readEnvValue, type Env } from "../env"
 
 const NATIVE_AUTH_HANDOFF_TTL_MINUTES = 15
 
@@ -13,19 +13,23 @@ function addMinutes(date: Date, minutes: number) {
 }
 
 function requireWebOrigin(env: Env) {
-  if (!env.WEB_ORIGIN) {
+  const webOrigin = readEnvValue(env, "WEB_ORIGIN")
+
+  if (!webOrigin) {
     throw new Error("WEB_ORIGIN is required for native auth handoff.")
   }
 
-  return env.WEB_ORIGIN
+  return webOrigin
 }
 
 function requireApiBaseUrl(env: Env) {
-  if (!env.BETTER_AUTH_URL) {
+  const apiBaseUrl = readEnvValue(env, "BETTER_AUTH_URL")
+
+  if (!apiBaseUrl) {
     throw new Error("BETTER_AUTH_URL is required for native auth handoff.")
   }
 
-  return env.BETTER_AUTH_URL
+  return apiBaseUrl
 }
 
 export async function createNativeAuthHandoff(env: Env) {
@@ -33,7 +37,7 @@ export async function createNativeAuthHandoff(env: Env) {
   const state = crypto.randomUUID()
   const requestedAt = new Date()
   const expiresAt = addMinutes(requestedAt, NATIVE_AUTH_HANDOFF_TTL_MINUTES)
-  const returnScheme = env.MAC_APP_SCHEME ?? "clicky"
+  const returnScheme = readEnvValue(env, "MAC_APP_SCHEME") ?? "clicky"
   const apiBaseUrl = requireApiBaseUrl(env)
   const webOrigin = requireWebOrigin(env)
   const callbackUrl = `${apiBaseUrl}/v1/auth/native/callback?state=${encodeURIComponent(state)}`

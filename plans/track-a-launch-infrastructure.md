@@ -62,6 +62,20 @@ These items are effectively implemented in code or documented strongly enough to
 - [x] The first turn after trial exhaustion becomes the paywall turn.
 - [x] Fully paywalled state blocks the live companion interaction path.
 
+### Support / diagnostics hardening
+
+- [x] Support mode is durable and hides Support/Diagnostics from the normal Studio navigation by default.
+- [x] Diagnostics and launch simulation stay out of the normal user flow until support mode is explicitly enabled.
+- [x] Support report copy/export uses a redacted launch-state snapshot plus redacted recent logs.
+- [x] Sensitive auth and token-like values are redacted before they enter the in-app diagnostics buffer or support report.
+- [x] High-signal auth, billing, restore, trial, welcome-turn, paywall, and support-report events are written through the diagnostics logger.
+
+### Sparkle runtime
+
+- [x] The app has a real Sparkle feed URL and public key configured for Clicky.
+- [x] The running app starts the Sparkle updater at launch.
+- [x] The app exposes a user-facing `Check for Updates…` command.
+
 ### Polar integration core
 
 - [x] `POST /v1/billing/checkout` creates real Polar checkout sessions.
@@ -81,6 +95,7 @@ These items are effectively implemented in code or documented strongly enough to
 - [x] The website can talk to backend auth and `/v1/*` endpoints with CORS enabled.
 - [x] The website no longer owns billing UX at launch.
 - [x] The website contains a native auth handoff bridge without needing custom checkout UI.
+- [x] Current web companion architecture is documented in the dedicated PRD and session-architecture docs.
 
 ## Partial / Needs Verification
 
@@ -104,16 +119,11 @@ These are implemented enough to exist, but are not proven or polished enough to 
 ### Restore and refresh semantics
 
 - [ ] Provider-backed `billing/restore` and `entitlements/refresh` need one operational verification pass against real Polar/customer state.
-- [ ] Offline grace behavior is documented, but not yet proven under real stale-session scenarios.
+- [x] Offline grace behavior is documented and the app now downgrades cached unlocked state once local grace expires.
 
 ### Mac app access flow
 
-- [ ] Studio has account, entitlement, purchase, refresh, and restore controls, but this is still a technical access surface rather than the final user-facing purchase experience.
-- [ ] Launch access state is materially real, but the full “signed out / limited / unlocked / degraded” product flow is not yet presented in a polished way to normal users.
-
-### Website contract drift
-
-- [ ] The website handoff route is implemented, but the docs/checklist should be updated to reflect the current website architecture instead of the earlier, simpler scaffold.
+- [ ] Runtime purchase, restore, and update flows still need one end-to-end polish pass after live verification.
 
 ## Remaining Before Launch
 
@@ -121,18 +131,18 @@ These are the real launch-blocking items still left.
 
 ### 1. Support Mode and Diagnostics Hardening
 
-- [ ] Hide Diagnostics behind a support/developer toggle.
-- [ ] Remove diagnostics from the normal user flow by default.
-- [ ] Add safer copy/export behavior for logs.
-- [ ] Ensure sensitive local values are not logged in plain form.
+- [x] Hide Diagnostics behind a support/developer toggle.
+- [x] Remove diagnostics from the normal user flow by default.
+- [x] Add safer copy/export behavior for logs.
+- [x] Ensure sensitive local values are not logged in plain form.
 
 ### 2. Free Taste and In-App Paywall
 
 - [x] Choose and document the exact free-taste boundary.
 - [x] Enforce the free-taste boundary in the Mac app.
 - [x] Make the signed-out launch path explicit instead of silently bypassing the account-bound trial model.
-- [ ] Build the actual in-app paywall UX for normal users.
-- [ ] Make the paywall explain:
+- [x] Build the actual in-app paywall UX for normal users.
+- [x] Make the paywall explain:
   - what the user got to try
   - what is now locked
   - how to sign in, buy, or restore
@@ -141,10 +151,10 @@ These are the real launch-blocking items still left.
 
 - [x] Make `billing/restore` actually provider-backed.
 - [x] Make `entitlements/refresh` actually sync provider state when needed.
-- [ ] Tighten unlock behavior after successful purchase.
-- [ ] Tighten returning-user restore behavior across reinstalls.
-- [ ] Confirm refund/revocation behavior is acceptable.
-- [ ] Confirm offline/stale entitlement grace behavior is acceptable.
+- [x] Tighten unlock behavior after successful purchase.
+- [x] Tighten returning-user restore behavior across reinstalls.
+- [x] Confirm refund/revocation behavior is acceptable.
+- [x] Confirm offline/stale entitlement grace behavior is acceptable.
 
 ### 4. Live Purchase Verification
 
@@ -159,19 +169,19 @@ These are the real launch-blocking items still left.
 
 ### 5. Sparkle Runtime Enablement
 
-- [ ] Turn Sparkle on in the running app, not just in release scripts.
-- [ ] Add/update user-facing update controls if needed.
+- [x] Turn Sparkle on in the running app, not just in release scripts.
+- [x] Add/update user-facing update controls if needed.
 - [ ] Verify appcast discovery and update flow from the app runtime.
 
 ### 6. Launch Ops and Docs
 
-- [ ] Write a concise launch-ops checklist covering:
+- [x] Write a concise launch-ops checklist covering:
   - Google callback configuration
   - backend envs
   - Polar product and optional discount
   - public webhook URL
   - release/update steps
-- [ ] Update launch docs so they match the current implementation, not the earlier plan narrative.
+- [x] Update launch docs so they match the current implementation, not the earlier plan narrative.
 
 ## Remaining Nice-to-Have
 
@@ -186,11 +196,10 @@ These are useful, but they should not block the first launch unless they expose 
 
 If we were executing from this checklist right now, the next best sequence would be:
 
-1. Finish welcome prompt injection and the normal-user paywall messaging path.
-2. Gate Diagnostics fully behind support mode and tighten support export/redaction.
-3. Run one real purchase with a public webhook URL.
-4. Harden whatever breaks in restore/unlock/offline behavior.
-5. Enable Sparkle runtime behavior in the app.
+1. Run one real purchase with a public webhook URL.
+2. Verify provider-backed restore/refresh and the runtime Sparkle feed against real production-like conditions.
+3. Harden whatever breaks in restore/unlock/offline behavior.
+4. Clean up any remaining website contract drift.
 
 ## Notes
 

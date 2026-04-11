@@ -122,6 +122,9 @@ struct CompanionPanelView: View {
                     .modifier(ClickyPanelContentCardStyle(padding: 16))
             } else if !companionManager.hasCompletedOnboarding {
                 startButton
+            } else if companionManager.isClickyLaunchAuthPending {
+                authPendingSection
+                    .modifier(ClickyPanelContentCardStyle(tone: .hero, padding: 16))
             } else if companionManager.isClickyLaunchPaywallActive {
                 paywallLockedSection
                     .modifier(ClickyPanelContentCardStyle(tone: .hero, padding: 16))
@@ -201,6 +204,47 @@ struct CompanionPanelView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .modifier(ClickyProminentActionStyle())
+                .pointerCursor()
+
+                Button(action: {
+                    openStudio()
+                }) {
+                    Text("Open Studio")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+            }
+        }
+    }
+
+    private var authPendingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            panelSectionEyebrow("Launch Access")
+
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(contentTheme.accent)
+
+                Text(authPendingTitle)
+                    .font(ClickyTypography.section(size: 20))
+                    .foregroundColor(contentTheme.textPrimary)
+            }
+
+            Text(authPendingMessage)
+                .font(ClickyTypography.body(size: 13))
+                .foregroundColor(contentTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button(action: {
+                    companionManager.startClickyLaunchSignIn()
+                }) {
+                    Text("Open Sign-In Again")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
                 .pointerCursor()
 
                 Button(action: {
@@ -781,9 +825,9 @@ struct CompanionPanelView: View {
         }
     }
 
-    // MARK: - DM Farza Button
+    // MARK: - DM Amartya Button
 
-    private var dmFarzaButton: some View {
+    private var dmAmartyaButton: some View {
         Button(action: {
             if let url = URL(string: "https://x.com/decocereus") {
                 NSWorkspace.shared.open(url)
@@ -851,6 +895,16 @@ struct CompanionPanelView: View {
         if !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted {
             return "Setup"
         }
+        if companionManager.isClickyLaunchAuthPending {
+            switch companionManager.clickyLaunchAuthState {
+            case .restoring:
+                return "Restoring"
+            case .signingIn:
+                return "Signing In"
+            case .signedOut, .signedIn, .failed:
+                break
+            }
+        }
         if companionManager.isClickyLaunchPaywallActive {
             return "Locked"
         }
@@ -868,6 +922,28 @@ struct CompanionPanelView: View {
             return "Thinking"
         case .responding:
             return "Responding"
+        }
+    }
+
+    private var authPendingTitle: String {
+        switch companionManager.clickyLaunchAuthState {
+        case .restoring:
+            return "Restoring access"
+        case .signingIn:
+            return "Waiting for browser sign-in"
+        case .signedOut, .signedIn, .failed:
+            return "Waiting for sign-in"
+        }
+    }
+
+    private var authPendingMessage: String {
+        switch companionManager.clickyLaunchAuthState {
+        case .restoring:
+            return "Clicky is checking your stored launch session and waiting for the backend to confirm your account and entitlement state."
+        case .signingIn:
+            return "Finish Google sign-in in your browser. Clicky will only switch into the signed-in state after the browser callback returns and the backend exchange succeeds."
+        case .signedOut, .signedIn, .failed:
+            return "Clicky is waiting for sign-in to finish."
         }
     }
 

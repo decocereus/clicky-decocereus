@@ -43,7 +43,7 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
     ) async throws -> any BuddyStreamingTranscriptionSession {
         // Fetch a fresh temporary token from the proxy before each session
         let temporaryToken = try await fetchTemporaryToken()
-        print("🎙️ AssemblyAI: fetched temporary token (\(temporaryToken.prefix(20))...)")
+        ClickyLogger.info(.audio, "AssemblyAI temporary token fetched for streaming session")
 
         let session = AssemblyAIStreamingTranscriptionSession(
             apiKey: nil,
@@ -69,7 +69,9 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            let body = String(data: data, encoding: .utf8) ?? "unknown"
+            let body = ClickyLogger.redactForDiagnostics(
+                String(data: data, encoding: .utf8) ?? "unknown"
+            )
             throw AssemblyAIStreamingTranscriptionProviderError(
                 message: "Failed to fetch AssemblyAI token (HTTP \(statusCode)): \(body)"
             )

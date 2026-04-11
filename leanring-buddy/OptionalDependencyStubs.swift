@@ -33,8 +33,12 @@ final class PostHogSDK {
     }
 }
 
+#if !canImport(Sparkle)
 final class SPUUpdater {
-    func start() throws {}
+    var canCheckForUpdates: Bool { true }
+
+    func checkForUpdates() {}
+    func checkForUpdatesInBackground() {}
 }
 
 final class SPUStandardUpdaterController {
@@ -49,4 +53,12 @@ final class SPUStandardUpdaterController {
         _ = updaterDelegate
         _ = userDriverDelegate
     }
+
+    func startUpdater() {}
+
+    func checkForUpdates(_ sender: Any?) {
+        _ = sender
+        updater.checkForUpdates()
+    }
 }
+#endif

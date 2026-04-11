@@ -112,35 +112,13 @@ export function NativeAuthPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${backendUrl}/api/auth/sign-in/social`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          provider: 'google',
-          disableRedirect: true,
-          callbackURL: callbackUrl,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Google sign-in request failed.');
-      }
-
-      const data = (await response.json()) as { url?: string };
-
-      if (!data.url) {
-        throw new Error('Google sign-in URL was missing from the backend response.');
-      }
-
       startTransition(() => {
         setSubmitState({ status: 'redirecting' });
       });
 
-      window.location.href = data.url;
+      const signInUrl = new URL(`${backendUrl}/v1/auth/native/google/start`);
+      signInUrl.searchParams.set('callbackUrl', callbackUrl);
+      window.location.href = signInUrl.toString();
     } catch (error) {
       startTransition(() => {
         setSubmitState({

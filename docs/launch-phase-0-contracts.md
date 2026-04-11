@@ -132,7 +132,7 @@ The Mac app should support at least these launch/access states:
 
 - `onboardingRequired`
 - `permissionsRequired`
-- `anonymousFreeTaste`
+- `signedOutTrialReady`
 - `paywallRequired`
 - `authInProgress`
 - `signedInEntitlementUnknown`
@@ -190,6 +190,12 @@ The website only needs a slim contract at launch:
 - static download CTA to the latest DMG URL
 
 The website does not need custom checkout UI for launch.
+
+## Runtime updates
+
+- Clicky uses Sparkle for direct-download app updates.
+- The runtime app points at the repo-owned `appcast.xml` feed.
+- Release automation is responsible for publishing a notarized DMG, updating `appcast.xml`, and pushing the refreshed feed to the same repository.
 
 ## Database model
 

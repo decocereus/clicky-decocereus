@@ -10,7 +10,7 @@ import Foundation
 enum CompanionRuntimeConfiguration {
     private static let placeholderWorkerBaseURL = "https://your-worker-name.your-subdomain.workers.dev"
     private static let workerBaseURLInfoPlistKey = "CompanionWorkerBaseURL"
-    private static let placeholderBackendBaseURL = "https://api.clicky.app"
+    private static let placeholderBackendBaseURL = "https://backend.clickyhq.com"
     private static let backendBaseURLInfoPlistKey = "ClickyBackendBaseURL"
 
     static var workerBaseURL: String {

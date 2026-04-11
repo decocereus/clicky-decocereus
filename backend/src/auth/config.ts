@@ -3,15 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { bearer } from "better-auth/plugins"
 
 import { createDb } from "../db/client"
-import type { Env } from "../env"
-
-function requireValue(value: string | undefined, name: string) {
-  if (!value) {
-    throw new Error(`${name} is required for auth configuration.`)
-  }
-
-  return value
-}
+import { readEnvValue, requireEnvValue, type Env } from "../env"
 
 function expandLocalhostOrigin(origin: string | undefined) {
   if (!origin) {
@@ -44,24 +36,24 @@ function expandLocalhostOrigin(origin: string | undefined) {
 
 function trustedOrigins(env: Env) {
   return [
-    ...expandLocalhostOrigin(env.BETTER_AUTH_URL),
-    ...expandLocalhostOrigin(env.WEB_ORIGIN),
+    ...expandLocalhostOrigin(readEnvValue(env, "BETTER_AUTH_URL")),
+    ...expandLocalhostOrigin(readEnvValue(env, "WEB_ORIGIN")),
   ]
 }
 
 export function createAuth(env: Env) {
   return betterAuth({
-    appName: env.APP_NAME,
-    baseURL: requireValue(env.BETTER_AUTH_URL, "BETTER_AUTH_URL"),
-    secret: requireValue(env.BETTER_AUTH_SECRET, "BETTER_AUTH_SECRET"),
+    appName: readEnvValue(env, "APP_NAME") ?? "Clicky Backend",
+    baseURL: requireEnvValue(env, "BETTER_AUTH_URL"),
+    secret: requireEnvValue(env, "BETTER_AUTH_SECRET"),
     trustedOrigins: trustedOrigins(env),
     database: drizzleAdapter(createDb(env), {
       provider: "pg",
     }),
     socialProviders: {
       google: {
-        clientId: requireValue(env.GOOGLE_CLIENT_ID, "GOOGLE_CLIENT_ID"),
-        clientSecret: requireValue(env.GOOGLE_CLIENT_SECRET, "GOOGLE_CLIENT_SECRET"),
+        clientId: requireEnvValue(env, "GOOGLE_CLIENT_ID"),
+        clientSecret: requireEnvValue(env, "GOOGLE_CLIENT_SECRET"),
       },
     },
     emailAndPassword: {

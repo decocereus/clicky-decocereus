@@ -21,3 +21,30 @@ export interface Env {
   OPENCLAW_CLICKY_WEB_SHELL_ENABLED?: string
   OPENCLAW_CLICKY_WEB_PRESENTATION_NAME?: string
 }
+
+export function readEnvValue(env: Partial<Env> | undefined, key: keyof Env) {
+  const explicitValue = env?.[key]
+
+  if (typeof explicitValue === "string") {
+    return explicitValue
+  }
+
+  if (typeof process !== "undefined" && process.env) {
+    const processValue = process.env[key]
+    if (typeof processValue === "string") {
+      return processValue
+    }
+  }
+
+  return explicitValue
+}
+
+export function requireEnvValue(env: Partial<Env> | undefined, key: keyof Env) {
+  const value = readEnvValue(env, key)
+
+  if (!value) {
+    throw new Error(`${key} is required for auth configuration.`)
+  }
+
+  return value
+}

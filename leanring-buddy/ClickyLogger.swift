@@ -119,6 +119,10 @@ enum ClickyLogger {
         log(category: category, level: .error, message: message)
     }
 
+    static func redactForDiagnostics(_ text: String) -> String {
+        ClickyLogRedactor.redact(text)
+    }
+
     private static func log(category: ClickyLogCategory, level: ClickyLogLevel, message: String) {
         let redactedMessage = ClickyLogRedactor.redact(message)
         logger(for: category).log(level: level.osLogType, "\(redactedMessage, privacy: .public)")
@@ -155,10 +159,12 @@ private enum ClickyLogRedactor {
             (#"(?i)(\"auth[_-]?token\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
             (#"(?i)(\"client[_-]?secret\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
             (#"(?i)(\"exchange[_-]?code\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
+            (#"(?i)(\"state\"\s*:\s*\")[^\"]+(\")"#, "$1[REDACTED]$2"),
             (#"(?i)(api[_ -]?key\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
             (#"(?i)(token\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
             (#"(?i)(secret\s*[:=]\s*)[^\s,]+"#, "$1[REDACTED]"),
             (#"(?i)(code=)[^&\s]+"#, "$1[REDACTED]"),
+            (#"(?i)(state=)[^&\s]+"#, "$1[REDACTED]"),
             (#"(?i)(authToken=)[^&\s]+"#, "$1[REDACTED]"),
             (#"(?i)(token=)[^&\s]+"#, "$1[REDACTED]"),
             (#"(?i)(secret=)[^&\s]+"#, "$1[REDACTED]"),
