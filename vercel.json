@@ -6,6 +6,18 @@
   "outputDirectory": "web/dist",
   "routes": [
     {
+      "src": "/v1/(.*)",
+      "dest": "https://backend.clickyhq.com/v1/$1"
+    },
+    {
+      "src": "/api/auth/(.*)",
+      "dest": "https://backend.clickyhq.com/api/auth/$1"
+    },
+    {
+      "src": "/health",
+      "dest": "https://backend.clickyhq.com/health"
+    },
+    {
       "handle": "filesystem"
     },
     {
