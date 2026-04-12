@@ -20,6 +20,8 @@ export interface Env {
   OPENCLAW_AGENT_ID?: string
   OPENCLAW_CLICKY_WEB_SHELL_ENABLED?: string
   OPENCLAW_CLICKY_WEB_PRESENTATION_NAME?: string
+  CONTENT_INGESTION_BASE_URL?: string
+  CONTENT_INGESTION_API_KEY?: string
 }
 
 export function readEnvValue(env: Partial<Env> | undefined, key: keyof Env) {

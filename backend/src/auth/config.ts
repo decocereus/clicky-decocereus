@@ -41,7 +41,55 @@ function trustedOrigins(env: Env) {
   ]
 }
 
+function isLoopbackOrIpAddress(hostname: string) {
+  if (!hostname) {
+    return true
+  }
+
+  if (hostname === "localhost") {
+    return true
+  }
+
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)
+}
+
+function resolveSharedCookieDomain(env: Env) {
+  const authUrl = readEnvValue(env, "BETTER_AUTH_URL")
+  const webOrigin = readEnvValue(env, "WEB_ORIGIN")
+
+  if (!authUrl || !webOrigin) {
+    return null
+  }
+
+  try {
+    const authHostname = new URL(authUrl).hostname
+    const webHostname = new URL(webOrigin).hostname
+
+    if (isLoopbackOrIpAddress(authHostname) || isLoopbackOrIpAddress(webHostname)) {
+      return null
+    }
+
+    if (authHostname === webHostname) {
+      return null
+    }
+
+    if (authHostname.endsWith(`.${webHostname}`)) {
+      return webHostname
+    }
+
+    if (webHostname.endsWith(`.${authHostname}`)) {
+      return authHostname
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
 export function createAuth(env: Env) {
+  const sharedCookieDomain = resolveSharedCookieDomain(env)
+
   return betterAuth({
     appName: readEnvValue(env, "APP_NAME") ?? "Clicky Backend",
     baseURL: requireEnvValue(env, "BETTER_AUTH_URL"),
@@ -58,6 +106,14 @@ export function createAuth(env: Env) {
     },
     emailAndPassword: {
       enabled: false,
+    },
+    advanced: {
+      crossSubDomainCookies: sharedCookieDomain
+        ? {
+            enabled: true,
+            domain: sharedCookieDomain,
+          }
+        : undefined,
     },
     plugins: [
       bearer(),

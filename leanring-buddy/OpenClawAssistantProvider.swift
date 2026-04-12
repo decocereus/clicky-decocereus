@@ -33,7 +33,9 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
         _ request: ClickyAssistantTurnRequest,
         onTextChunk: @MainActor @escaping @Sendable (String) -> Void
     ) async throws -> ClickyAssistantTurnResponse {
-        let configuration = await configurationProvider()
+        let configuration = await MainActor.run {
+            configurationProvider()
+        }
         let userPrompt = appendFocusContext(to: request.userPrompt, focusContext: request.focusContext)
         let response = try await gatewayAgent.analyzeImageStreaming(
             gatewayURLString: configuration.gatewayURLString,

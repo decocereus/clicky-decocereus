@@ -70,6 +70,10 @@ struct CompanionStudioNextView: View {
         }
     }
 
+    private var isLaunchAuthGateActive: Bool {
+        companionManager.requiresLaunchSignInForCompanionUse || companionManager.isClickyLaunchAuthPending
+    }
+
     var body: some View {
         ZStack {
             CompanionStudioNextBackdrop(theme: theme, palette: palette)
@@ -79,7 +83,8 @@ struct CompanionStudioNextView: View {
                     theme: theme,
                     palette: palette,
                     sections: availableSections,
-                    selection: $selection
+                    selection: $selection,
+                    showsSectionTabs: !isLaunchAuthGateActive
                 )
 
                 CompanionStudioSceneShell {
@@ -102,19 +107,23 @@ struct CompanionStudioNextView: View {
 
     @ViewBuilder
     private var currentScene: some View {
-        switch selection {
-        case .companion:
-            CompanionStudioCompanionScene(
-                companionManager: companionManager,
-                isSupportModeEnabled: $isSupportModeEnabled
-            )
-        case .profile:
-            CompanionStudioProfileScene(companionManager: companionManager)
-        case .support:
-            CompanionStudioSupportScene(
-                companionManager: companionManager,
-                isSupportModeEnabled: $isSupportModeEnabled
-            )
+        if isLaunchAuthGateActive {
+            CompanionStudioLaunchAuthScene(companionManager: companionManager)
+        } else {
+            switch selection {
+            case .companion:
+                CompanionStudioCompanionScene(
+                    companionManager: companionManager,
+                    isSupportModeEnabled: $isSupportModeEnabled
+                )
+            case .profile:
+                CompanionStudioProfileScene(companionManager: companionManager)
+            case .support:
+                CompanionStudioSupportScene(
+                    companionManager: companionManager,
+                    isSupportModeEnabled: $isSupportModeEnabled
+                )
+            }
         }
     }
 
@@ -160,6 +169,7 @@ private struct CompanionStudioWindowHeader: View {
     let palette: CompanionStudioScalaPalette
     let sections: [CompanionStudioNextSection]
     @Binding var selection: CompanionStudioNextSection
+    var showsSectionTabs: Bool = true
 
     var body: some View {
         HStack(alignment: .top, spacing: 18) {
@@ -176,7 +186,9 @@ private struct CompanionStudioWindowHeader: View {
 
             Spacer(minLength: 0)
 
-            topTabs
+            if showsSectionTabs {
+                topTabs
+            }
         }
     }
 
@@ -229,6 +241,188 @@ private struct CompanionStudioSceneShell<Content: View>: View {
     }
 }
 
+private struct CompanionStudioLaunchAuthScene: View {
+    @ObservedObject var companionManager: CompanionManager
+    private let palette = CompanionStudioScalaPalette()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            CompanionStudioReadableCard(
+                eyebrow: "Welcome",
+                title: launchGateTitle
+            ) {
+                VStack(alignment: .leading, spacing: 22) {
+                    HStack(alignment: .top, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(launchGateCopy)
+                                .font(ClickyTypography.body(size: 15))
+                                .foregroundColor(palette.cardSecondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            HStack(spacing: 10) {
+                                ForEach(launchGateChips, id: \.self) { chip in
+                                    CompanionStudioGlassChip(text: chip)
+                                }
+                            }
+                        }
+
+                        Spacer(minLength: 0)
+
+                        CompanionStudioAccessAvatar(
+                            initials: "CL",
+                            imageURL: "",
+                            palette: palette
+                        )
+                    }
+
+                    CompanionStudioHairline()
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 14) {
+                            launchMomentCard(
+                                eyebrow: "01",
+                                title: "Sign in once",
+                                copy: "Tie your Clicky taste, purchase state, and restore flow to your account."
+                            )
+                            launchMomentCard(
+                                eyebrow: "02",
+                                title: "Let Studio settle",
+                                copy: "Clicky quietly restores and refreshes access in the background as soon as the app loads."
+                            )
+                            launchMomentCard(
+                                eyebrow: "03",
+                                title: "Drop into work",
+                                copy: "Once auth is ready, the normal Studio surfaces take over and the companion is ready to help."
+                            )
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            launchMomentCard(
+                                eyebrow: "01",
+                                title: "Sign in once",
+                                copy: "Tie your Clicky taste, purchase state, and restore flow to your account."
+                            )
+                            launchMomentCard(
+                                eyebrow: "02",
+                                title: "Let Studio settle",
+                                copy: "Clicky quietly restores and refreshes access in the background as soon as the app loads."
+                            )
+                            launchMomentCard(
+                                eyebrow: "03",
+                                title: "Drop into work",
+                                copy: "Once auth is ready, the normal Studio surfaces take over and the companion is ready to help."
+                            )
+                        }
+                    }
+
+                    launchGateAction
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 420, alignment: .topLeading)
+    }
+
+    private var launchGateTitle: String {
+        switch companionManager.clickyLaunchAuthState {
+        case .restoring:
+            return "Loading Your Studio"
+        case .signingIn:
+            return "Finishing Sign-In"
+        case .failed:
+            return "Sign In To Continue"
+        case .signedOut:
+            return "Start With Your Account"
+        case .signedIn:
+            return "Loading Your Studio"
+        }
+    }
+
+    private var launchGateCopy: String {
+        switch companionManager.clickyLaunchAuthState {
+        case .restoring:
+            return "Clicky is restoring your session and checking access in the background so Studio can open in the right state."
+        case .signingIn:
+            return "Your browser sign-in is in flight. As soon as the callback lands, Studio will switch over to your normal account and access view."
+        case .failed(let message):
+            return "Clicky couldn’t finish signing you in yet. Start the sign-in again from here and Studio will continue as soon as your account is connected. \(message)"
+        case .signedOut:
+            return "Sign in to make Clicky yours on this Mac. That gives the app a real account home for your included taste, purchase state, and future restores."
+        case .signedIn:
+            return "Clicky is getting Studio ready."
+        }
+    }
+
+    private var launchGateChips: [String] {
+        switch companionManager.clickyLaunchAuthState {
+        case .restoring:
+            return ["Restoring session", "Checking access"]
+        case .signingIn:
+            return ["Waiting for browser sign-in"]
+        case .failed:
+            return ["Sign-in needs attention"]
+        case .signedOut:
+            return ["Account required"]
+        case .signedIn:
+            return ["Loading"]
+        }
+    }
+
+    @ViewBuilder
+    private var launchGateAction: some View {
+        switch companionManager.clickyLaunchAuthState {
+        case .restoring, .signingIn:
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(companionManager.clickyLaunchAuthState == .restoring ? "Restoring your Clicky session..." : "Waiting for the browser to hand auth back...")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .foregroundColor(palette.cardPrimaryText)
+            }
+            .padding(.vertical, 6)
+        case .signedOut, .failed:
+            Button {
+                companionManager.startClickyLaunchSignIn()
+            } label: {
+                Label("Continue With Google", systemImage: "person.crop.circle.badge.plus")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .frame(minWidth: 200)
+            }
+            .modifier(CompanionStudioPrimaryButtonModifier())
+            .pointerCursor()
+        case .signedIn:
+            EmptyView()
+        }
+    }
+
+    private func launchMomentCard(eyebrow: String, title: String, copy: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(eyebrow)
+                .font(ClickyTypography.mono(size: 10, weight: .semibold))
+                .foregroundColor(palette.cardSecondaryText)
+                .tracking(0.8)
+
+            Text(title)
+                .font(ClickyTypography.body(size: 14, weight: .semibold))
+                .foregroundColor(palette.cardPrimaryText)
+
+            Text(copy)
+                .font(ClickyTypography.body(size: 12))
+                .foregroundColor(palette.cardSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(palette.cardAccent.opacity(0.42))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(palette.cardBorder.opacity(0.40), lineWidth: 0.8)
+                )
+        )
+    }
+}
+
 private struct CompanionStudioCompanionScene: View {
     @ObservedObject var companionManager: CompanionManager
     @Binding var isSupportModeEnabled: Bool
@@ -237,6 +431,7 @@ private struct CompanionStudioCompanionScene: View {
     @State private var isPersonaPopoverPresented = false
     @State private var isVoicePopoverPresented = false
     @State private var isThemePopoverPresented = false
+    @State private var isCursorPopoverPresented = false
     @State private var isProviderPanelExpanded = false
     @State private var isAdvancedToneExpanded = false
     private let palette = CompanionStudioScalaPalette()
@@ -292,7 +487,7 @@ private struct CompanionStudioCompanionScene: View {
                         heroSignalColumn(
                             title: "Assistant",
                             value: companionManager.effectiveClickyPresentationName,
-                            detail: companionManager.selectedAgentBackend == .claude ? "Cloud companion" : "OpenClaw companion"
+                            detail: assistantModeDetail
                         )
                         heroSignalColumn(
                             title: "Voice",
@@ -310,7 +505,7 @@ private struct CompanionStudioCompanionScene: View {
                         heroSignalStack(
                             title: "Assistant",
                             value: companionManager.effectiveClickyPresentationName,
-                            detail: companionManager.selectedAgentBackend == .claude ? "Cloud companion" : "OpenClaw companion"
+                            detail: assistantModeDetail
                         )
                         heroSignalStack(
                             title: "Voice",
@@ -436,7 +631,7 @@ private struct CompanionStudioCompanionScene: View {
                     VStack(alignment: .leading, spacing: 18) {
                         CompanionStudioPreferenceBlock(
                             title: "Assistant mode",
-                            subtitle: "Choose whether Clicky replies through Claude or through your OpenClaw setup on this Mac.",
+                            subtitle: "Choose whether Clicky replies through Claude, Codex on this Mac, or your OpenClaw setup.",
                             content: AnyView(
                                 HStack(spacing: 10) {
                                     assistantModeButton(
@@ -444,6 +639,13 @@ private struct CompanionStudioCompanionScene: View {
                                         isSelected: companionManager.selectedAgentBackend == .claude
                                     ) {
                                         companionManager.setSelectedAgentBackend(.claude)
+                                    }
+
+                                    assistantModeButton(
+                                        title: "Codex",
+                                        isSelected: companionManager.selectedAgentBackend == .codex
+                                    ) {
+                                        companionManager.setSelectedAgentBackend(.codex)
                                     }
 
                                     assistantModeButton(
@@ -455,6 +657,26 @@ private struct CompanionStudioCompanionScene: View {
                                 }
                             )
                         )
+
+                        if companionManager.selectedAgentBackend == .codex {
+                            CompanionStudioPreferenceBlock(
+                                title: "Codex on this Mac",
+                                subtitle: "Clicky uses your local Codex install directly, keeping the interaction simple and fully inside Clicky.",
+                                content: AnyView(
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("No extra thread or project setup is needed here anymore. Once Codex is installed and signed in, Clicky can route answers through it like any other backend.")
+                                            .font(.caption)
+                                            .foregroundColor(palette.cardSecondaryText)
+                                            .fixedSize(horizontal: false, vertical: true)
+
+                                        HStack(spacing: 8) {
+                                            CompanionStudioGlassChip(text: "Local runtime")
+                                            CompanionStudioGlassChip(text: "ChatGPT subscription")
+                                        }
+                                    }
+                                )
+                            )
+                        }
 
                         CompanionStudioPreferenceRow(
                             title: "Pointer guidance",
@@ -506,7 +728,10 @@ private struct CompanionStudioCompanionScene: View {
                                     personaPresetButton
                                     voicePresetButton
                                 }
-                                themePresetButton
+                                HStack(spacing: 12) {
+                                    themePresetButton
+                                    cursorPresetButton
+                                }
                                 providerButton
                             }
 
@@ -514,6 +739,7 @@ private struct CompanionStudioCompanionScene: View {
                                 personaPresetButton
                                 voicePresetButton
                                 themePresetButton
+                                cursorPresetButton
                                 providerButton
                             }
                         }
@@ -645,6 +871,24 @@ private struct CompanionStudioCompanionScene: View {
         }
     }
 
+    private var cursorPresetButton: some View {
+        Button {
+            isCursorPopoverPresented.toggle()
+        } label: {
+            CompanionStudioMiniMetric(
+                title: "Cursor",
+                value: companionManager.clickyCursorStyle.displayName,
+                allowExpansion: true
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .popover(isPresented: $isCursorPopoverPresented, arrowEdge: .bottom) {
+            CompanionStudioCursorPresetPopover(companionManager: companionManager)
+                .frame(width: 360, height: 300)
+        }
+    }
+
     private var providerButton: some View {
         Button {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
@@ -675,7 +919,7 @@ private struct CompanionStudioCompanionScene: View {
     private var connectionSummaryCard: some View {
         CompanionStudioReadableCard(
             eyebrow: "Connection",
-            title: "Assistant Connection"
+            title: connectionCardTitle
         ) {
             VStack(alignment: .leading, spacing: 14) {
                 Text(connectionSummaryCopy)
@@ -685,23 +929,19 @@ private struct CompanionStudioCompanionScene: View {
 
                 HStack(spacing: 10) {
                     CompanionStudioGlassChip(text: connectionStatusChip)
-                    CompanionStudioGlassChip(text: companionManager.isOpenClawGatewayRemote ? "Remote gateway" : "Local gateway")
+                    ForEach(connectionSecondaryChips, id: \.self) { chip in
+                        CompanionStudioGlassChip(text: chip)
+                    }
                 }
 
                 VStack(spacing: 12) {
                     CompanionStudioKeyValueRow(label: "Assistant", value: companionManager.effectiveClickyPresentationName)
-                    CompanionStudioKeyValueRow(label: "Gateway", value: companionManager.isOpenClawGatewayRemote ? "Remote OpenClaw" : "This Mac")
+                    ForEach(connectionDetailRows, id: \.label) { row in
+                        CompanionStudioKeyValueRow(label: row.label, value: row.value)
+                    }
                 }
 
-                Button {
-                    companionManager.testOpenClawConnection()
-                } label: {
-                    Label("Check Connection", systemImage: "bolt.horizontal.circle")
-                        .font(ClickyTypography.body(size: 13, weight: .semibold))
-                        .frame(minWidth: 170)
-                }
-                .modifier(CompanionStudioPrimaryButtonModifier())
-                .pointerCursor()
+                connectionPrimaryAction
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -767,29 +1007,142 @@ private struct CompanionStudioCompanionScene: View {
         }
     }
 
+    private var assistantModeDetail: String {
+        switch companionManager.selectedAgentBackend {
+        case .claude:
+            return "Cloud companion"
+        case .codex:
+            return "Local Codex companion"
+        case .openClaw:
+            return "OpenClaw companion"
+        }
+    }
+
+    private var connectionCardTitle: String {
+        switch companionManager.selectedAgentBackend {
+        case .claude:
+            return "Assistant Connection"
+        case .codex:
+            return "Codex on This Mac"
+        case .openClaw:
+            return "Assistant Connection"
+        }
+    }
+
     private var connectionStatusChip: String {
-        switch companionManager.openClawConnectionStatus {
-        case .idle:
-            return "Connection not checked yet"
-        case .testing:
-            return "Checking connection"
-        case .connected:
-            return "Connected"
-        case .failed:
-            return "Needs attention"
+        switch companionManager.selectedAgentBackend {
+        case .claude:
+            return "Ready"
+        case .codex:
+            return companionManager.codexRuntimeStatusLabel
+        case .openClaw:
+            switch companionManager.openClawConnectionStatus {
+            case .idle:
+                return "Connection not checked yet"
+            case .testing:
+                return "Checking connection"
+            case .connected:
+                return "Connected"
+            case .failed:
+                return "Needs attention"
+            }
         }
     }
 
     private var connectionSummaryCopy: String {
-        switch companionManager.openClawConnectionStatus {
-        case .idle:
-            return "Clicky is ready to connect through your chosen assistant path. Run a quick check any time you want to confirm everything is reachable."
-        case .testing:
-            return "Clicky is checking the connection right now."
-        case .connected:
-            return "Clicky can currently reach your assistant, so new conversations should go through without extra setup."
-        case .failed:
-            return "Clicky is having trouble reaching your assistant right now. A quick connection check can help you see whether anything needs attention."
+        switch companionManager.selectedAgentBackend {
+        case .claude:
+            return "Claude runs through Clicky's cloud path, so you can keep the everyday companion feeling quick and polished while Studio handles the deeper setup."
+        case .codex:
+            return companionManager.codexRuntimeSummaryCopy
+        case .openClaw:
+            switch companionManager.openClawConnectionStatus {
+            case .idle:
+                return "Clicky is ready to connect through your chosen assistant path. Run a quick check any time you want to confirm everything is reachable."
+            case .testing:
+                return "Clicky is checking the connection right now."
+            case .connected:
+                return "Clicky can currently reach your assistant, so new conversations should go through without extra setup."
+            case .failed:
+                return "Clicky is having trouble reaching your assistant right now. A quick connection check can help you see whether anything needs attention."
+            }
+        }
+    }
+
+    private var connectionSecondaryChips: [String] {
+        switch companionManager.selectedAgentBackend {
+        case .claude:
+            return ["Cloud path"]
+        case .codex:
+            return companionManager.codexReadinessChipLabels.filter { $0 != connectionStatusChip }
+        case .openClaw:
+            return [companionManager.isOpenClawGatewayRemote ? "Remote gateway" : "Local gateway"]
+        }
+    }
+
+    private var connectionDetailRows: [(label: String, value: String)] {
+        switch companionManager.selectedAgentBackend {
+        case .claude:
+            return [
+                ("Route", "Clicky cloud"),
+                ("Model", companionManager.selectedAssistantModelIdentityLabel)
+            ]
+        case .codex:
+            return [
+                ("Account", companionManager.codexAccountLabel),
+                ("Model", companionManager.codexConfiguredModelLabel),
+                ("Location", "This Mac")
+            ]
+        case .openClaw:
+            return [
+                ("Gateway", companionManager.isOpenClawGatewayRemote ? "Remote OpenClaw" : "This Mac"),
+                ("Route", companionManager.selectedAssistantModelIdentityLabel)
+            ]
+        }
+    }
+
+    @ViewBuilder
+    private var connectionPrimaryAction: some View {
+        switch companionManager.selectedAgentBackend {
+        case .claude:
+            EmptyView()
+        case .codex:
+            HStack(spacing: 10) {
+                Button {
+                    companionManager.refreshCodexRuntimeStatus()
+                } label: {
+                    Label("Check Codex", systemImage: "bolt.horizontal.circle")
+                        .font(ClickyTypography.body(size: 13, weight: .semibold))
+                        .frame(minWidth: 160)
+                }
+                .modifier(CompanionStudioPrimaryButtonModifier())
+                .pointerCursor()
+
+                if case .failed = companionManager.codexRuntimeStatus {
+                    Button {
+                        if companionManager.codexExecutablePath == nil {
+                            companionManager.openCodexInstallPage()
+                        } else {
+                            companionManager.startCodexLoginInTerminal()
+                        }
+                    } label: {
+                        Text(companionManager.codexExecutablePath == nil ? "Install Codex" : "Sign In")
+                            .frame(minWidth: 120)
+                    }
+                    .modifier(CompanionStudioSecondaryButtonModifier())
+                    .pointerCursor()
+                }
+            }
+        case .openClaw:
+            Button {
+                companionManager.testOpenClawConnection()
+            } label: {
+                Label("Check Connection", systemImage: "bolt.horizontal.circle")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .frame(minWidth: 170)
+            }
+            .modifier(CompanionStudioPrimaryButtonModifier())
+            .pointerCursor()
         }
     }
 
@@ -955,30 +1308,85 @@ private struct CompanionStudioProfileScene: View {
                 eyebrow: "Profile",
                 title: "Your Account"
             ) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("This page keeps your account, access, and app maintenance in one calmer place instead of mixing them into the daily companion experience.")
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .center, spacing: 14) {
+                        CompanionStudioAccessAvatar(
+                            initials: companionManager.clickyLaunchDisplayInitials,
+                            imageURL: companionManager.clickyLaunchProfileImageURL,
+                            palette: palette
+                        )
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(companionManager.clickyLaunchDisplayName)
+                                .font(ClickyTypography.section(size: 24))
+                                .foregroundColor(palette.cardPrimaryText)
+                                .lineLimit(1)
+
+                            Text(profileHeaderSubtitle)
+                                .font(ClickyTypography.body(size: 13))
+                                .foregroundColor(palette.cardSecondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+
+                    Text("This page keeps your account, purchase state, and app maintenance in one calm place so the companion can stay focused on helping you work.")
                         .font(ClickyTypography.body(size: 14))
                         .foregroundColor(palette.cardSecondaryText)
                         .fixedSize(horizontal: false, vertical: true)
 
                     HStack(spacing: 10) {
-                        CompanionStudioGlassChip(text: companionManager.clickyLaunchAuthStatusLabel)
-                        CompanionStudioGlassChip(text: companionManager.clickyLaunchEntitlementStatusLabel)
-                        CompanionStudioGlassChip(text: companionManager.clickyLaunchBillingStatusLabel)
+                        ForEach(profileChipLabels, id: \.self) { label in
+                            CompanionStudioGlassChip(text: label)
+                        }
                     }
                 }
+            }
+            .task(id: profileBackgroundSyncToken) {
+                guard companionManager.isClickyLaunchSignedIn else {
+                    return
+                }
+
+                companionManager.refreshClickyLaunchEntitlementQuietlyIfNeeded(
+                    reason: "studio-profile-scene",
+                    minimumInterval: 15
+                )
             }
 
             HStack(alignment: .top, spacing: 18) {
                 CompanionStudioReadableCard(
                     eyebrow: "Account",
-                    title: "Your Access"
+                    title: profileAccessTitle
                 ) {
-                    VStack(spacing: 12) {
-                        CompanionStudioKeyValueRow(label: "Signed in as", value: companionManager.clickyLaunchAuthStatusLabel)
-                        CompanionStudioKeyValueRow(label: "Access", value: companionManager.clickyLaunchEntitlementStatusLabel)
-                        CompanionStudioKeyValueRow(label: "Trial", value: companionManager.clickyLaunchTrialStatusLabel)
-                        CompanionStudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
+                    VStack(alignment: .leading, spacing: 16) {
+                        if companionManager.hasUnlimitedClickyLaunchAccess {
+                            CompanionStudioAccessCelebrationCard()
+                        } else {
+                            Text(profileAccessCopy)
+                                .font(ClickyTypography.body(size: 14))
+                                .foregroundColor(palette.cardSecondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        VStack(spacing: 12) {
+                            CompanionStudioKeyValueRow(label: "Signed in", value: companionManager.isClickyLaunchSignedIn ? "Yes" : "Not yet")
+                            CompanionStudioKeyValueRow(label: "Account", value: companionManager.clickyLaunchDisplayName)
+                            CompanionStudioKeyValueRow(label: "Purchase", value: profilePurchaseStatusLabel)
+
+                            if showsProfileCreditsRow {
+                                CompanionStudioKeyValueRow(label: "Credits", value: companionManager.clickyLaunchTrialStatusLabel)
+                            }
+
+                            if showsProfileCheckoutRow {
+                                CompanionStudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            profilePrimaryAction
+                            profileSecondaryActions
+                        }
                     }
                 }
 
@@ -987,9 +1395,10 @@ private struct CompanionStudioProfileScene: View {
                     title: "Keep Clicky Up To Date"
                 ) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Use this page when you want to check your access, restore a purchase, or make sure Clicky is up to date.")
-                            .font(.body)
-                            .foregroundColor(palette.cardPrimaryText)
+                        Text("Use this space for app upkeep while the rest of Clicky stays about guidance and flow. Updates belong here, not in the daily companion surface.")
+                            .font(ClickyTypography.body(size: 14))
+                            .foregroundColor(palette.cardSecondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         Button {
                             NotificationCenter.default.post(name: .clickyCheckForUpdates, object: nil)
@@ -1008,6 +1417,153 @@ private struct CompanionStudioProfileScene: View {
                     }
                 }
             }
+        }
+    }
+
+    private var profileHeaderSubtitle: String {
+        if companionManager.hasUnlimitedClickyLaunchAccess {
+            return "Subscription active on this Mac."
+        }
+
+        if companionManager.requiresLaunchSignInForCompanionUse {
+            return "Sign in to start your Clicky taste and keep access tied to you."
+        }
+
+        if companionManager.isClickyLaunchPaywallActive {
+            return "Your trial wrapped up. Unlock Clicky here when you’re ready for unlimited use."
+        }
+
+        return "Your account and access are quietly syncing in the background."
+    }
+
+    private var profileChipLabels: [String] {
+        if companionManager.hasUnlimitedClickyLaunchAccess {
+            return ["Subscription active", "Signed in"]
+        }
+
+        if companionManager.requiresLaunchSignInForCompanionUse {
+            return ["Sign in required"]
+        }
+
+        if companionManager.isClickyLaunchPaywallActive {
+            return ["Trial finished", "Unlock available"]
+        }
+
+        if companionManager.clickyLaunchBillingStatusLabel == "Waiting for purchase" {
+            return ["Finishing purchase", "Signed in"]
+        }
+
+        return companionManager.isClickyLaunchSignedIn ? ["Signed in", "Ready on this Mac"] : ["Account not connected"]
+    }
+
+    private var profileAccessTitle: String {
+        if companionManager.hasUnlimitedClickyLaunchAccess {
+            return "Full Access"
+        }
+
+        if companionManager.requiresLaunchSignInForCompanionUse {
+            return "Get Started"
+        }
+
+        if companionManager.isClickyLaunchPaywallActive {
+            return "Unlock Clicky"
+        }
+
+        return "Your Access"
+    }
+
+    private var profileAccessCopy: String {
+        if companionManager.requiresLaunchSignInForCompanionUse {
+            return "Sign in once and Clicky will keep your trial, purchase state, and future restore tied to your account."
+        }
+
+        if companionManager.isClickyLaunchPaywallActive {
+            return "You’ve already had the taste. Unlock Clicky to keep talking to it without limits."
+        }
+
+        if companionManager.clickyLaunchBillingStatusLabel == "Waiting for purchase" {
+            return "Your purchase is being checked in the background. This screen should update on its own as soon as the backend confirms it."
+        }
+
+        return "Your account is active on this Mac, and Clicky is keeping access in sync behind the scenes."
+    }
+
+    private var profilePurchaseStatusLabel: String {
+        if companionManager.hasUnlimitedClickyLaunchAccess {
+            return "Active"
+        }
+
+        if companionManager.requiresLaunchSignInForCompanionUse {
+            return "Not connected"
+        }
+
+        if companionManager.isClickyLaunchPaywallActive {
+            return "Needs unlock"
+        }
+
+        if companionManager.clickyLaunchBillingStatusLabel == "Waiting for purchase" {
+            return "Checking purchase"
+        }
+
+        return "Taste available"
+    }
+
+    private var showsProfileCreditsRow: Bool {
+        !companionManager.hasUnlimitedClickyLaunchAccess
+    }
+
+    private var showsProfileCheckoutRow: Bool {
+        companionManager.isClickyLaunchSignedIn
+            && !companionManager.hasUnlimitedClickyLaunchAccess
+            && companionManager.clickyLaunchBillingStatusLabel != "Idle"
+    }
+
+    private var profileBackgroundSyncToken: String {
+        [
+            companionManager.clickyLaunchAuthStatusLabel,
+            companionManager.clickyLaunchBillingStatusLabel,
+            companionManager.clickyLaunchTrialStatusLabel,
+            companionManager.clickyLaunchProfileImageURL
+        ].joined(separator: "|")
+    }
+
+    @ViewBuilder
+    private var profilePrimaryAction: some View {
+        if companionManager.requiresLaunchSignInForCompanionUse {
+            Button {
+                companionManager.startClickyLaunchSignIn()
+            } label: {
+                Label("Sign In", systemImage: "person.crop.circle.badge.plus")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .frame(minWidth: 150)
+            }
+            .modifier(CompanionStudioPrimaryButtonModifier())
+            .pointerCursor()
+        } else if companionManager.isClickyLaunchPaywallActive {
+            Button {
+                companionManager.startClickyLaunchCheckout()
+            } label: {
+                Label("Unlock Clicky", systemImage: "creditcard")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .frame(minWidth: 150)
+            }
+            .modifier(CompanionStudioPrimaryButtonModifier())
+            .pointerCursor()
+        }
+    }
+
+    @ViewBuilder
+    private var profileSecondaryActions: some View {
+        if companionManager.isClickyLaunchSignedIn {
+            Button {
+                companionManager.signOutClickyLaunchSession()
+            } label: {
+                Text("Sign Out")
+                    .font(ClickyTypography.body(size: 12, weight: .semibold))
+                    .foregroundColor(palette.cardSecondaryText)
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
         }
     }
 }
@@ -1087,17 +1643,14 @@ private struct CompanionStudioProviderPopover: View {
                     title: "System",
                     isSelected: companionManager.clickySpeechProviderMode == .system
                 ) {
-                    companionManager.clickySpeechProviderMode = .system
+                    companionManager.setClickySpeechProviderMode(.system)
                 }
 
                 providerModeButton(
                     title: "ElevenLabs",
                     isSelected: companionManager.clickySpeechProviderMode == .elevenLabsBYO
                 ) {
-                    companionManager.clickySpeechProviderMode = .elevenLabsBYO
-                    if companionManager.hasStoredElevenLabsAPIKey && companionManager.elevenLabsAvailableVoices.isEmpty {
-                        companionManager.refreshElevenLabsVoices()
-                    }
+                    companionManager.setClickySpeechProviderMode(.elevenLabsBYO)
                 }
             }
 
@@ -1119,6 +1672,28 @@ private struct CompanionStudioProviderPopover: View {
                 .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
+                    if let fallbackSummary = companionManager.speechFallbackSummary {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Voice fallback active")
+                                .font(ClickyTypography.body(size: 13, weight: .semibold))
+                                .foregroundColor(palette.cardPrimaryText)
+
+                            Text(fallbackSummary)
+                                .font(.caption)
+                                .foregroundColor(palette.cardSecondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(palette.cardAccent.opacity(0.32))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(palette.cardBorder.opacity(0.32), lineWidth: 0.8)
+                                )
+                        )
+                    }
+
                     if !companionManager.hasStoredElevenLabsAPIKey {
                         Text("Add your ElevenLabs API key to unlock extra voices.")
                             .font(ClickyTypography.body(size: 13, weight: .semibold))
@@ -1434,6 +2009,64 @@ private struct CompanionStudioThemePresetPopover: View {
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .fill(companionManager.clickyThemePreset == preset ? palette.cardAccent.opacity(0.60) : palette.cardAccent.opacity(0.28))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 18)
+        .padding(.top, 24)
+        .padding(.bottom, 18)
+        .background(palette.cardBackground)
+    }
+}
+
+private struct CompanionStudioCursorPresetPopover: View {
+    @ObservedObject var companionManager: CompanionManager
+
+    private let palette = CompanionStudioScalaPalette()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Cursor style")
+                .font(ClickyTypography.section(size: 24))
+                .foregroundColor(palette.cardPrimaryText)
+
+            Text("Choose how Clicky should feel beside the cursor when it listens, thinks, and points.")
+                .font(ClickyTypography.body(size: 13))
+                .foregroundColor(palette.cardSecondaryText)
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(ClickyCursorStyle.allCases) { style in
+                    Button {
+                        companionManager.clickyCursorStyle = style
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(style.displayName)
+                                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                                Text(style.summary)
+                                    .font(.caption)
+                                    .foregroundColor(palette.cardSecondaryText)
+                            }
+
+                            Spacer()
+
+                            if companionManager.clickyCursorStyle == style {
+                                Image(systemName: "checkmark.circle.fill")
+                            }
+                        }
+                        .foregroundColor(palette.cardPrimaryText)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(companionManager.clickyCursorStyle == style ? palette.cardAccent.opacity(0.60) : palette.cardAccent.opacity(0.28))
                         )
                     }
                     .buttonStyle(.plain)
@@ -1853,6 +2486,28 @@ private struct CompanionStudioPrimaryButtonModifier: ViewModifier {
     }
 }
 
+private struct CompanionStudioSecondaryButtonModifier: ViewModifier {
+    private let palette = CompanionStudioScalaPalette()
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .buttonStyle(.glass)
+                .buttonBorderShape(.roundedRectangle(radius: 16))
+        } else {
+            content
+                .font(ClickyTypography.body(size: 13, weight: .semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(palette.cardAccent.opacity(0.45))
+                )
+        }
+    }
+}
+
 private struct CompanionStudioModeButtonModifier: ViewModifier {
     private let palette = CompanionStudioScalaPalette()
     let isSelected: Bool
@@ -1877,6 +2532,42 @@ private struct CompanionStudioModeButtonModifier: ViewModifier {
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(isSelected ? palette.sage : palette.cardAccent.opacity(0.50))
+                )
+        }
+    }
+}
+
+private struct CompanionStudioSelectableRowButtonModifier: ViewModifier {
+    private let palette = CompanionStudioScalaPalette()
+    let isSelected: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            if isSelected {
+                content
+                    .foregroundColor(palette.cardPrimaryText)
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.roundedRectangle(radius: 14))
+            } else {
+                content
+                    .foregroundColor(palette.cardPrimaryText)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.roundedRectangle(radius: 14))
+            }
+        } else {
+            content
+                .foregroundColor(palette.cardPrimaryText)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(isSelected ? palette.sage.opacity(0.18) : Color.white.opacity(0.52))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(
+                                    isSelected ? palette.sage.opacity(0.45) : palette.cardBorder.opacity(0.28),
+                                    lineWidth: 0.9
+                                )
+                        )
                 )
         }
     }

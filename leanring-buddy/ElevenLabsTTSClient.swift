@@ -19,7 +19,7 @@ final class ElevenLabsTTSClient {
     /// The audio player for the current TTS playback. Kept alive so the
     /// audio finishes playing even if the caller doesn't hold a reference.
     private var audioPlayer: AVAudioPlayer?
-    private var systemSpeechSynthesizer: NSSpeechSynthesizer?
+    private let systemSpeechSynthesizer = AVSpeechSynthesizer()
     private var systemSpeechDelegate: SystemSpeechDelegate?
 
     init(proxyURL: String) {
@@ -143,49 +143,80 @@ final class ElevenLabsTTSClient {
     }
 
     private func speakTextWithSystemSpeech(_ text: String, voicePreset: ClickyVoicePreset) async throws {
-        let speechSynthesizer = NSSpeechSynthesizer()
         let systemSpeechDelegate = SystemSpeechDelegate()
 
-        self.systemSpeechSynthesizer = speechSynthesizer
         self.systemSpeechDelegate = systemSpeechDelegate
-        speechSynthesizer.delegate = systemSpeechDelegate
-        speechSynthesizer.rate = voicePreset.systemSpeechRate
-        guard speechSynthesizer.startSpeaking(text) else {
-            throw NSError(
-                domain: "SystemSpeechTTS",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "macOS could not start system speech playback."]
-            )
-        }
-        ClickyLogger.debug(.audio, "System speech started rate=\(Int(voicePreset.systemSpeechRate))")
+        systemSpeechSynthesizer.delegate = systemSpeechDelegate
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.rate = voicePreset.avSpeechRate
+        utterance.pitchMultiplier = voicePreset.avSpeechPitchMultiplier
+        utterance.voice = preferredSystemVoice(for: voicePreset)
+        systemSpeechSynthesizer.speak(utterance)
+        ClickyLogger.debug(
+            .audio,
+            "System speech started rate=\(Int(voicePreset.systemSpeechRate)) voice=\(utterance.voice?.name ?? "default")"
+        )
 
         await systemSpeechDelegate.waitUntilFinishedSpeaking()
 
-        if self.systemSpeechSynthesizer === speechSynthesizer {
-            self.systemSpeechSynthesizer = nil
+        if self.systemSpeechDelegate === systemSpeechDelegate {
+            systemSpeechSynthesizer.delegate = nil
             self.systemSpeechDelegate = nil
         }
     }
 
     /// Whether TTS audio is currently playing back.
     var isPlaying: Bool {
-        (audioPlayer?.isPlaying ?? false) || (systemSpeechSynthesizer?.isSpeaking ?? false)
+        (audioPlayer?.isPlaying ?? false) || systemSpeechSynthesizer.isSpeaking
     }
 
     /// Stops any in-progress playback immediately.
     func stopPlayback() {
         audioPlayer?.stop()
         audioPlayer = nil
-        systemSpeechSynthesizer?.stopSpeaking()
+        systemSpeechSynthesizer.stopSpeaking(at: .immediate)
         systemSpeechDelegate?.cancel()
-        systemSpeechSynthesizer = nil
+        systemSpeechSynthesizer.delegate = nil
         systemSpeechDelegate = nil
         ClickyLogger.debug(.audio, "Stopped active speech playback")
+    }
+
+    private func preferredSystemVoice(for voicePreset: ClickyVoicePreset) -> AVSpeechSynthesisVoice? {
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+
+        let preferredNames: [String]
+        switch voicePreset {
+        case .balanced:
+            preferredNames = ["Samantha", "Allison", "Ava"]
+        case .clear:
+            preferredNames = ["Daniel", "Alex", "Nathan", "Tom"]
+        case .warm:
+            preferredNames = ["Ava", "Samantha", "Allison", "Serena"]
+        }
+
+        for preferredName in preferredNames {
+            if let voice = voices.first(where: {
+                $0.language.hasPrefix("en")
+                    && $0.name.localizedCaseInsensitiveContains(preferredName)
+            }) {
+                return voice
+            }
+        }
+
+        if let usEnglishVoice = voices.first(where: { $0.language == "en-US" }) {
+            return usEnglishVoice
+        }
+
+        if let englishVoice = voices.first(where: { $0.language.hasPrefix("en") }) {
+            return englishVoice
+        }
+
+        return AVSpeechSynthesisVoice(language: "en-US")
     }
 }
 
 @MainActor
-private final class SystemSpeechDelegate: NSObject, NSSpeechSynthesizerDelegate {
+private final class SystemSpeechDelegate: NSObject, @preconcurrency AVSpeechSynthesizerDelegate {
     private var finishedSpeakingContinuation: CheckedContinuation<Void, Never>?
 
     func waitUntilFinishedSpeaking() async {
@@ -199,8 +230,28 @@ private final class SystemSpeechDelegate: NSObject, NSSpeechSynthesizerDelegate 
         finishedSpeakingContinuation = nil
     }
 
-    func speechSynthesizer(_ sender: NSSpeechSynthesizer, didFinishSpeaking finishedSpeaking: Bool) {
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         finishedSpeakingContinuation?.resume()
         finishedSpeakingContinuation = nil
+    }
+}
+
+private extension ClickyVoicePreset {
+    var avSpeechRate: Float {
+        let normalized = max(120, min(systemSpeechRate, 260))
+        let ratio = (normalized - 120) / 140
+        return AVSpeechUtteranceMinimumSpeechRate
+            + Float(ratio) * (AVSpeechUtteranceDefaultSpeechRate - AVSpeechUtteranceMinimumSpeechRate)
+    }
+
+    var avSpeechPitchMultiplier: Float {
+        switch self {
+        case .balanced:
+            return 1.0
+        case .clear:
+            return 1.04
+        case .warm:
+            return 0.94
+        }
     }
 }

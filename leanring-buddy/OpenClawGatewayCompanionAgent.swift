@@ -945,7 +945,9 @@ final class OpenClawGatewayCompanionAgent {
 
                 if eventName == "agent",
                    let nextTextChunk = await state.handleAgentEventPayload(payload) {
-                    await onTextChunk(nextTextChunk)
+                    await MainActor.run {
+                        onTextChunk(nextTextChunk)
+                    }
                 }
 
                 return

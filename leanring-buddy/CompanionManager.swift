@@ -7,7 +7,7 @@
 //  exposes observable voice state for the panel UI.
 //
 
-import AVFoundation
+@preconcurrency import AVFoundation
 import Combine
 import Foundation
 import OSLog
@@ -26,6 +26,13 @@ enum OpenClawConnectionStatus {
     case idle
     case testing
     case connected(summary: String)
+    case failed(message: String)
+}
+
+enum CodexRuntimeStatus {
+    case idle
+    case checking
+    case ready(summary: String)
     case failed(message: String)
 }
 
@@ -136,6 +143,7 @@ struct ClickySpeechRouting {
 
 private enum ClickySpeechPlaybackPurpose: String {
     case preview
+    case systemMessage = "system-message"
     case assistantResponse = "assistant-response"
 
     var logLabel: String { rawValue }
@@ -185,8 +193,12 @@ final class CompanionManager: ObservableObject {
         if let storedURL = URL(string: storedBackendBaseURL),
            let host = storedURL.host?.lowercased(),
            host == "localhost" || host == "127.0.0.1" || host == "127.1.1.0" {
+            #if DEBUG
+            return storedBackendBaseURL
+            #else
             defaults.set(defaultBackendBaseURL, forKey: "clickyBackendBaseURL")
             return defaultBackendBaseURL
+            #endif
         }
 
         return storedBackendBaseURL
@@ -226,10 +238,24 @@ final class CompanionManager: ObservableObject {
     @Published var onboardingPromptOpacity: Double = 0.0
     @Published var showOnboardingPrompt: Bool = false
 
+    // MARK: - Tutorial Playback State
+
+    @Published var tutorialPlaybackState: TutorialPlaybackBindingState?
+    @Published var tutorialPlaybackBubbleOpacity: Double = 0.0
+    @Published private(set) var tutorialPlaybackLastCommand: TutorialPlaybackCommand?
+    @Published private(set) var tutorialPlaybackCommandNonce: Int = 0
+    @Published var tutorialImportURLDraft: String = ""
+    @Published private(set) var currentTutorialImportDraft: TutorialImportDraft?
+    @Published private(set) var tutorialSessionState: TutorialSessionState?
+    @Published private(set) var isTutorialImportRunning: Bool = false
+    @Published private(set) var tutorialImportStatusMessage: String?
+    private var tutorialImportTask: Task<Void, Never>?
+
     // MARK: - Onboarding Music
 
     private var onboardingMusicPlayer: AVAudioPlayer?
     private var onboardingMusicFadeTimer: Timer?
+    private var onboardingPromptTask: Task<Void, Never>?
 
     let buddyDictationManager = BuddyDictationManager()
     let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor()
@@ -246,6 +272,7 @@ final class CompanionManager: ObservableObject {
     }()
 
     private let openClawGatewayCompanionAgent = OpenClawGatewayCompanionAgent()
+    private let codexRuntimeClient = CodexRuntimeClient()
 
     private lazy var openClawAssistantProvider: OpenClawAssistantProvider = {
         OpenClawAssistantProvider(
@@ -270,6 +297,10 @@ final class CompanionManager: ObservableObject {
         )
     }()
 
+    private lazy var codexAssistantProvider: CodexAssistantProvider = {
+        CodexAssistantProvider(runtimeClient: codexRuntimeClient)
+    }()
+
     private let assistantTurnBuilder = ClickyAssistantTurnBuilder()
     private let assistantSystemPromptPlanner = ClickyAssistantSystemPromptPlanner()
     private let assistantFocusContextProvider = ClickyAssistantFocusContextProvider()
@@ -277,6 +308,8 @@ final class CompanionManager: ObservableObject {
         guard let self else { return "" }
         switch backend {
         case .claude:
+            return self.companionVoiceResponseSystemPrompt()
+        case .codex:
             return self.companionVoiceResponseSystemPrompt()
         case .openClaw:
             return self.openClawShellScopedSystemPrompt()
@@ -287,6 +320,7 @@ final class CompanionManager: ObservableObject {
         ClickyAssistantProviderRegistry(
             providers: [
                 claudeAssistantProvider,
+                codexAssistantProvider,
                 openClawAssistantProvider,
             ]
         )
@@ -303,6 +337,7 @@ final class CompanionManager: ObservableObject {
     /// Conversation history so Claude remembers prior exchanges within a session.
     /// Each entry is the user's transcript and Claude's response.
     private var conversationHistory: [(userTranscript: String, assistantResponse: String)] = []
+    private var tutorialConversationHistory: [(userTranscript: String, assistantResponse: String)] = []
 
     /// The currently running AI response task, if any. Cancelled when the user
     /// speaks again so a new response can begin immediately.
@@ -311,6 +346,7 @@ final class CompanionManager: ObservableObject {
     private var shortcutTransitionCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
+    private var tutorialPlaybackShortcutCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     private var clickyShellHeartbeatTimer: Timer?
@@ -350,16 +386,12 @@ final class CompanionManager: ObservableObject {
     @Published var openClawGatewayURL: String = UserDefaults.standard.string(forKey: "openClawGatewayURL") ?? "ws://127.0.0.1:18789" {
         didSet {
             UserDefaults.standard.set(openClawGatewayURL, forKey: "openClawGatewayURL")
-            openClawConnectionStatus = .idle
-            refreshClickyShellRegistrationLifecycle()
-            refreshOpenClawAgentIdentity()
         }
     }
 
     @Published var openClawAgentIdentifier: String = UserDefaults.standard.string(forKey: "openClawAgentIdentifier") ?? "" {
         didSet {
             UserDefaults.standard.set(openClawAgentIdentifier, forKey: "openClawAgentIdentifier")
-            refreshOpenClawAgentIdentity()
         }
     }
 
@@ -372,26 +404,17 @@ final class CompanionManager: ObservableObject {
     @Published var openClawGatewayAuthToken: String = UserDefaults.standard.string(forKey: "openClawGatewayAuthToken") ?? "" {
         didSet {
             UserDefaults.standard.set(openClawGatewayAuthToken, forKey: "openClawGatewayAuthToken")
-            openClawConnectionStatus = .idle
-            refreshClickyShellRegistrationLifecycle()
-            refreshOpenClawAgentIdentity()
         }
     }
 
     @Published var openClawSessionKey: String = UserDefaults.standard.string(forKey: "openClawSessionKey") ?? "clicky-companion" {
         didSet {
             UserDefaults.standard.set(openClawSessionKey, forKey: "openClawSessionKey")
-            openClawConnectionStatus = .idle
-            if case .registered = clickyShellRegistrationStatus {
-                bindClickyShellSession()
-            } else {
-                refreshClickyShellRegistrationLifecycle()
-            }
-            refreshOpenClawAgentIdentity()
         }
     }
 
     @Published private(set) var openClawConnectionStatus: OpenClawConnectionStatus = .idle
+    @Published private(set) var codexRuntimeStatus: CodexRuntimeStatus = .idle
     @Published private(set) var clickyShellRegistrationStatus: ClickyShellRegistrationStatus = .idle
     @Published private(set) var clickyShellServerFreshnessState: String?
     @Published private(set) var clickyShellServerStatusSummary: String?
@@ -402,6 +425,9 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var inferredOpenClawAgentIdentityName: String?
     @Published private(set) var inferredOpenClawAgentIdentityEmoji: String?
     @Published private(set) var inferredOpenClawAgentIdentifier: String?
+    @Published private(set) var codexConfiguredModelName: String?
+    @Published private(set) var codexExecutablePath: String?
+    @Published private(set) var codexAuthModeLabel: String?
 
     @Published var clickyPersonaScopeMode: ClickyPersonaScopeMode = ClickyPersonaScopeMode(
         rawValue: UserDefaults.standard.string(forKey: "clickyPersonaScopeMode") ?? ""
@@ -463,8 +489,6 @@ final class CompanionManager: ObservableObject {
     ) ?? .system {
         didSet {
             UserDefaults.standard.set(clickySpeechProviderMode.rawValue, forKey: "clickySpeechProviderMode")
-            speechPreviewStatus = .idle
-            lastSpeechFallbackMessage = nil
             ClickyLogger.notice(.audio, "Speech provider selected provider=\(clickySpeechProviderMode.displayName)")
         }
     }
@@ -476,6 +500,9 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var elevenLabsVoiceImportStatus: ElevenLabsVoiceImportStatus = .idle
     @Published private(set) var speechPreviewStatus: ClickySpeechPreviewStatus = .idle
     @Published private(set) var lastSpeechFallbackMessage: String?
+    @Published private(set) var isElevenLabsCreditExhausted = false
+    @Published private(set) var isElevenLabsAPIKeyRejected = false
+    @Published private(set) var isElevenLabsBackendVoiceUnavailable = false
     @Published private(set) var clickyLaunchAuthState: ClickyLaunchAuthState = .signedOut
     @Published private(set) var clickyLaunchEntitlementStatusLabel: String = "Unknown"
     @Published private(set) var clickyLaunchBillingState: ClickyLaunchBillingState = .idle
@@ -726,6 +753,9 @@ final class CompanionManager: ObservableObject {
         let trimmedAPIKey = elevenLabsAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         speechPreviewStatus = .idle
         lastSpeechFallbackMessage = nil
+        isElevenLabsCreditExhausted = false
+        isElevenLabsAPIKeyRejected = false
+        isElevenLabsBackendVoiceUnavailable = false
 
         if trimmedAPIKey.isEmpty {
             ClickySecrets.delete(account: "elevenlabs_api_key")
@@ -762,6 +792,9 @@ final class CompanionManager: ObservableObject {
         elevenLabsVoiceImportStatus = .idle
         speechPreviewStatus = .idle
         lastSpeechFallbackMessage = nil
+        isElevenLabsCreditExhausted = false
+        isElevenLabsAPIKeyRejected = false
+        isElevenLabsBackendVoiceUnavailable = false
         ClickyLogger.info(.audio, "Refreshing ElevenLabs voice list")
 
         Task { @MainActor in
@@ -798,6 +831,9 @@ final class CompanionManager: ObservableObject {
         elevenLabsImportVoiceIDDraft = voice.id
         speechPreviewStatus = .idle
         lastSpeechFallbackMessage = nil
+        isElevenLabsCreditExhausted = false
+        isElevenLabsAPIKeyRejected = false
+        isElevenLabsBackendVoiceUnavailable = false
         ClickyLogger.notice(.audio, "Selected ElevenLabs voice name=\(voice.name) id=\(voice.id)")
     }
 
@@ -866,9 +902,12 @@ final class CompanionManager: ObservableObject {
     }
 
     func setSelectedModel(_ model: String) {
+        guard selectedModel != model else { return }
         selectedModel = model
         UserDefaults.standard.set(model, forKey: "selectedClaudeModel")
-        claudeAPI.model = model
+        Task { @MainActor [weak self] in
+            self?.claudeAPI.model = model
+        }
     }
 
     func startClickyLaunchSignIn() {
@@ -1072,6 +1111,8 @@ final class CompanionManager: ObservableObject {
                 )
 
                 try persistLaunchSessionSnapshot(snapshot, reason: "auth-exchange")
+                NSApp.activate(ignoringOtherApps: true)
+                NotificationCenter.default.post(name: .clickyOpenStudio, object: nil)
                 ClickyUnifiedTelemetry.launchAuth.info("Launch auth exchange completed")
                 ClickyLogger.notice(.app, "Completed Clicky launch auth exchange")
             } catch {
@@ -1086,9 +1127,82 @@ final class CompanionManager: ObservableObject {
     }
 
     func setSelectedAgentBackend(_ selectedAgentBackend: CompanionAgentBackend) {
+        guard self.selectedAgentBackend != selectedAgentBackend else { return }
         self.selectedAgentBackend = selectedAgentBackend
-        refreshClickyShellRegistrationLifecycle()
-        refreshOpenClawAgentIdentity()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.refreshClickyShellRegistrationLifecycle()
+            self.refreshOpenClawAgentIdentity()
+            self.refreshCodexRuntimeStatus()
+        }
+    }
+
+    func setClickySpeechProviderMode(_ mode: ClickySpeechProviderMode) {
+        guard clickySpeechProviderMode != mode else { return }
+        clickySpeechProviderMode = mode
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.speechPreviewStatus = .idle
+            self.lastSpeechFallbackMessage = nil
+
+            if mode == .system {
+                self.isElevenLabsCreditExhausted = false
+                self.isElevenLabsAPIKeyRejected = false
+                self.isElevenLabsBackendVoiceUnavailable = false
+            } else if self.hasStoredElevenLabsAPIKey && self.elevenLabsAvailableVoices.isEmpty {
+                self.refreshElevenLabsVoices()
+            }
+        }
+    }
+
+    func setOpenClawGatewayURL(_ gatewayURL: String) {
+        guard openClawGatewayURL != gatewayURL else { return }
+        openClawGatewayURL = gatewayURL
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.openClawConnectionStatus = .idle
+            self.refreshClickyShellRegistrationLifecycle()
+            self.refreshOpenClawAgentIdentity()
+        }
+    }
+
+    func setOpenClawAgentIdentifier(_ agentIdentifier: String) {
+        guard openClawAgentIdentifier != agentIdentifier else { return }
+        openClawAgentIdentifier = agentIdentifier
+
+        Task { @MainActor [weak self] in
+            self?.refreshOpenClawAgentIdentity()
+        }
+    }
+
+    func setOpenClawGatewayAuthToken(_ authToken: String) {
+        guard openClawGatewayAuthToken != authToken else { return }
+        openClawGatewayAuthToken = authToken
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.openClawConnectionStatus = .idle
+            self.refreshClickyShellRegistrationLifecycle()
+            self.refreshOpenClawAgentIdentity()
+        }
+    }
+
+    func setOpenClawSessionKey(_ sessionKey: String) {
+        guard openClawSessionKey != sessionKey else { return }
+        openClawSessionKey = sessionKey
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.openClawConnectionStatus = .idle
+            if case .registered = self.clickyShellRegistrationStatus {
+                self.bindClickyShellSession()
+            } else {
+                self.refreshClickyShellRegistrationLifecycle()
+            }
+            self.refreshOpenClawAgentIdentity()
+        }
     }
 
     var effectiveVoiceOutputDisplayName: String {
@@ -1141,6 +1255,16 @@ final class CompanionManager: ObservableObject {
                     selectedVoiceID: selectedVoiceID,
                     selectedVoiceName: selectedVoiceName,
                     configurationFallbackMessage: message
+                )
+            }
+
+            if isElevenLabsCreditExhausted {
+                return ClickySpeechRouting(
+                    selectedProvider: .elevenLabsBYO,
+                    outputMode: .system,
+                    selectedVoiceID: selectedVoiceID,
+                    selectedVoiceName: selectedVoiceName,
+                    configurationFallbackMessage: "Your ElevenLabs credits are exhausted right now, so Clicky is using System Speech until you top up or switch voices."
                 )
             }
 
@@ -1343,11 +1467,20 @@ final class CompanionManager: ObservableObject {
     }
 
     var effectiveClickyPresentationName: String {
+        if selectedAgentBackend != .openClaw {
+            let overrideName = clickyPersonaOverrideName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !overrideName.isEmpty {
+                return overrideName
+            }
+            return "Clicky"
+        }
+
         if clickyPersonaScopeMode == .overrideInClicky {
             let overrideName = clickyPersonaOverrideName.trimmingCharacters(in: .whitespacesAndNewlines)
             if !overrideName.isEmpty {
                 return overrideName
             }
+            return "Clicky"
         }
 
         return effectiveOpenClawAgentName
@@ -1370,6 +1503,12 @@ final class CompanionManager: ObservableObject {
         switch selectedAgentBackend {
         case .claude:
             return selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .codex:
+            let configuredModel = codexConfiguredModelName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !configuredModel.isEmpty {
+                return configuredModel
+            }
+            return "codex"
         case .openClaw:
             let configuredAgentIdentifier = openClawAgentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
             if !configuredAgentIdentifier.isEmpty {
@@ -1493,6 +1632,10 @@ final class CompanionManager: ObservableObject {
         _ text: String,
         purpose: ClickySpeechPlaybackPurpose
     ) async -> ClickySpeechPlaybackOutcome {
+        if purpose == .systemMessage {
+            return await playSystemMessageText(text)
+        }
+
         let routing = effectiveSpeechRouting
         let selectedVoiceName = routing.selectedVoiceNameLabel
         let selectedVoiceID = routing.selectedVoiceIDLabel
@@ -1509,6 +1652,10 @@ final class CompanionManager: ObservableObject {
                 voicePreset: effectiveClickyVoicePreset,
                 outputMode: routing.outputMode
             )
+
+            if case .elevenLabsBYO = routing.outputMode {
+                isElevenLabsCreditExhausted = false
+            }
 
             if let fallbackMessage = routing.configurationFallbackMessage {
                 let summary = "ElevenLabs is selected, but this \(purpose.logLabel) used System Speech. \(fallbackMessage)"
@@ -1549,7 +1696,17 @@ final class CompanionManager: ObservableObject {
                     encounteredElevenLabsFailure: false
                 )
             case .elevenLabsBYO:
-                let fallbackMessage = "ElevenLabs could not play audio, so Clicky fell back to System Speech. \(error.localizedDescription)"
+                let isCreditExhaustion = isLikelyElevenLabsCreditExhaustion(error)
+                if isCreditExhaustion {
+                    isElevenLabsCreditExhausted = true
+                }
+
+                let fallbackMessage: String
+                if isCreditExhaustion {
+                    fallbackMessage = "Your ElevenLabs credits are exhausted right now, so Clicky switched to System Speech and kept the conversation moving."
+                } else {
+                    fallbackMessage = "ElevenLabs could not play audio, so Clicky fell back to System Speech. \(error.localizedDescription)"
+                }
                 lastSpeechFallbackMessage = fallbackMessage
                 ClickyLogger.error(
                     .audio,
@@ -1589,8 +1746,136 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    private func playSystemMessageText(_ text: String) async -> ClickySpeechPlaybackOutcome {
+        let selectedVoiceID = elevenLabsSelectedVoiceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedVoiceName = elevenLabsSelectedVoiceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let storedAPIKey = (ClickySecrets.load(account: "elevenlabs_api_key") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !storedAPIKey.isEmpty && !selectedVoiceID.isEmpty && !isElevenLabsCreditExhausted && !isElevenLabsAPIKeyRejected {
+            do {
+                try await elevenLabsTTSClient.speakText(
+                    text,
+                    voicePreset: effectiveClickyVoicePreset,
+                    outputMode: .elevenLabsBYO(
+                        ElevenLabsDirectConfiguration(apiKey: storedAPIKey, voiceID: selectedVoiceID)
+                    )
+                )
+                isElevenLabsCreditExhausted = false
+                isElevenLabsAPIKeyRejected = false
+                lastSpeechFallbackMessage = nil
+                ClickyLogger.notice(
+                    .audio,
+                    "speech-playback success purpose=\(ClickySpeechPlaybackPurpose.systemMessage.logLabel) provider=ElevenLabs source=user-key voiceName=\(selectedVoiceName)"
+                )
+                return ClickySpeechPlaybackOutcome(
+                    finalProviderDisplayName: "ElevenLabs",
+                    fallbackMessage: nil,
+                    encounteredElevenLabsFailure: false
+                )
+            } catch {
+                if isLikelyElevenLabsCreditExhaustion(error) {
+                    isElevenLabsCreditExhausted = true
+                    lastSpeechFallbackMessage = "Your ElevenLabs credits are exhausted right now, so Clicky is using its built-in voice for system messages and System Speech for spoken fallback."
+                }
+                if isLikelyElevenLabsUnauthorized(error) {
+                    isElevenLabsAPIKeyRejected = true
+                    lastSpeechFallbackMessage = "Your ElevenLabs API key was rejected, so Clicky will use backup voices until you update it."
+                }
+                ClickyLogger.error(
+                    .audio,
+                    "speech-playback failed purpose=\(ClickySpeechPlaybackPurpose.systemMessage.logLabel) provider=ElevenLabs source=user-key voiceName=\(selectedVoiceName) error=\(error.localizedDescription)"
+                )
+            }
+        }
+
+        if !isElevenLabsBackendVoiceUnavailable {
+            do {
+                try await elevenLabsTTSClient.speakTextViaProxy(
+                    text,
+                    voicePreset: effectiveClickyVoicePreset
+                )
+                if lastSpeechFallbackMessage == nil {
+                    lastSpeechFallbackMessage = "Clicky is handling system voice messages with its built-in ElevenLabs voice right now."
+                }
+                ClickyLogger.notice(
+                    .audio,
+                    "speech-playback success purpose=\(ClickySpeechPlaybackPurpose.systemMessage.logLabel) provider=ElevenLabs source=clicky-backend"
+                )
+                return ClickySpeechPlaybackOutcome(
+                    finalProviderDisplayName: "ElevenLabs",
+                    fallbackMessage: lastSpeechFallbackMessage,
+                    encounteredElevenLabsFailure: false
+                )
+            } catch {
+                if isLikelyElevenLabsVoiceMissing(error) {
+                    isElevenLabsBackendVoiceUnavailable = true
+                    lastSpeechFallbackMessage = "Clicky's backup ElevenLabs voice is unavailable right now, so it is using System Speech for system messages."
+                }
+                ClickyLogger.error(
+                    .audio,
+                    "speech-playback failed purpose=\(ClickySpeechPlaybackPurpose.systemMessage.logLabel) provider=ElevenLabs source=clicky-backend error=\(error.localizedDescription)"
+                )
+            }
+        }
+
+        do {
+            try await elevenLabsTTSClient.speakText(
+                text,
+                voicePreset: effectiveClickyVoicePreset,
+                outputMode: .system
+            )
+            let fallbackMessage = lastSpeechFallbackMessage ?? "Clicky is using System Speech for now."
+            lastSpeechFallbackMessage = fallbackMessage
+            ClickyLogger.notice(
+                .audio,
+                "speech-playback fallback purpose=\(ClickySpeechPlaybackPurpose.systemMessage.logLabel) provider=System Speech"
+            )
+            return ClickySpeechPlaybackOutcome(
+                finalProviderDisplayName: "System Speech",
+                fallbackMessage: fallbackMessage,
+                encounteredElevenLabsFailure: true
+            )
+        } catch {
+            let failureMessage = "Clicky could not play this system message. \(error.localizedDescription)"
+            lastSpeechFallbackMessage = failureMessage
+            ClickyLogger.error(
+                .audio,
+                "speech-playback failed purpose=\(ClickySpeechPlaybackPurpose.systemMessage.logLabel) provider=System Speech error=\(error.localizedDescription)"
+            )
+            return ClickySpeechPlaybackOutcome(
+                finalProviderDisplayName: "Unavailable",
+                fallbackMessage: failureMessage,
+                encounteredElevenLabsFailure: true
+            )
+        }
+    }
+
+    private func isLikelyElevenLabsCreditExhaustion(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("credit")
+            || message.contains("credits")
+            || message.contains("balance")
+            || message.contains("quota")
+            || message.contains("insufficient")
+    }
+
+    private func isLikelyElevenLabsUnauthorized(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("api key was rejected")
+            || message.contains("unauthorized")
+            || message.contains("401")
+    }
+
+    private func isLikelyElevenLabsVoiceMissing(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("voice could not be found")
+            || message.contains("voice not be found")
+            || message.contains("voice not found")
+            || message.contains("404")
+    }
+
     private static let speechPreviewSampleText = "hey, this is clicky. here is how your current voice sounds."
-    private static let launchPaywallLockedMessage = "you've used the launch trial. new assisted turns are locked now, so open studio to buy the launch pass or restore access."
+    private static let launchPaywallLockedMessage = "clicky has used the included trial on this mac. open studio to unlock access or restore your purchase, and everything will pick up from there."
 
     private func upsertElevenLabsVoice(_ voice: ElevenLabsVoiceOption) {
         var voicesByID: [String: ElevenLabsVoiceOption] = [:]
@@ -1625,6 +1910,108 @@ final class CompanionManager: ObservableObject {
                 openClawConnectionStatus = .failed(message: error.localizedDescription)
                 ClickyLogger.error(.gateway, "OpenClaw connection test failed error=\(error.localizedDescription)")
             }
+        }
+    }
+
+    func refreshCodexRuntimeStatus() {
+        codexRuntimeStatus = .checking
+
+        Task { @MainActor in
+            let snapshot = codexRuntimeClient.inspectRuntime()
+            codexConfiguredModelName = snapshot.configuredModel
+            codexExecutablePath = snapshot.executablePath
+            codexAuthModeLabel = snapshot.authModeLabel
+
+            if !snapshot.isInstalled {
+                codexRuntimeStatus = .failed(message: "Codex is not installed on this Mac yet.")
+                ClickyLogger.error(.agent, "Codex runtime unavailable reason=not-installed")
+                return
+            }
+
+            if !snapshot.isAuthenticated {
+                codexRuntimeStatus = .failed(message: "Codex needs a ChatGPT sign-in before Clicky can use it.")
+                ClickyLogger.error(.agent, "Codex runtime unavailable reason=not-authenticated")
+                return
+            }
+
+            let modelLabel = snapshot.configuredModel ?? "default model"
+            codexRuntimeStatus = .ready(summary: "Codex is ready on this Mac using \(modelLabel).")
+            ClickyLogger.notice(.agent, "Codex runtime ready authMode=\(snapshot.authModeLabel ?? "unknown") model=\(modelLabel)")
+        }
+    }
+
+    var codexRuntimeStatusLabel: String {
+        switch codexRuntimeStatus {
+        case .idle:
+            return "Not checked yet"
+        case .checking:
+            return "Checking Codex"
+        case .ready:
+            return "Ready"
+        case .failed:
+            return "Needs setup"
+        }
+    }
+
+    var codexRuntimeSummaryCopy: String {
+        switch codexRuntimeStatus {
+        case .idle:
+            return "Codex runs locally on this Mac and can use your ChatGPT subscription when it is signed in and ready."
+        case .checking:
+            return "Clicky is checking whether Codex is installed and signed in on this Mac."
+        case .ready(let summary):
+            return summary
+        case .failed(let message):
+            return message
+        }
+    }
+
+    var codexReadinessChipLabels: [String] {
+        var labels: [String] = []
+        labels.append(codexRuntimeStatusLabel)
+
+        if let authModeLabel = codexAuthModeLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !authModeLabel.isEmpty {
+            labels.append(authModeLabel)
+        }
+
+        if let configuredModelName = codexConfiguredModelName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !configuredModelName.isEmpty {
+            labels.append(configuredModelName)
+        }
+
+        if labels.count == 1 {
+            labels.append("Local runtime")
+        }
+
+        return labels
+    }
+
+    var codexConfiguredModelLabel: String {
+        codexConfiguredModelName ?? "Use Codex default"
+    }
+
+    var codexAccountLabel: String {
+        codexAuthModeLabel ?? "ChatGPT sign-in needed"
+    }
+
+    func openCodexInstallPage() {
+        guard let url = URL(string: "https://github.com/openai/codex") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func startCodexLoginInTerminal() {
+        let command = "codex login"
+        let escapedCommand = command.replacingOccurrences(of: "\"", with: "\\\"")
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "\(escapedCommand)"
+        end tell
+        """
+        var error: NSDictionary?
+        if let scriptObject = NSAppleScript(source: script) {
+            scriptObject.executeAndReturnError(&error)
         }
     }
 
@@ -1891,18 +2278,22 @@ final class CompanionManager: ObservableObject {
         : UserDefaults.standard.bool(forKey: "isClickyCursorEnabled")
 
     func setClickyCursorEnabled(_ enabled: Bool) {
+        guard isClickyCursorEnabled != enabled else { return }
         isClickyCursorEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: "isClickyCursorEnabled")
-        transientHideTask?.cancel()
-        transientHideTask = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.transientHideTask?.cancel()
+            self.transientHideTask = nil
 
-        if enabled {
-            overlayWindowManager.hasShownOverlayBefore = true
-            overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-            isOverlayVisible = true
-        } else {
-            overlayWindowManager.hideOverlay()
-            isOverlayVisible = false
+            if enabled {
+                self.overlayWindowManager.hasShownOverlayBefore = true
+                self.overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+                self.isOverlayVisible = true
+            } else {
+                self.overlayWindowManager.hideOverlay()
+                self.isOverlayVisible = false
+            }
         }
     }
 
@@ -1929,6 +2320,7 @@ final class CompanionManager: ObservableObject {
         bindVoiceStateObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
+        bindTutorialPlaybackShortcutTransitions()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
         if selectedAgentBackend == .claude {
@@ -1947,6 +2339,7 @@ final class CompanionManager: ObservableObject {
 
         refreshClickyShellRegistrationLifecycle()
         refreshOpenClawAgentIdentity()
+        refreshCodexRuntimeStatus()
 
         // If the user already completed onboarding AND all permissions are
         // still granted, show the cursor overlay immediately. If permissions
@@ -2004,6 +2397,8 @@ final class CompanionManager: ObservableObject {
         onboardingMusicFadeTimer = nil
         onboardingMusicPlayer?.stop()
         onboardingMusicPlayer = nil
+        onboardingPromptTask?.cancel()
+        onboardingPromptTask = nil
     }
 
     private func startOnboardingMusic() {
@@ -2021,7 +2416,9 @@ final class CompanionManager: ObservableObject {
 
             // After 1m 30s, fade the music out over 3s
             onboardingMusicFadeTimer = Timer.scheduledTimer(withTimeInterval: 90.0, repeats: false) { [weak self] _ in
-                self?.fadeOutOnboardingMusic()
+                Task { @MainActor [weak self] in
+                    self?.fadeOutOnboardingMusic()
+                }
             }
         } catch {
             print("⚠️ Clicky: Failed to play onboarding music: \(error)")
@@ -2033,20 +2430,27 @@ final class CompanionManager: ObservableObject {
 
         let fadeSteps = 30
         let fadeDuration: Double = 3.0
-        let stepInterval = fadeDuration / Double(fadeSteps)
         let volumeDecrement = player.volume / Float(fadeSteps)
-        var stepsRemaining = fadeSteps
+        let stepDurationNanoseconds = UInt64((fadeDuration / Double(fadeSteps)) * 1_000_000_000)
 
-        onboardingMusicFadeTimer = Timer.scheduledTimer(withTimeInterval: stepInterval, repeats: true) { [weak self] timer in
-            stepsRemaining -= 1
-            player.volume -= volumeDecrement
+        onboardingMusicFadeTimer?.invalidate()
+        onboardingMusicFadeTimer = nil
 
-            if stepsRemaining <= 0 {
-                timer.invalidate()
-                player.stop()
-                self?.onboardingMusicPlayer = nil
-                self?.onboardingMusicFadeTimer = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            for _ in 0..<fadeSteps {
+                guard let currentPlayer = self.onboardingMusicPlayer, currentPlayer === player else {
+                    return
+                }
+
+                currentPlayer.volume -= volumeDecrement
+                try? await Task.sleep(nanoseconds: stepDurationNanoseconds)
             }
+
+            guard let currentPlayer = self.onboardingMusicPlayer, currentPlayer === player else { return }
+            currentPlayer.stop()
+            self.onboardingMusicPlayer = nil
         }
     }
 
@@ -2056,10 +2460,357 @@ final class CompanionManager: ObservableObject {
         detectedElementBubbleText = nil
     }
 
+    func startTutorialImportFromPanel() {
+        let trimmedURL = tutorialImportURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedURL.isEmpty else {
+            tutorialImportStatusMessage = "Paste a YouTube URL to begin."
+            return
+        }
+
+        guard let storedSession = ClickyAuthSessionStore.load() else {
+            tutorialImportStatusMessage = "Sign in to import tutorials."
+            return
+        }
+
+        guard let url = URL(string: trimmedURL),
+              let host = url.host?.lowercased(),
+              ["youtube.com", "www.youtube.com", "youtu.be", "music.youtube.com"].contains(host) else {
+            tutorialImportStatusMessage = "That doesn’t look like a valid YouTube URL."
+            return
+        }
+
+        tutorialImportTask?.cancel()
+        isTutorialImportRunning = true
+        tutorialImportStatusMessage = "Importing tutorial…"
+
+        var draft = TutorialImportDraft(sourceURL: trimmedURL, status: .extracting)
+        currentTutorialImportDraft = draft
+
+        tutorialImportTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                let client = TutorialExtractionClient(
+                    baseURL: clickyBackendBaseURL,
+                    sessionToken: storedSession.sessionToken
+                )
+                let startResponse = try await client.startExtraction(sourceURL: trimmedURL)
+                draft.videoID = startResponse.videoID
+                draft.extractionJobID = startResponse.jobID
+                draft.updatedAt = Date()
+                self.currentTutorialImportDraft = draft
+                self.tutorialImportStatusMessage = "Extracting tutorial structure…"
+
+                let snapshot = try await self.pollTutorialExtractionJob(
+                    client: client,
+                    jobID: startResponse.jobID
+                )
+
+                guard snapshot.status == "success" else {
+                    throw TutorialExtractionClientError.unexpectedStatus(
+                        code: 500,
+                        message: snapshot.error ?? "Tutorial extraction failed."
+                    )
+                }
+
+                let evidenceBundle = try await client.fetchEvidence(videoID: startResponse.videoID)
+                draft.videoID = evidenceBundle.videoID
+                draft.title = evidenceBundle.source.title
+                draft.embedURL = evidenceBundle.source.embedURL
+                draft.channelName = evidenceBundle.source.channel
+                draft.durationSeconds = evidenceBundle.source.durationSeconds
+                draft.thumbnailURL = evidenceBundle.source.thumbnailURL
+                draft.evidenceBundle = evidenceBundle
+                draft.status = .extracted
+                draft.updatedAt = Date()
+                self.currentTutorialImportDraft = draft
+                self.tutorialImportStatusMessage = "Compiling tutorial steps…"
+
+                draft.status = .compiling
+                draft.updatedAt = Date()
+                self.currentTutorialImportDraft = draft
+
+                let compiledLessonDraft = try await self.compileTutorialLessonDraft(
+                    evidenceBundle: evidenceBundle
+                )
+                draft.compiledLessonDraft = compiledLessonDraft
+                draft.status = .ready
+                draft.updatedAt = Date()
+                self.currentTutorialImportDraft = draft
+                self.tutorialSessionState = TutorialSessionState(
+                    draftID: draft.id,
+                    lessonDraft: compiledLessonDraft,
+                    evidenceBundle: evidenceBundle,
+                    currentStepIndex: 0,
+                    isActive: true
+                )
+                self.tutorialConversationHistory = []
+                self.isTutorialImportRunning = false
+                self.tutorialImportStatusMessage = "Tutorial ready. Guiding mode is starting."
+
+                let firstStep = compiledLessonDraft.steps.first
+
+                self.startTutorialPlayback(
+                    sourceURL: evidenceBundle.source.url,
+                    embedURL: evidenceBundle.source.embedURL,
+                    step: firstStep,
+                    bubbleText: firstStep.map { "\($0.title). \($0.instruction)" }
+                        ?? "Space play/pause  Left back 10s  Right forward 10s  Esc close",
+                    promptTimestampSeconds: firstStep?.sourceVideoPromptTimestamp
+                        ?? evidenceBundle.structureMarkers.first?.visualAnchorTimestamps.first,
+                    autoPlay: true
+                )
+            } catch {
+                draft.status = .failed
+                draft.extractionError = error.localizedDescription
+                draft.updatedAt = Date()
+                self.currentTutorialImportDraft = draft
+                self.isTutorialImportRunning = false
+                self.tutorialImportStatusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func pollTutorialExtractionJob(
+        client: TutorialExtractionClient,
+        jobID: String
+    ) async throws -> TutorialExtractionJobSnapshot {
+        while true {
+            try Task.checkCancellation()
+            let snapshot = try await client.fetchJob(jobID: jobID)
+            if snapshot.status == "success" || snapshot.status == "error" {
+                return snapshot
+            }
+            try await Task.sleep(for: .seconds(1))
+        }
+    }
+
+    private func compileTutorialLessonDraft(
+        evidenceBundle: TutorialEvidenceBundle
+    ) async throws -> TutorialLessonDraft {
+        struct TutorialLessonDraftEnvelope: Decodable {
+            let title: String
+            let summary: String
+            let steps: [TutorialLessonDraftStep]
+        }
+
+        struct TutorialLessonDraftStep: Decodable {
+            let title: String
+            let instruction: String
+            let verificationHint: String?
+            let sourceStartSeconds: Double?
+            let sourceEndSeconds: Double?
+            let sourceVideoPromptTimestamp: Int?
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let evidenceJSONData = try encoder.encode(evidenceBundle)
+        let evidenceJSONString = String(decoding: evidenceJSONData, as: UTF8.self)
+
+        let systemPrompt = """
+        You are compiling a desktop software tutorial for Clicky.
+
+        Return JSON only. No markdown. No prose outside JSON.
+
+        Produce:
+        {
+          "title": string,
+          "summary": string,
+          "steps": [
+            {
+              "title": string,
+              "instruction": string,
+              "verificationHint": string | null,
+              "sourceStartSeconds": number | null,
+              "sourceEndSeconds": number | null,
+              "sourceVideoPromptTimestamp": number | null
+            }
+          ]
+        }
+
+        Rules:
+        - write for a learner following along on their own desktop
+        - make each step concrete and actionable
+        - prefer six to ten meaningful steps
+        - keep titles short
+        - keep instructions conversational but clear
+        - use the evidence bundle only
+        - if structure markers exist, use them to shape the lesson
+        - sourceVideoPromptTimestamp should usually point to the most relevant moment for that step
+        """
+
+        let userPrompt = """
+        Turn this extracted YouTube tutorial evidence into a guided desktop lesson for Clicky.
+
+        Evidence bundle:
+        \(evidenceJSONString)
+        """
+
+        let request = ClickyAssistantTurnRequest(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            conversationHistory: [],
+            imageAttachments: [],
+            focusContext: nil
+        )
+
+        let response = try await assistantTurnExecutor.execute(
+            ClickyAssistantTurnPlan(
+                backend: selectedAgentBackend,
+                systemPrompt: systemPrompt,
+                request: request
+            ),
+            onTextChunk: { _ in }
+        )
+
+        let responseText = response.text
+        let normalizedJSONText = Self.extractJSONObject(from: responseText)
+        let decoder = JSONDecoder()
+        let envelope = try decoder.decode(
+            TutorialLessonDraftEnvelope.self,
+            from: Data(normalizedJSONText.utf8)
+        )
+
+        return TutorialLessonDraft(
+            title: envelope.title,
+            summary: envelope.summary,
+            steps: envelope.steps.map { step in
+                TutorialLessonStep(
+                    title: step.title,
+                    instruction: step.instruction,
+                    verificationHint: step.verificationHint,
+                    sourceTimeRange: {
+                        guard let start = step.sourceStartSeconds,
+                              let end = step.sourceEndSeconds else { return nil }
+                        return TutorialLessonTimeRange(startSeconds: start, endSeconds: end)
+                    }(),
+                    sourceVideoPromptTimestamp: step.sourceVideoPromptTimestamp
+                )
+            },
+            createdAt: Date()
+        )
+    }
+
+    private static func extractJSONObject(from responseText: String) -> String {
+        guard let startIndex = responseText.firstIndex(of: "{"),
+              let endIndex = responseText.lastIndex(of: "}") else {
+            return responseText
+        }
+
+        return String(responseText[startIndex...endIndex])
+    }
+
+    func startTutorialPlayback(
+        sourceURL: String,
+        embedURL: String,
+        step: TutorialLessonStep? = nil,
+        bubbleText: String? = nil,
+        promptTimestampSeconds: Int? = nil,
+        autoPlay: Bool = true
+    ) {
+        tutorialPlaybackState = TutorialPlaybackBindingState(
+            sourceURL: sourceURL,
+            embedURL: embedURL,
+            currentStepID: step?.id,
+            currentStepTitle: step?.title,
+            bubbleText: bubbleText ?? "Space play/pause  Left back 10s  Right forward 10s  Esc close",
+            isPlaying: autoPlay,
+            isVisible: true,
+            surfaceMode: .inlineVideoWithBubble,
+            resumeBehavior: .resumeInlineVideoAfterPointing,
+            preferredInlinePlayerWidth: 330,
+            preferredInlinePlayerHeight: 186,
+            lastPromptTimestampSeconds: promptTimestampSeconds,
+            showsKeyboardShortcutsHint: true
+        )
+        tutorialPlaybackBubbleOpacity = 1.0
+        if autoPlay {
+            sendTutorialPlaybackCommand(.play)
+        }
+    }
+
+    func updateTutorialPlaybackBubble(_ text: String?) {
+        guard var state = tutorialPlaybackState else { return }
+        state.showsKeyboardShortcutsHint = false
+        state.bubbleText = text
+        state.surfaceMode = text == nil ? .inlineVideo : .inlineVideoWithBubble
+        tutorialPlaybackState = state
+        tutorialPlaybackBubbleOpacity = text == nil ? 0.0 : 1.0
+    }
+
+    func pauseTutorialPlaybackForPointing() {
+        guard var state = tutorialPlaybackState else { return }
+        state.surfaceMode = .pointerGuidance
+        tutorialPlaybackState = state
+        tutorialPlaybackBubbleOpacity = 0.0
+        sendTutorialPlaybackCommand(.pause)
+    }
+
+    func resumeTutorialPlaybackAfterPointingIfNeeded() {
+        guard var state = tutorialPlaybackState else { return }
+        guard state.resumeBehavior == .resumeInlineVideoAfterPointing else { return }
+
+        state.surfaceMode = state.bubbleText == nil ? .inlineVideo : .inlineVideoWithBubble
+        tutorialPlaybackState = state
+        tutorialPlaybackBubbleOpacity = state.bubbleText == nil ? 0.0 : 1.0
+        if state.isPlaying {
+            sendTutorialPlaybackCommand(.play)
+        }
+    }
+
+    func stopTutorialPlayback() {
+        tutorialPlaybackBubbleOpacity = 0.0
+        tutorialPlaybackState = nil
+        sendTutorialPlaybackCommand(.dismiss)
+    }
+
+    func handleTutorialPlaybackKeyboardCommand(_ command: TutorialPlaybackCommand) {
+        guard var state = tutorialPlaybackState, state.isVisible else { return }
+
+        switch command {
+        case .play:
+            state.isPlaying = true
+        case .pause:
+            state.isPlaying = false
+        case .togglePlayPause:
+            state.isPlaying.toggle()
+        case .seekBackward, .seekForward:
+            break
+        case .dismiss:
+            tutorialPlaybackState = nil
+            tutorialPlaybackBubbleOpacity = 0.0
+        }
+
+        if command != .dismiss {
+            if state.showsKeyboardShortcutsHint {
+                state.showsKeyboardShortcutsHint = false
+                if let currentStepTitle = state.currentStepTitle,
+                   !currentStepTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    state.bubbleText = currentStepTitle
+                    state.surfaceMode = .inlineVideoWithBubble
+                } else if state.bubbleText?.contains("Space play/pause") == true {
+                    state.bubbleText = nil
+                    state.surfaceMode = .inlineVideo
+                }
+            }
+            tutorialPlaybackState = state
+        }
+
+        sendTutorialPlaybackCommand(command)
+    }
+
+    private func sendTutorialPlaybackCommand(_ command: TutorialPlaybackCommand) {
+        tutorialPlaybackLastCommand = command
+        tutorialPlaybackCommandNonce += 1
+    }
+
     func stop() {
         globalPushToTalkShortcutMonitor.stop()
         buddyDictationManager.cancelCurrentDictation()
         overlayWindowManager.hideOverlay()
+        stopTutorialPlayback()
         transientHideTask?.cancel()
         quietLaunchEntitlementRefreshTask?.cancel()
         quietLaunchEntitlementRefreshTask = nil
@@ -2116,6 +2867,8 @@ final class CompanionManager: ObservableObject {
             sessionToken: storedSession.sessionToken,
             userID: userID ?? storedSession.userID,
             email: email ?? storedSession.email,
+            name: storedSession.name,
+            image: storedSession.image,
             entitlement: entitlement ?? storedSession.entitlement,
             trial: trial ?? storedSession.trial
         )
@@ -2438,7 +3191,7 @@ final class CompanionManager: ObservableObject {
 
         let sessionPayload = try await sessionPayloadTask
         let entitlementPayload = try await entitlementPayloadTask
-        let trialPayload = try await trialPayloadTask
+        let trialPayload = await trialPayloadTask
 
         return ClickyAuthSessionSnapshot(
             sessionToken: sessionToken,
@@ -2600,13 +3353,13 @@ final class CompanionManager: ObservableObject {
         case .failed(let message):
             spokenMessage = message
         default:
-            spokenMessage = "sign in to start your clicky trial. your credits and restore state now stay tied to your account."
+            spokenMessage = "clicky couldn't continue because this mac is signed out. open studio and sign in once, then you can keep going."
         }
 
         Task { @MainActor in
             _ = await playSpeechText(
                 spokenMessage,
-                purpose: .assistantResponse
+                purpose: .systemMessage
             )
 
             if !Task.isCancelled {
@@ -2634,7 +3387,7 @@ final class CompanionManager: ObservableObject {
         Task { @MainActor in
             _ = await playSpeechText(
                 message,
-                purpose: .assistantResponse
+                purpose: .systemMessage
             )
 
             if !Task.isCancelled {
@@ -2658,7 +3411,7 @@ final class CompanionManager: ObservableObject {
         Task { @MainActor in
             _ = await playSpeechText(
                 Self.launchPaywallLockedMessage,
-                purpose: .assistantResponse
+                purpose: .systemMessage
             )
 
             if !Task.isCancelled {
@@ -3028,6 +3781,17 @@ final class CompanionManager: ObservableObject {
             }
     }
 
+    private func bindTutorialPlaybackShortcutTransitions() {
+        tutorialPlaybackShortcutCancellable = globalPushToTalkShortcutMonitor
+            .tutorialPlaybackCommandPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] command in
+                guard let self else { return }
+                guard tutorialPlaybackState?.isVisible == true else { return }
+                handleTutorialPlaybackKeyboardCommand(command)
+            }
+    }
+
     private func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
@@ -3254,6 +4018,14 @@ final class CompanionManager: ObservableObject {
         elevenLabsTTSClient.stopPlayback()
 
         currentResponseTask = Task {
+            if await handleTutorialImportIntentIfNeeded(for: transcript) {
+                return
+            }
+
+            if await handleTutorialModeTurnIfNeeded(for: transcript) {
+                return
+            }
+
             var launchAuthorization = LaunchAssistantTurnAuthorization(
                 session: nil,
                 shouldUseWelcomeTurn: false,
@@ -3275,7 +4047,7 @@ final class CompanionManager: ObservableObject {
                     voiceState = .responding
                     _ = await playSpeechText(
                         Self.launchPaywallLockedMessage,
-                        purpose: .assistantResponse
+                        purpose: .systemMessage
                     )
                     return
                 }
@@ -3460,7 +4232,7 @@ final class CompanionManager: ObservableObject {
                         if let fallbackMessage = playbackOutcome.fallbackMessage {
                             ClickyAnalytics.trackTTSError(error: fallbackMessage)
                         }
-                        speakCreditsErrorFallback()
+                        voiceState = .idle
                     } else if playbackOutcome.encounteredElevenLabsFailure,
                               let fallbackMessage = playbackOutcome.fallbackMessage {
                         ClickyAnalytics.trackTTSError(error: fallbackMessage)
@@ -3493,7 +4265,7 @@ final class CompanionManager: ObservableObject {
                         purpose: .assistantResponse
                     )
                 } else {
-                    speakCreditsErrorFallback()
+                    voiceState = .idle
                 }
             }
 
@@ -3502,6 +4274,315 @@ final class CompanionManager: ObservableObject {
                 scheduleTransientHideIfNeeded()
             }
         }
+    }
+
+    @MainActor
+    private func handleTutorialModeTurnIfNeeded(for transcript: String) async -> Bool {
+        guard var tutorialSessionState, tutorialSessionState.isActive else {
+            return false
+        }
+
+        let normalizedTranscript = transcript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if shouldStopTutorialMode(normalizedTranscript) {
+            tutorialSessionState.isActive = false
+            self.tutorialSessionState = tutorialSessionState
+            tutorialConversationHistory = []
+            stopTutorialPlayback()
+            tutorialImportStatusMessage = "Tutorial mode ended."
+            voiceState = .responding
+            _ = await playSpeechText(
+                "okay, tutorial mode is done. we’re back to normal help now.",
+                purpose: .systemMessage
+            )
+            return true
+        }
+
+        if let lessonDraft = currentTutorialImportDraft?.compiledLessonDraft,
+           lessonDraft.steps.indices.contains(tutorialSessionState.currentStepIndex) {
+            let currentStep = lessonDraft.steps[tutorialSessionState.currentStepIndex]
+
+            if shouldAdvanceTutorialStep(normalizedTranscript) {
+                if tutorialSessionState.currentStepIndex + 1 < lessonDraft.steps.count {
+                    tutorialSessionState.currentStepIndex += 1
+                    self.tutorialSessionState = tutorialSessionState
+                    let nextStep = lessonDraft.steps[tutorialSessionState.currentStepIndex]
+                    updateTutorialPlaybackBubble("\(nextStep.title). \(nextStep.instruction)")
+                    if let nextTimestamp = nextStep.sourceVideoPromptTimestamp {
+                        tutorialPlaybackState?.lastPromptTimestampSeconds = nextTimestamp
+                    }
+                    voiceState = .responding
+                    _ = await playSpeechText(
+                        "\(nextStep.instruction) let me know once done and we will move on.",
+                        purpose: .systemMessage
+                    )
+                } else {
+                    tutorialSessionState.isActive = false
+                    self.tutorialSessionState = tutorialSessionState
+                    updateTutorialPlaybackBubble("Tutorial complete.")
+                    voiceState = .responding
+                    _ = await playSpeechText(
+                        "nice, that was the last step. you’re done with this tutorial unless you want to review anything.",
+                        purpose: .systemMessage
+                    )
+                }
+                return true
+            }
+
+            if shouldRepeatCurrentTutorialStep(normalizedTranscript) {
+                updateTutorialPlaybackBubble("\(currentStep.title). \(currentStep.instruction)")
+                voiceState = .responding
+                _ = await playSpeechText(
+                    "\(currentStep.instruction) let me know once done and we will move on.",
+                    purpose: .systemMessage
+                )
+                return true
+            }
+
+            if shouldListTutorialSteps(normalizedTranscript) {
+                let stepSummary = lessonDraft.steps
+                    .enumerated()
+                    .map { index, step in
+                        "step \(index + 1), \(step.title)"
+                    }
+                    .joined(separator: ". ")
+                voiceState = .responding
+                _ = await playSpeechText(
+                    "here are the steps. \(stepSummary).",
+                    purpose: .systemMessage
+                )
+                return true
+            }
+
+            return await handleTutorialAwareAgentTurn(
+                transcript: transcript,
+                tutorialSessionState: tutorialSessionState,
+                currentStep: currentStep
+            )
+        }
+
+        return false
+    }
+
+    @MainActor
+    private func handleTutorialAwareAgentTurn(
+        transcript: String,
+        tutorialSessionState: TutorialSessionState,
+        currentStep: TutorialLessonStep
+    ) async -> Bool {
+        voiceState = .thinking
+
+        do {
+            let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+            let labeledImages = screenCaptures.map { capture in
+                (data: capture.imageData, label: capture.label)
+            }
+            let focusContext = assistantFocusContextProvider.captureCurrentFocusContext()
+
+            let tutorialAwarePrompt = makeTutorialAwareUserPrompt(
+                transcript: transcript,
+                tutorialSessionState: tutorialSessionState,
+                currentStep: currentStep
+            )
+            let systemPrompt = makeTutorialModeSystemPrompt()
+            let request = makeAssistantTurnRequest(
+                systemPrompt: systemPrompt,
+                transcript: tutorialAwarePrompt,
+                labeledImages: labeledImages,
+                focusContext: focusContext
+            )
+
+            let response = try await assistantTurnExecutor.execute(
+                ClickyAssistantTurnPlan(
+                    backend: selectedAgentBackend,
+                    systemPrompt: systemPrompt,
+                    request: request
+                ),
+                onTextChunk: { _ in }
+            )
+
+            let parseResult = Self.parsePointingCoordinates(from: response.text)
+            let spokenText = parseResult.spokenText
+
+            tutorialConversationHistory.append((
+                userTranscript: transcript,
+                assistantResponse: spokenText
+            ))
+            if tutorialConversationHistory.count > 10 {
+                tutorialConversationHistory.removeFirst(tutorialConversationHistory.count - 10)
+            }
+
+            updateTutorialPlaybackBubble(spokenText)
+
+            if let pointCoordinate = parseResult.coordinate {
+                let initialFocusContext = assistantFocusContextProvider.captureCurrentFocusContext()
+                let freshCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG(
+                    cursorLocationOverride: CGPoint(
+                        x: initialFocusContext.cursorX,
+                        y: initialFocusContext.cursorY
+                    )
+                )
+                let targetScreenCapture = freshCaptures.first(where: { $0.isCursorScreen })
+                if let targetScreenCapture {
+                    let screenshotWidth = CGFloat(targetScreenCapture.screenshotWidthInPixels)
+                    let screenshotHeight = CGFloat(targetScreenCapture.screenshotHeightInPixels)
+                    let displayWidth = CGFloat(targetScreenCapture.displayWidthInPoints)
+                    let displayHeight = CGFloat(targetScreenCapture.displayHeightInPoints)
+                    let displayFrame = targetScreenCapture.displayFrame
+
+                    let clampedX = max(0, min(pointCoordinate.x, screenshotWidth))
+                    let clampedY = max(0, min(pointCoordinate.y, screenshotHeight))
+
+                    let displayLocalX = clampedX * (displayWidth / screenshotWidth)
+                    let displayLocalY = clampedY * (displayHeight / screenshotHeight)
+                    let appKitY = displayHeight - displayLocalY
+                    let globalLocation = CGPoint(
+                        x: displayLocalX + displayFrame.origin.x,
+                        y: appKitY + displayFrame.origin.y
+                    )
+
+                    detectedElementScreenLocation = globalLocation
+                    detectedElementDisplayFrame = displayFrame
+                }
+            }
+
+            _ = await playSpeechText(spokenText, purpose: .assistantResponse)
+            voiceState = .responding
+            return true
+        } catch {
+            voiceState = .idle
+            tutorialImportStatusMessage = error.localizedDescription
+            return true
+        }
+    }
+
+    private func makeTutorialModeSystemPrompt() -> String {
+        """
+        You are Clicky in tutorial mode.
+
+        The user is actively following a software tutorial. Treat tutorial mode as a persistent guided session, not a normal detached chat.
+
+        Rules:
+        - stay grounded in the current tutorial, current step, lesson draft, and extracted evidence
+        - answer the user in the context of completing this tutorial
+        - use the associated YouTube video only as a reference, not the main product surface
+        - prefer helping the user complete the current step before jumping elsewhere
+        - when helpful, point at the relevant UI element using the normal Clicky pointing tag
+        - if the user sounds stuck, explain clearly and practically
+        - if the user asks what the tutorial is doing, summarize it using the lesson and evidence
+        - if the user asks unrelated questions, answer briefly but remain in tutorial mode unless they explicitly end the tutorial
+        """
+    }
+
+    private func makeTutorialAwareUserPrompt(
+        transcript: String,
+        tutorialSessionState: TutorialSessionState,
+        currentStep: TutorialLessonStep
+    ) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let lessonJSONString = (try? String(
+            decoding: encoder.encode(tutorialSessionState.lessonDraft),
+            as: UTF8.self
+        )) ?? "{}"
+        let evidenceJSONString = (try? String(
+            decoding: encoder.encode(tutorialSessionState.evidenceBundle),
+            as: UTF8.self
+        )) ?? "{}"
+
+        let historyText = tutorialConversationHistory
+            .suffix(6)
+            .map { turn in
+                "user: \(turn.userTranscript)\nassistant: \(turn.assistantResponse)"
+            }
+            .joined(separator: "\n\n")
+
+        return """
+        Tutorial mode is active.
+
+        User utterance:
+        \(transcript)
+
+        Current step index: \(tutorialSessionState.currentStepIndex + 1)
+        Current step title: \(currentStep.title)
+        Current step instruction: \(currentStep.instruction)
+        Current step verification hint: \(currentStep.verificationHint ?? "none")
+        Associated tutorial video: \(tutorialSessionState.evidenceBundle.source.url)
+
+        Lesson draft JSON:
+        \(lessonJSONString)
+
+        Evidence bundle JSON:
+        \(evidenceJSONString)
+
+        Recent tutorial conversation:
+        \(historyText.isEmpty ? "none" : historyText)
+        """
+    }
+
+    private func shouldAdvanceTutorialStep(_ normalizedTranscript: String) -> Bool {
+        ["done", "i'm done", "im done", "next", "go next", "finished", "move on", "continue"]
+            .contains(where: { normalizedTranscript.contains($0) })
+    }
+
+    private func shouldRepeatCurrentTutorialStep(_ normalizedTranscript: String) -> Bool {
+        ["repeat", "say that again", "what was step", "what do i do now", "what now", "current step"]
+            .contains(where: { normalizedTranscript.contains($0) })
+    }
+
+    private func shouldListTutorialSteps(_ normalizedTranscript: String) -> Bool {
+        ["what are the steps", "list the steps", "show steps", "all steps"]
+            .contains(where: { normalizedTranscript.contains($0) })
+    }
+
+    private func shouldStopTutorialMode(_ normalizedTranscript: String) -> Bool {
+        ["done with this tutorial", "stop tutorial", "exit tutorial", "leave tutorial mode"]
+            .contains(where: { normalizedTranscript.contains($0) })
+    }
+
+    @MainActor
+    private func handleTutorialImportIntentIfNeeded(for transcript: String) async -> Bool {
+        let normalizedTranscript = transcript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        guard isTutorialImportIntent(normalizedTranscript) else {
+            return false
+        }
+
+        tutorialImportStatusMessage = "Open the companion menu and paste the YouTube URL to begin."
+        NotificationCenter.default.post(name: .clickyShowPanel, object: nil)
+        voiceState = .responding
+        _ = await playSpeechText(
+            "open the companion menu and paste the youtube url to begin. once it's there, hit start learning and i'll guide you through it.",
+            purpose: .systemMessage
+        )
+        return true
+    }
+
+    private func isTutorialImportIntent(_ normalizedTranscript: String) -> Bool {
+        let mentionsTutorial = normalizedTranscript.contains("tutorial")
+            || normalizedTranscript.contains("youtube")
+            || normalizedTranscript.contains("video")
+            || normalizedTranscript.contains("learn this")
+            || normalizedTranscript.contains("learn from this")
+
+        let asksForHelp = normalizedTranscript.contains("help me")
+            || normalizedTranscript.contains("walk me through")
+            || normalizedTranscript.contains("guide me")
+            || normalizedTranscript.contains("work on this")
+            || normalizedTranscript.contains("teach me")
+
+        let directImportRequest = normalizedTranscript.contains("i want to work on this tutorial")
+            || normalizedTranscript.contains("help with this tutorial")
+            || normalizedTranscript.contains("help me with this tutorial")
+            || normalizedTranscript.contains("help me with a youtube tutorial")
+            || normalizedTranscript.contains("learn this youtube video")
+
+        return directImportRequest || (mentionsTutorial && asksForHelp)
     }
 
     /// If the cursor is in transient mode (user toggled "Show Clicky" off),
@@ -3532,16 +4613,6 @@ final class CompanionManager: ObservableObject {
             overlayWindowManager.fadeOutAndHideOverlay()
             isOverlayVisible = false
         }
-    }
-
-    /// Speaks a hardcoded error message using macOS system TTS when API
-    /// credits run out. Uses NSSpeechSynthesizer so it works even when
-    /// ElevenLabs is down.
-    private func speakCreditsErrorFallback() {
-        let utterance = "I'm all out of credits on ElevenLabs. Please check your Elevenlabs balance and bring me back to life."
-        let synthesizer = NSSpeechSynthesizer()
-        synthesizer.startSpeaking(utterance)
-        voiceState = .responding
     }
 
     // MARK: - Point Tag Parsing
@@ -3647,8 +4718,10 @@ final class CompanionManager: ObservableObject {
             forTimes: [NSValue(time: demoTriggerTime)],
             queue: .main
         ) { [weak self] in
-            ClickyAnalytics.trackOnboardingDemoTriggered()
-            self?.performOnboardingDemoInteraction()
+            Task { @MainActor [weak self] in
+                ClickyAnalytics.trackOnboardingDemoTriggered()
+                self?.performOnboardingDemoInteraction()
+            }
         }
 
         // Fade out and clean up when the video finishes
@@ -3657,15 +4730,17 @@ final class CompanionManager: ObservableObject {
             object: player.currentItem,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            ClickyAnalytics.trackOnboardingVideoCompleted()
-            self.onboardingVideoOpacity = 0.0
-            // Wait for the 2s fade-out animation to complete before tearing down
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                self.tearDownOnboardingVideo()
-                // After the video disappears, stream in the prompt to try talking
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    self.startOnboardingPromptStream()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                ClickyAnalytics.trackOnboardingVideoCompleted()
+                self.onboardingVideoOpacity = 0.0
+                // Wait for the 2s fade-out animation to complete before tearing down
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    self.tearDownOnboardingVideo()
+                    // After the video disappears, stream in the prompt to try talking
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.startOnboardingPromptStream()
+                    }
                 }
             }
         }
@@ -3687,6 +4762,7 @@ final class CompanionManager: ObservableObject {
 
     private func startOnboardingPromptStream() {
         let message = "press control + option and introduce yourself"
+        onboardingPromptTask?.cancel()
         onboardingPromptText = ""
         showOnboardingPrompt = true
         onboardingPromptOpacity = 0.0
@@ -3695,26 +4771,21 @@ final class CompanionManager: ObservableObject {
             onboardingPromptOpacity = 1.0
         }
 
-        var currentIndex = 0
-        Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
-            guard currentIndex < message.count else {
-                timer.invalidate()
-                // Auto-dismiss after 10 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
-                    guard self.showOnboardingPrompt else { return }
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        self.onboardingPromptOpacity = 0.0
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        self.showOnboardingPrompt = false
-                        self.onboardingPromptText = ""
-                    }
-                }
-                return
+        onboardingPromptTask = Task { @MainActor in
+            for character in message {
+                self.onboardingPromptText.append(character)
+                try? await Task.sleep(nanoseconds: 30_000_000)
             }
-            let index = message.index(message.startIndex, offsetBy: currentIndex)
-            self.onboardingPromptText.append(message[index])
-            currentIndex += 1
+
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard self.showOnboardingPrompt else { return }
+            withAnimation(.easeOut(duration: 0.3)) {
+                self.onboardingPromptOpacity = 0.0
+            }
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            self.showOnboardingPrompt = false
+            self.onboardingPromptText = ""
+            self.onboardingPromptTask = nil
         }
     }
 

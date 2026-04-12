@@ -369,7 +369,7 @@ function LandingPage() {
 function App() {
   const pathname = typeof window === 'undefined' ? '/' : window.location.pathname;
 
-  if (pathname === '/auth/native') {
+  if (pathname === '/auth/native' || pathname === '/auth/native/complete') {
     return <NativeAuthPage />;
   }
 

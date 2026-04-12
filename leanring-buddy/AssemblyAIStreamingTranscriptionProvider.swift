@@ -480,3 +480,5 @@ private final class AssemblyAIStreamingTranscriptionSession: NSObject, BuddyStre
         return websocketURL
     }
 }
+
+extension AssemblyAIStreamingTranscriptionSession: @unchecked Sendable {}

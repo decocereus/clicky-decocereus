@@ -53,7 +53,9 @@ final class MenuBarPanelManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.hidePanel(reason: "notification")
+            Task { @MainActor [weak self] in
+                self?.hidePanel(reason: "notification")
+            }
         }
 
         openStudioObserver = NotificationCenter.default.addObserver(
@@ -61,8 +63,10 @@ final class MenuBarPanelManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.hidePanel(reason: "opening-studio")
-            self?.openStudioWindow(source: "companion-panel")
+            Task { @MainActor [weak self] in
+                self?.hidePanel(reason: "opening-studio")
+                self?.openStudioWindow(source: "companion-panel")
+            }
         }
 
         showPanelObserver = NotificationCenter.default.addObserver(
@@ -70,7 +74,9 @@ final class MenuBarPanelManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.showPanel(source: "notification")
+            Task { @MainActor [weak self] in
+                self?.showPanel(source: "notification")
+            }
         }
     }
 

@@ -5,7 +5,7 @@ TypeScript backend for launch auth, billing, and entitlements.
 This service is separate from `worker/`:
 
 - `worker/` proxies AI providers and keeps model API keys out of the app
-- `backend/` owns auth, checkout, entitlements, restore, and billing webhooks
+- `backend/` owns auth, checkout, entitlements, restore, billing webhooks, and authenticated proxy routes for services the Mac app should not call directly
 
 ## Commands
 
@@ -40,6 +40,8 @@ Set these as Wrangler secrets or vars before real auth/billing work lands:
 - `OPENCLAW_AGENT_ID`
 - `OPENCLAW_CLICKY_WEB_SHELL_ENABLED`
 - `OPENCLAW_CLICKY_WEB_PRESENTATION_NAME`
+- `CONTENT_INGESTION_BASE_URL`
+- `CONTENT_INGESTION_API_KEY`
 
 For local development you can start from `.dev.vars.example`:
 
@@ -54,6 +56,7 @@ The current scaffold exposes:
 - session inspection at `/v1/me`
 - placeholder native auth contract routes under `/v1/auth/native/*`
 - web companion session bootstrap, events, and messages under `/v1/web-companion/*`
+- authenticated tutorial extraction proxy routes under `/v1/tutorials/*`
 
 For the web companion runtime:
 

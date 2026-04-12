@@ -10,6 +10,7 @@
 import AppKit
 import AVFoundation
 import SwiftUI
+import WebKit
 
 class OverlayWindow: NSWindow {
     init(screen: NSScreen) {
@@ -87,13 +88,24 @@ struct NavigationBubbleSizePreferenceKey: PreferenceKey {
 
 /// The buddy's behavioral mode. Controls whether it follows the cursor,
 /// is flying toward a detected UI element, or is pointing at an element.
-enum BuddyNavigationMode {
+enum BuddyNavigationMode: Equatable {
     /// Default — buddy follows the mouse cursor with spring animation
     case followingCursor
     /// Buddy is animating toward a detected UI element location
     case navigatingToTarget
     /// Buddy has arrived at the target and is pointing at it with a speech bubble
     case pointingAtTarget
+
+    nonisolated static func == (lhs: BuddyNavigationMode, rhs: BuddyNavigationMode) -> Bool {
+        switch (lhs, rhs) {
+        case (.followingCursor, .followingCursor),
+             (.navigatingToTarget, .navigatingToTarget),
+             (.pointingAtTarget, .pointingAtTarget):
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 // SwiftUI view for the blue glowing cursor pointer.
@@ -231,6 +243,8 @@ struct BlueCursorView: View {
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeInOut(duration: 2.0), value: companionManager.onboardingVideoOpacity)
                 .allowsHitTesting(false)
+
+            tutorialInlinePlayerSurface
 
             // Onboarding prompt — "press control + option and say hi" streamed after video ends
             if isCursorOnThisScreen && companionManager.showOnboardingPrompt && !companionManager.onboardingPromptText.isEmpty {
@@ -390,7 +404,7 @@ struct BlueCursorView: View {
             navigationAnimationTimer?.invalidate()
             companionManager.tearDownOnboardingVideo()
         }
-        .onChange(of: companionManager.detectedElementScreenLocation) { newLocation in
+        .onChange(of: companionManager.detectedElementScreenLocation) { _, newLocation in
             // When a UI element location is detected, navigate the buddy to
             // that position so it points at the element.
             guard let screenLocation = newLocation,
@@ -408,19 +422,101 @@ struct BlueCursorView: View {
         }
     }
 
+    @ViewBuilder
+    private var tutorialInlinePlayerSurface: some View {
+        if isCursorOnThisScreen,
+           let tutorialPlaybackState = companionManager.tutorialPlaybackState,
+           tutorialPlaybackState.isVisible {
+            TutorialInlineYouTubePlayerView(
+                embedURL: tutorialPlaybackState.embedURL,
+                isPlaying: tutorialPlaybackState.isPlaying,
+                commandNonce: companionManager.tutorialPlaybackCommandNonce,
+                lastCommand: companionManager.tutorialPlaybackLastCommand,
+                startAtSeconds: tutorialPlaybackState.lastPromptTimestampSeconds
+            )
+            .frame(
+                width: tutorialPlaybackState.preferredInlinePlayerWidth,
+                height: tutorialPlaybackState.preferredInlinePlayerHeight
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 6)
+            .position(
+                x: cursorPosition.x + 10 + (tutorialPlaybackState.preferredInlinePlayerWidth / 2),
+                y: cursorPosition.y + 18 + (tutorialPlaybackState.preferredInlinePlayerHeight / 2)
+            )
+            .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
+            .allowsHitTesting(false)
+            .opacity(tutorialPlaybackState.surfaceMode == .pointerGuidance ? 0.92 : 1.0)
+
+            if tutorialPlaybackState.surfaceMode == .inlineVideoWithBubble,
+               let bubbleText = tutorialPlaybackState.bubbleText,
+               !bubbleText.isEmpty {
+                Text(bubbleText)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(cursorAccentColor)
+                            .shadow(color: cursorAccentColor.opacity(0.5), radius: 6, x: 0, y: 0)
+                    )
+                    .fixedSize()
+                    .overlay(
+                        GeometryReader { geo in
+                            Color.clear
+                                .preference(key: SizePreferenceKey.self, value: geo.size)
+                        }
+                    )
+                    .opacity(companionManager.tutorialPlaybackBubbleOpacity)
+                    .position(
+                        x: cursorPosition.x + 10 + (bubbleSize.width / 2),
+                        y: cursorPosition.y + 18 - (bubbleSize.height / 2) - 12
+                    )
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
+                    .animation(.easeOut(duration: 0.2), value: companionManager.tutorialPlaybackBubbleOpacity)
+                    .onPreferenceChange(SizePreferenceKey.self) { newSize in
+                        bubbleSize = newSize
+                    }
+            }
+        }
+    }
+
     private var cursorAccentColor: Color {
         companionManager.activeClickyTheme.primary
+    }
+
+    private var cursorSecondaryColor: Color {
+        companionManager.activeClickyTheme.ring
+    }
+
+    private var cursorSoftGlowColor: Color {
+        companionManager.activeClickyTheme.glowB
     }
 
     @ViewBuilder
     private var listeningIndicatorView: some View {
         switch companionManager.effectiveClickyCursorStyle {
         case .classic:
-            BlueCursorWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel, accentColor: cursorAccentColor)
+            BlueCursorWaveformView(
+                audioPowerLevel: companionManager.currentAudioPowerLevel,
+                accentColor: cursorAccentColor,
+                secondaryColor: cursorSecondaryColor
+            )
         case .halo:
-            HaloActivityIndicatorView(accentColor: cursorAccentColor, activityLevel: companionManager.currentAudioPowerLevel, isExpanded: haloLoadingExpanded)
+            HaloActivityIndicatorView(
+                accentColor: cursorAccentColor,
+                secondaryColor: cursorSecondaryColor,
+                activityLevel: companionManager.currentAudioPowerLevel,
+                isExpanded: haloLoadingExpanded
+            )
         case .pulse:
-            PulsingOrbIndicatorView(accentColor: cursorAccentColor, activityLevel: companionManager.currentAudioPowerLevel, mode: .listening)
+            PulsingOrbIndicatorView(
+                accentColor: cursorAccentColor,
+                secondaryColor: cursorSecondaryColor,
+                activityLevel: companionManager.currentAudioPowerLevel,
+                mode: .listening
+            )
         }
     }
 
@@ -428,11 +524,20 @@ struct BlueCursorView: View {
     private var transcribingIndicatorView: some View {
         switch companionManager.effectiveClickyCursorStyle {
         case .classic:
-            BlueCursorSpinnerView(accentColor: cursorAccentColor)
+            BlueCursorSpinnerView(accentColor: cursorAccentColor, secondaryColor: cursorSecondaryColor)
         case .halo:
-            HaloSpinnerIndicatorView(accentColor: cursorAccentColor, isExpanded: haloLoadingExpanded)
+            HaloSpinnerIndicatorView(
+                accentColor: cursorAccentColor,
+                secondaryColor: cursorSecondaryColor,
+                isExpanded: haloLoadingExpanded
+            )
         case .pulse:
-            PulsingOrbIndicatorView(accentColor: cursorAccentColor, activityLevel: 0.52, mode: .transcribing)
+            PulsingOrbIndicatorView(
+                accentColor: cursorAccentColor,
+                secondaryColor: cursorSecondaryColor,
+                activityLevel: 0.52,
+                mode: .transcribing
+            )
         }
     }
 
@@ -440,11 +545,20 @@ struct BlueCursorView: View {
     private var thinkingIndicatorView: some View {
         switch companionManager.effectiveClickyCursorStyle {
         case .classic:
-            BlueCursorThinkingView(accentColor: cursorAccentColor)
+            BlueCursorThinkingView(accentColor: cursorAccentColor, secondaryColor: cursorSecondaryColor)
         case .halo:
-            HaloThinkingIndicatorView(accentColor: cursorAccentColor, isExpanded: haloLoadingExpanded)
+            HaloThinkingIndicatorView(
+                accentColor: cursorAccentColor,
+                secondaryColor: cursorSecondaryColor,
+                isExpanded: haloLoadingExpanded
+            )
         case .pulse:
-            PulsingOrbIndicatorView(accentColor: cursorAccentColor, activityLevel: 0.76, mode: .thinking)
+            PulsingOrbIndicatorView(
+                accentColor: cursorAccentColor,
+                secondaryColor: cursorSecondaryColor,
+                activityLevel: 0.76,
+                mode: .thinking
+            )
         }
     }
 
@@ -452,11 +566,20 @@ struct BlueCursorView: View {
     private var respondingIndicatorView: some View {
         switch companionManager.effectiveClickyCursorStyle {
         case .classic:
-            BlueCursorSpeakingWaveformView(accentColor: cursorAccentColor)
+            BlueCursorSpeakingWaveformView(accentColor: cursorAccentColor, secondaryColor: cursorSecondaryColor)
         case .halo:
-            HaloSpeakingIndicatorView(accentColor: cursorAccentColor, isExpanded: haloLoadingExpanded)
+            HaloSpeakingIndicatorView(
+                accentColor: cursorAccentColor,
+                secondaryColor: cursorSecondaryColor,
+                isExpanded: haloLoadingExpanded
+            )
         case .pulse:
-            PulsingOrbIndicatorView(accentColor: cursorAccentColor, activityLevel: 0.92, mode: .responding)
+            PulsingOrbIndicatorView(
+                accentColor: cursorAccentColor,
+                secondaryColor: cursorSecondaryColor,
+                activityLevel: 0.92,
+                mode: .responding
+            )
         }
     }
 
@@ -465,20 +588,38 @@ struct BlueCursorView: View {
         switch companionManager.effectiveClickyCursorStyle {
         case .classic:
             Triangle()
-                .fill(cursorAccentColor)
+                .fill(
+                    LinearGradient(
+                        colors: [cursorAccentColor, cursorSecondaryColor.opacity(0.88)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
                 .frame(width: 16, height: 16)
                 .rotationEffect(.degrees(triangleRotationDegrees))
-                .shadow(color: cursorAccentColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
+                .overlay(
+                    Triangle()
+                        .stroke(cursorSoftGlowColor.opacity(0.45), lineWidth: 0.9)
+                        .frame(width: 16, height: 16)
+                        .rotationEffect(.degrees(triangleRotationDegrees))
+                )
+                .shadow(color: cursorSecondaryColor.opacity(0.55), radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
         case .halo:
             ZStack {
                 Circle()
-                    .stroke(cursorAccentColor.opacity(0.55), lineWidth: 1.5)
+                    .stroke(cursorSecondaryColor.opacity(0.55), lineWidth: 1.5)
                     .frame(width: 26, height: 26)
-                    .shadow(color: cursorAccentColor.opacity(0.32), radius: 10, x: 0, y: 0)
+                    .shadow(color: cursorSecondaryColor.opacity(0.32), radius: 10, x: 0, y: 0)
 
                 Triangle()
-                    .fill(cursorAccentColor)
+                    .fill(
+                        LinearGradient(
+                            colors: [cursorAccentColor, cursorSecondaryColor.opacity(0.82)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .frame(width: 14, height: 14)
                     .rotationEffect(.degrees(triangleRotationDegrees))
             }
@@ -486,22 +627,28 @@ struct BlueCursorView: View {
         case .pulse:
             ZStack {
                 Circle()
-                    .fill(cursorAccentColor.opacity(0.16))
+                    .fill(cursorSecondaryColor.opacity(0.16))
                     .frame(width: 28, height: 28)
                     .scaleEffect(pulseCursorIsExpanded ? 1.35 : 0.92)
                     .opacity(pulseCursorIsExpanded ? 0.10 : 0.42)
 
                 Circle()
-                    .stroke(cursorAccentColor.opacity(0.45), lineWidth: 1.2)
+                    .stroke(cursorSecondaryColor.opacity(0.45), lineWidth: 1.2)
                     .frame(width: 24, height: 24)
                     .scaleEffect(pulseCursorIsExpanded ? 1.22 : 0.96)
                     .opacity(pulseCursorIsExpanded ? 0.14 : 0.62)
 
                 Triangle()
-                    .fill(cursorAccentColor)
+                    .fill(
+                        LinearGradient(
+                            colors: [cursorAccentColor, cursorSecondaryColor.opacity(0.82)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .frame(width: 14, height: 14)
                     .rotationEffect(.degrees(triangleRotationDegrees))
-                    .shadow(color: cursorAccentColor.opacity(0.42), radius: 12, x: 0, y: 0)
+                    .shadow(color: cursorSecondaryColor.opacity(0.42), radius: 12, x: 0, y: 0)
             }
             .scaleEffect(buddyFlightScale)
         }
@@ -538,7 +685,7 @@ struct BlueCursorView: View {
             // mouse movement — it completes its full animation and return flight.
             // Only during the RETURN flight do we allow cursor movement to cancel
             // (so the buddy snaps to following if the user moves while it's flying back).
-            if self.buddyNavigationMode == .navigatingToTarget && self.isReturningToCursor {
+            if case .navigatingToTarget = self.buddyNavigationMode, self.isReturningToCursor {
                 let currentMouseInSwiftUI = self.convertScreenPointToSwiftUICoordinates(mouseLocation)
                 let distanceFromNavigationStart = hypot(
                     currentMouseInSwiftUI.x - self.cursorPositionWhenNavigationStarted.x,
@@ -551,7 +698,9 @@ struct BlueCursorView: View {
             }
 
             // During forward navigation or pointing, just skip cursor tracking
-            if self.buddyNavigationMode != .followingCursor {
+            if case .followingCursor = self.buddyNavigationMode {
+                // Normal cursor following continues below.
+            } else {
                 return
             }
 
@@ -691,6 +840,7 @@ struct BlueCursorView: View {
     /// Transitions to pointing mode — shows a speech bubble with a bouncy
     /// scale-in entrance and variable-speed character streaming.
     private func startPointingAtElement() {
+        companionManager.pauseTutorialPlaybackForPointing()
         buddyNavigationMode = .pointingAtTarget
 
         // Rotate back to default pointer angle now that we've arrived
@@ -791,6 +941,7 @@ struct BlueCursorView: View {
         navigationBubbleOpacity = 0.0
         navigationBubbleScale = 1.0
         companionManager.clearDetectedElementLocation()
+        companionManager.resumeTutorialPlaybackAfterPointingIfNeeded()
     }
 
     // MARK: - Welcome Animation
@@ -830,6 +981,7 @@ struct BlueCursorView: View {
 private struct BlueCursorWaveformView: View {
     let audioPowerLevel: CGFloat
     let accentColor: Color
+    let secondaryColor: Color
 
     private let barCount = 5
     private let listeningBarProfile: [CGFloat] = [0.4, 0.7, 1.0, 0.7, 0.4]
@@ -839,7 +991,7 @@ private struct BlueCursorWaveformView: View {
             HStack(alignment: .center, spacing: 2) {
                 ForEach(0..<barCount, id: \.self) { barIndex in
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(accentColor)
+                        .fill(barFill(for: barIndex))
                         .frame(
                             width: 2,
                             height: barHeight(
@@ -849,9 +1001,18 @@ private struct BlueCursorWaveformView: View {
                         )
                 }
             }
-            .shadow(color: accentColor.opacity(0.6), radius: 6, x: 0, y: 0)
+            .shadow(color: secondaryColor.opacity(0.45), radius: 6, x: 0, y: 0)
             .animation(.linear(duration: 0.08), value: audioPowerLevel)
         }
+    }
+
+    private func barFill(for barIndex: Int) -> LinearGradient {
+        let isCenterBar = barIndex == 2
+        return LinearGradient(
+            colors: isCenterBar ? [accentColor, secondaryColor.opacity(0.88)] : [accentColor.opacity(0.92), secondaryColor.opacity(0.62)],
+            startPoint: .bottom,
+            endPoint: .top
+        )
     }
 
     private func barHeight(for barIndex: Int, timelineDate: Date) -> CGFloat {
@@ -870,6 +1031,7 @@ private struct BlueCursorWaveformView: View {
 /// transcribed and the assistant is now thinking about the reply.
 private struct BlueCursorThinkingView: View {
     let accentColor: Color
+    let secondaryColor: Color
     private let dotCount = 3
 
     var body: some View {
@@ -877,14 +1039,18 @@ private struct BlueCursorThinkingView: View {
             HStack(spacing: 3) {
                 ForEach(0..<dotCount, id: \.self) { dotIndex in
                     Circle()
-                        .fill(accentColor)
+                        .fill(dotColor(for: dotIndex))
                         .frame(width: 4, height: 4)
                         .scaleEffect(dotScale(for: dotIndex, timelineDate: timelineContext.date))
                         .opacity(dotOpacity(for: dotIndex, timelineDate: timelineContext.date))
                 }
             }
-            .shadow(color: accentColor.opacity(0.6), radius: 6, x: 0, y: 0)
+            .shadow(color: secondaryColor.opacity(0.45), radius: 6, x: 0, y: 0)
         }
+    }
+
+    private func dotColor(for dotIndex: Int) -> Color {
+        dotIndex == 1 ? accentColor : secondaryColor.opacity(0.88)
     }
 
     private func dotScale(for dotIndex: Int, timelineDate: Date) -> CGFloat {
@@ -904,6 +1070,7 @@ private struct BlueCursorThinkingView: View {
 /// user can see the response is actively being read aloud.
 private struct BlueCursorSpeakingWaveformView: View {
     let accentColor: Color
+    let secondaryColor: Color
     private let barCount = 5
     private let speakingBarProfile: [CGFloat] = [0.55, 0.85, 1.0, 0.85, 0.55]
 
@@ -912,15 +1079,27 @@ private struct BlueCursorSpeakingWaveformView: View {
             HStack(alignment: .center, spacing: 2) {
                 ForEach(0..<barCount, id: \.self) { barIndex in
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(accentColor)
+                        .fill(barFill(for: barIndex))
                         .frame(
                             width: 2,
                             height: barHeight(for: barIndex, timelineDate: timelineContext.date)
                         )
                 }
             }
-            .shadow(color: accentColor.opacity(0.6), radius: 6, x: 0, y: 0)
+            .shadow(color: secondaryColor.opacity(0.45), radius: 6, x: 0, y: 0)
         }
+    }
+
+    private func barFill(for barIndex: Int) -> LinearGradient {
+        let intensity = speakingBarProfile[barIndex]
+        return LinearGradient(
+            colors: [
+                accentColor.opacity(0.78 + (0.18 * intensity)),
+                secondaryColor.opacity(0.55 + (0.20 * intensity))
+            ],
+            startPoint: .bottom,
+            endPoint: .top
+        )
     }
 
     private func barHeight(for barIndex: Int, timelineDate: Date) -> CGFloat {
@@ -936,6 +1115,7 @@ private struct BlueCursorSpeakingWaveformView: View {
 /// while the AI is processing a voice input.
 private struct BlueCursorSpinnerView: View {
     let accentColor: Color
+    let secondaryColor: Color
     @State private var isSpinning = false
 
     var body: some View {
@@ -944,7 +1124,8 @@ private struct BlueCursorSpinnerView: View {
             .stroke(
                 AngularGradient(
                     colors: [
-                        accentColor.opacity(0.0),
+                        secondaryColor.opacity(0.0),
+                        secondaryColor,
                         accentColor
                     ],
                     center: .center
@@ -953,7 +1134,7 @@ private struct BlueCursorSpinnerView: View {
             )
             .frame(width: 14, height: 14)
             .rotationEffect(.degrees(isSpinning ? 360 : 0))
-            .shadow(color: accentColor.opacity(0.6), radius: 6, x: 0, y: 0)
+            .shadow(color: secondaryColor.opacity(0.45), radius: 6, x: 0, y: 0)
             .onAppear {
                 withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
                     isSpinning = true
@@ -964,19 +1145,20 @@ private struct BlueCursorSpinnerView: View {
 
 private struct HaloActivityIndicatorView: View {
     let accentColor: Color
+    let secondaryColor: Color
     let activityLevel: CGFloat
     let isExpanded: Bool
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(accentColor.opacity(0.22), lineWidth: 1.2)
+                .stroke(secondaryColor.opacity(0.22), lineWidth: 1.2)
                 .frame(width: 24, height: 24)
                 .scaleEffect(isExpanded ? 1.12 : 0.96)
 
             Circle()
                 .trim(from: 0.18, to: 0.82)
-                .stroke(accentColor.opacity(0.75), style: StrokeStyle(lineWidth: 2.0, lineCap: .round))
+                .stroke(secondaryColor.opacity(0.75), style: StrokeStyle(lineWidth: 2.0, lineCap: .round))
                 .frame(width: 18 + activityLevel * 5, height: 18 + activityLevel * 5)
                 .rotationEffect(.degrees(isExpanded ? 180 : 20))
 
@@ -984,29 +1166,33 @@ private struct HaloActivityIndicatorView: View {
                 .fill(accentColor)
                 .frame(width: 5, height: 5)
         }
-        .shadow(color: accentColor.opacity(0.35), radius: 8, x: 0, y: 0)
+        .shadow(color: secondaryColor.opacity(0.30), radius: 8, x: 0, y: 0)
     }
 }
 
 private struct HaloSpinnerIndicatorView: View {
     let accentColor: Color
+    let secondaryColor: Color
     let isExpanded: Bool
     @State private var isRotating = false
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(accentColor.opacity(0.18), lineWidth: 1.0)
+                .stroke(secondaryColor.opacity(0.18), lineWidth: 1.0)
                 .frame(width: 24, height: 24)
                 .scaleEffect(isExpanded ? 1.08 : 0.96)
 
             Circle()
                 .trim(from: 0.12, to: 0.56)
-                .stroke(accentColor, style: StrokeStyle(lineWidth: 2.1, lineCap: .round))
+                .stroke(
+                    AngularGradient(colors: [secondaryColor, accentColor], center: .center),
+                    style: StrokeStyle(lineWidth: 2.1, lineCap: .round)
+                )
                 .frame(width: 20, height: 20)
                 .rotationEffect(.degrees(isRotating ? 360 : 0))
         }
-        .shadow(color: accentColor.opacity(0.32), radius: 8, x: 0, y: 0)
+        .shadow(color: secondaryColor.opacity(0.30), radius: 8, x: 0, y: 0)
         .onAppear {
             withAnimation(.linear(duration: 0.85).repeatForever(autoreverses: false)) {
                 isRotating = true
@@ -1017,48 +1203,50 @@ private struct HaloSpinnerIndicatorView: View {
 
 private struct HaloThinkingIndicatorView: View {
     let accentColor: Color
+    let secondaryColor: Color
     let isExpanded: Bool
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(accentColor.opacity(0.20), lineWidth: 1.0)
+                .stroke(secondaryColor.opacity(0.20), lineWidth: 1.0)
                 .frame(width: 24, height: 24)
                 .scaleEffect(isExpanded ? 1.1 : 0.95)
 
             HStack(spacing: 3) {
                 ForEach(0..<3, id: \.self) { index in
                     Circle()
-                        .fill(accentColor)
+                        .fill(index == 1 ? accentColor : secondaryColor.opacity(0.85))
                         .frame(width: 3.5, height: 3.5)
                         .opacity(index == 1 ? 1.0 : 0.55)
                 }
             }
         }
-        .shadow(color: accentColor.opacity(0.30), radius: 8, x: 0, y: 0)
+        .shadow(color: secondaryColor.opacity(0.28), radius: 8, x: 0, y: 0)
     }
 }
 
 private struct HaloSpeakingIndicatorView: View {
     let accentColor: Color
+    let secondaryColor: Color
     let isExpanded: Bool
 
     var body: some View {
         ZStack {
             Circle()
-                .stroke(accentColor.opacity(0.18), lineWidth: 1.0)
+                .stroke(secondaryColor.opacity(0.18), lineWidth: 1.0)
                 .frame(width: 24, height: 24)
                 .scaleEffect(isExpanded ? 1.08 : 0.96)
 
             HStack(spacing: 2) {
                 ForEach(0..<3, id: \.self) { index in
                     RoundedRectangle(cornerRadius: 1.4, style: .continuous)
-                        .fill(accentColor)
+                        .fill(index == 1 ? accentColor : secondaryColor.opacity(0.82))
                         .frame(width: 2.6, height: index == 1 ? 11 : 7)
                 }
             }
         }
-        .shadow(color: accentColor.opacity(0.32), radius: 8, x: 0, y: 0)
+        .shadow(color: secondaryColor.opacity(0.30), radius: 8, x: 0, y: 0)
     }
 }
 
@@ -1071,6 +1259,7 @@ private enum PulsingOrbMode {
 
 private struct PulsingOrbIndicatorView: View {
     let accentColor: Color
+    let secondaryColor: Color
     let activityLevel: CGFloat
     let mode: PulsingOrbMode
     @State private var isExpanded = false
@@ -1078,7 +1267,7 @@ private struct PulsingOrbIndicatorView: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(accentColor.opacity(0.18))
+                .fill(secondaryColor.opacity(0.18))
                 .frame(width: 26, height: 26)
                 .scaleEffect(isExpanded ? 1.28 : 0.92)
                 .opacity(isExpanded ? 0.16 : 0.42)
@@ -1089,12 +1278,12 @@ private struct PulsingOrbIndicatorView: View {
 
             if mode == .responding || mode == .listening {
                 Circle()
-                    .stroke(accentColor.opacity(0.55), lineWidth: 1.4)
+                    .stroke(secondaryColor.opacity(0.55), lineWidth: 1.4)
                     .frame(width: 20, height: 20)
                     .scaleEffect(isExpanded ? 1.16 : 0.95)
             }
         }
-        .shadow(color: accentColor.opacity(0.38), radius: 10, x: 0, y: 0)
+        .shadow(color: secondaryColor.opacity(0.34), radius: 10, x: 0, y: 0)
         .onAppear {
             withAnimation(.easeInOut(duration: animationDuration).repeatForever(autoreverses: true)) {
                 isExpanded = true
@@ -1120,9 +1309,9 @@ private struct PulsingOrbIndicatorView: View {
         case .listening:
             return accentColor
         case .transcribing:
-            return accentColor.opacity(0.88)
+            return secondaryColor.opacity(0.90)
         case .thinking:
-            return accentColor.opacity(0.70)
+            return secondaryColor.opacity(0.82)
         case .responding:
             return accentColor
         }
@@ -1214,6 +1403,39 @@ private struct OnboardingVideoPlayerView: NSViewRepresentable {
     }
 }
 
+private struct TutorialInlineYouTubePlayerView: NSViewRepresentable {
+    let embedURL: String
+    let isPlaying: Bool
+    let commandNonce: Int
+    let lastCommand: TutorialPlaybackCommand?
+    let startAtSeconds: Int?
+
+    func makeNSView(context: Context) -> TutorialInlineWebPlayerContainerView {
+        let view = TutorialInlineWebPlayerContainerView()
+        view.loadEmbedURL(embedURL, startAtSeconds: startAtSeconds, autoplay: isPlaying)
+        return view
+    }
+
+    func updateNSView(_ nsView: TutorialInlineWebPlayerContainerView, context: Context) {
+        nsView.loadEmbedURL(embedURL, startAtSeconds: startAtSeconds, autoplay: isPlaying)
+
+        guard context.coordinator.lastCommandNonce != commandNonce else { return }
+        context.coordinator.lastCommandNonce = commandNonce
+
+        if let lastCommand {
+            nsView.apply(command: lastCommand)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        var lastCommandNonce: Int = -1
+    }
+}
+
 private class AVPlayerNSView: NSView {
     var player: AVPlayer? {
         didSet { playerLayer.player = player }
@@ -1233,5 +1455,170 @@ private class AVPlayerNSView: NSView {
     override func layout() {
         super.layout()
         playerLayer.frame = bounds
+    }
+}
+
+private final class TutorialInlineWebPlayerContainerView: NSView {
+    private static let localEmbedOrigin = "https://clickyhq.com"
+    private let webView: WKWebView
+    private var loadedEmbedURL: String?
+
+    override init(frame frameRect: NSRect) {
+        let configuration = WKWebViewConfiguration()
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        super.init(frame: frameRect)
+        wantsLayer = true
+        webView.setValue(false, forKey: "drawsBackground")
+        addSubview(webView)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
+
+    override func layout() {
+        super.layout()
+        webView.frame = bounds
+    }
+
+    func loadEmbedURL(_ embedURLString: String, startAtSeconds: Int?, autoplay: Bool) {
+        let normalizedURL = normalizedEmbedURLString(
+            embedURLString,
+            startAtSeconds: startAtSeconds,
+            autoplay: false
+        )
+        guard loadedEmbedURL != normalizedURL else { return }
+        loadedEmbedURL = normalizedURL
+
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            html, body {
+              margin: 0;
+              padding: 0;
+              background: transparent;
+              overflow: hidden;
+              width: 100%;
+              height: 100%;
+            }
+            iframe {
+              width: 100%;
+              height: 100%;
+              border: 0;
+            }
+          </style>
+          <script src="https://www.youtube.com/iframe_api"></script>
+        </head>
+        <body>
+          <iframe
+            id="clicky-tutorial-player"
+            src="\(normalizedURL)"
+            allow="autoplay; encrypted-media; picture-in-picture"
+            allowfullscreen>
+          </iframe>
+          <script>
+            window.clickyPlayer = null;
+            window.clickyPlayerReady = false;
+            window.onYouTubeIframeAPIReady = function() {
+              window.clickyPlayer = new YT.Player('clicky-tutorial-player', {
+                events: {
+                  onReady: function() {
+                    window.clickyPlayerReady = true;
+                    if (\(autoplay ? "true" : "false")) {
+                      window.clickyPlayer.playVideo();
+                    }
+                  }
+                }
+              });
+            };
+          </script>
+        </body>
+        </html>
+        """
+
+        webView.loadHTMLString(html, baseURL: URL(string: Self.localEmbedOrigin))
+    }
+
+    func apply(command: TutorialPlaybackCommand) {
+        let script: String
+        switch command {
+        case .play:
+            script = postMessageScript(functionName: "playVideo")
+        case .pause:
+            script = postMessageScript(functionName: "pauseVideo")
+        case .togglePlayPause:
+            script = """
+            if (window.clickyPlayerReady && window.clickyPlayer) {
+              const state = window.clickyPlayer.getPlayerState ? window.clickyPlayer.getPlayerState() : -1;
+              if (state === 1) {
+                window.clickyPlayer.pauseVideo();
+              } else {
+                window.clickyPlayer.playVideo();
+              }
+            } else {
+              const iframe = document.getElementById('clicky-tutorial-player');
+              iframe?.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+            }
+            """
+        case .seekBackward:
+            script = """
+            if (window.clickyPlayerReady && window.clickyPlayer) {
+              const currentTime = window.clickyPlayer.getCurrentTime ? window.clickyPlayer.getCurrentTime() : 0;
+              window.clickyPlayer.seekTo(Math.max(0, currentTime - 10), true);
+            }
+            """
+        case .seekForward:
+            script = """
+            if (window.clickyPlayerReady && window.clickyPlayer) {
+              const currentTime = window.clickyPlayer.getCurrentTime ? window.clickyPlayer.getCurrentTime() : 0;
+              window.clickyPlayer.seekTo(currentTime + 10, true);
+            }
+            """
+        case .dismiss:
+            script = postMessageScript(functionName: "pauseVideo")
+        }
+
+        webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    private func normalizedEmbedURLString(
+        _ embedURLString: String,
+        startAtSeconds: Int?,
+        autoplay: Bool
+    ) -> String {
+        guard var components = URLComponents(string: embedURLString) else {
+            return embedURLString
+        }
+
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { item in
+            ["enablejsapi", "playsinline", "autoplay", "start", "controls", "rel", "modestbranding", "origin"].contains(item.name)
+        }
+        queryItems.append(URLQueryItem(name: "enablejsapi", value: "1"))
+        queryItems.append(URLQueryItem(name: "playsinline", value: "1"))
+        queryItems.append(URLQueryItem(name: "controls", value: "1"))
+        queryItems.append(URLQueryItem(name: "rel", value: "0"))
+        queryItems.append(URLQueryItem(name: "modestbranding", value: "1"))
+        queryItems.append(URLQueryItem(name: "origin", value: Self.localEmbedOrigin))
+        if let startAtSeconds {
+            queryItems.append(URLQueryItem(name: "start", value: String(startAtSeconds)))
+        }
+        components.queryItems = queryItems
+        return components.string ?? embedURLString
+    }
+
+    private func postMessageScript(functionName: String) -> String {
+        """
+        if (window.clickyPlayerReady && window.clickyPlayer && window.clickyPlayer.\(functionName)) {
+          window.clickyPlayer.\(functionName)();
+        } else {
+          const iframe = document.getElementById('clicky-tutorial-player');
+          iframe?.contentWindow?.postMessage('{"event":"command","func":"\(functionName)","args":""}', '*');
+        }
+        """
     }
 }

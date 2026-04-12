@@ -133,9 +133,12 @@ struct CompanionPanelView: View {
                     .modifier(ClickyPanelContentCardStyle(tone: .hero, padding: 16))
             } else {
                 compactCompanionCard
+                tutorialImportCard
 
                 if companionManager.selectedAgentBackend == .claude {
                     claudeModelCard
+                } else if companionManager.selectedAgentBackend == .codex {
+                    compactCodexCard
                 } else {
                     compactOpenClawCard
                 }
@@ -325,6 +328,56 @@ struct CompanionPanelView: View {
         .modifier(ClickyPanelContentCardStyle(padding: 16))
     }
 
+    private var compactCodexCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            panelSectionEyebrow("Codex")
+
+            HStack {
+                Text("Codex on this Mac")
+                    .font(ClickyTypography.section(size: 20))
+                    .foregroundColor(contentTheme.textPrimary)
+
+                Spacer()
+
+                Circle()
+                    .fill(codexStatusColor)
+                    .frame(width: 8, height: 8)
+            }
+
+            Text(companionManager.codexRuntimeSummaryCopy)
+                .font(ClickyTypography.body(size: 12, weight: .medium))
+                .foregroundColor(contentTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button(action: {
+                    companionManager.refreshCodexRuntimeStatus()
+                }) {
+                    Text("Check Codex")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+
+                if case .failed = companionManager.codexRuntimeStatus {
+                    Button(action: {
+                        if companionManager.codexExecutablePath == nil {
+                            companionManager.openCodexInstallPage()
+                        } else {
+                            companionManager.startCodexLoginInTerminal()
+                        }
+                    }) {
+                        Text(companionManager.codexExecutablePath == nil ? "Install" : "Sign In")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(ClickySecondaryGlassButtonStyle())
+                    .pointerCursor()
+                }
+            }
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
     private var compactCompanionCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
@@ -363,6 +416,87 @@ struct CompanionPanelView: View {
         VStack(alignment: .leading, spacing: 10) {
             panelSectionEyebrow("Claude")
             modelPickerRow
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var tutorialImportCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    panelSectionEyebrow("Learn")
+                    Text("Learn from YouTube")
+                        .font(ClickyTypography.section(size: 20))
+                        .foregroundColor(contentTheme.textPrimary)
+                    Text("Paste a tutorial URL and Clicky will turn it into a guided flow beside your cursor.")
+                        .font(ClickyTypography.body(size: 12))
+                        .foregroundColor(contentTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                panelInlineStatus(
+                    label: companionManager.isTutorialImportRunning ? "Importing" : "Ready",
+                    tone: companionManager.isTutorialImportRunning ? .info : .neutral
+                )
+            }
+
+            tutorialURLField(
+                text: Binding(
+                    get: { companionManager.tutorialImportURLDraft },
+                    set: { companionManager.tutorialImportURLDraft = $0 }
+                ),
+                placeholder: "https://youtu.be/..."
+            )
+
+            if let statusMessage = companionManager.tutorialImportStatusMessage,
+               !statusMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(statusMessage)
+                    .font(ClickyTypography.body(size: 12, weight: .medium))
+                    .foregroundColor(contentTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let draft = companionManager.currentTutorialImportDraft,
+               let title = draft.title,
+               !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(ClickyTypography.body(size: 13, weight: .semibold))
+                        .foregroundColor(contentTheme.textPrimary)
+
+                    if let channelName = draft.channelName,
+                       !channelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(channelName)
+                            .font(ClickyTypography.mono(size: 10, weight: .medium))
+                            .foregroundColor(contentTheme.textMuted)
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button(action: {
+                    companionManager.startTutorialImportFromPanel()
+                }) {
+                    Text(companionManager.isTutorialImportRunning ? "Importing…" : "Start Learning")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickyProminentActionStyle())
+                .pointerCursor(isEnabled: !companionManager.isTutorialImportRunning)
+                .disabled(companionManager.isTutorialImportRunning)
+
+                if companionManager.tutorialPlaybackState != nil {
+                    Button(action: {
+                        companionManager.handleTutorialPlaybackKeyboardCommand(.dismiss)
+                    }) {
+                        Text("Hide Player")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(ClickySecondaryGlassButtonStyle())
+                    .pointerCursor()
+                }
+            }
         }
         .modifier(ClickyPanelContentCardStyle(padding: 16))
     }
@@ -733,12 +867,24 @@ struct CompanionPanelView: View {
             set: { companionManager.setSelectedAgentBackend($0) }
         )) {
             Text("Claude").tag(CompanionAgentBackend.claude)
+            Text("Codex").tag(CompanionAgentBackend.codex)
             Text("OpenClaw").tag(CompanionAgentBackend.openClaw)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
         .controlSize(.small)
         .tint(theme.ring)
+    }
+
+    private var codexStatusColor: Color {
+        switch companionManager.codexRuntimeStatus {
+        case .idle, .checking:
+            return theme.ring
+        case .ready:
+            return theme.success
+        case .failed:
+            return theme.warning
+        }
     }
 
     private var activePersonaSummary: some View {
@@ -771,7 +917,7 @@ struct CompanionPanelView: View {
                 title: "Gateway URL",
                 text: Binding(
                     get: { companionManager.openClawGatewayURL },
-                    set: { companionManager.openClawGatewayURL = $0 }
+                    set: { companionManager.setOpenClawGatewayURL($0) }
                 ),
                 placeholder: "ws://127.0.0.1:18789"
             )
@@ -780,7 +926,7 @@ struct CompanionPanelView: View {
                 title: "Agent ID",
                 text: Binding(
                     get: { companionManager.openClawAgentIdentifier },
-                    set: { companionManager.openClawAgentIdentifier = $0 }
+                    set: { companionManager.setOpenClawAgentIdentifier($0) }
                 ),
                 placeholder: "Optional OpenClaw agent id"
             )
@@ -789,7 +935,7 @@ struct CompanionPanelView: View {
                 title: "Session Key",
                 text: Binding(
                     get: { companionManager.openClawSessionKey },
-                    set: { companionManager.openClawSessionKey = $0 }
+                    set: { companionManager.setOpenClawSessionKey($0) }
                 ),
                 placeholder: "clicky-companion"
             )
@@ -822,6 +968,33 @@ struct CompanionPanelView: View {
                     RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
                         .stroke(theme.strokeSoft, lineWidth: 0.8)
                 )
+        }
+    }
+
+    private func tutorialURLField(text: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("YouTube URL")
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundColor(DS.Colors.textTertiary)
+
+            TextField(placeholder, text: text)
+                .textFieldStyle(.plain)
+                .font(ClickyTypography.body(size: 12))
+                .foregroundColor(theme.textPrimary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .fill(Color.white.opacity(0.025))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .stroke(theme.strokeSoft, lineWidth: 0.8)
+                )
+                .submitLabel(.go)
+                .onSubmit {
+                    companionManager.startTutorialImportFromPanel()
+                }
         }
     }
 

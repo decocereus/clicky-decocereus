@@ -99,7 +99,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.checkForUpdates()
+            Task { @MainActor [weak self] in
+                self?.checkForUpdates()
+            }
         }
         companionManager.start()
         // Auto-open the panel if the user still needs to do something:

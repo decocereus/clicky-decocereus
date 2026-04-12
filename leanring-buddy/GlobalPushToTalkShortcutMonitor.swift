@@ -14,6 +14,7 @@ import Foundation
 
 final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
+    let tutorialPlaybackCommandPublisher = PassthroughSubject<TutorialPlaybackCommand, Never>()
 
     private var globalEventTap: CFMachPort?
     private var globalEventTapRunLoopSource: CFRunLoopSource?
@@ -109,6 +110,13 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         let eventKeyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+
+        if eventType == .keyDown {
+            if let tutorialPlaybackCommand = tutorialPlaybackCommand(for: eventKeyCode) {
+                tutorialPlaybackCommandPublisher.send(tutorialPlaybackCommand)
+            }
+        }
+
         let shortcutTransition = BuddyPushToTalkShortcut.shortcutTransition(
             for: eventType,
             keyCode: eventKeyCode,
@@ -128,5 +136,20 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func tutorialPlaybackCommand(for keyCode: UInt16) -> TutorialPlaybackCommand? {
+        switch keyCode {
+        case 49:
+            return .togglePlayPause
+        case 123:
+            return .seekBackward
+        case 124:
+            return .seekForward
+        case 53:
+            return .dismiss
+        default:
+            return nil
+        }
     }
 }

@@ -31,6 +31,11 @@ import {
   handleTranscribeWebCompanionAudio,
 } from "./web-companion/routes"
 import {
+  handleGetTutorialEvidence,
+  handleGetTutorialExtractionJob,
+  handleStartTutorialExtraction,
+} from "./tutorials/routes"
+import {
   handleActivateTrial,
   handleConsumeTrialCredit,
   handleGetTrial,
@@ -39,6 +44,12 @@ import {
 } from "./trial/routes"
 
 const app = new Hono<{ Bindings: Env }>()
+
+async function applyNoStoreCacheHeaders(c: { header: (name: string, value: string) => void }, next: () => Promise<void>) {
+  await next()
+  c.header("Cache-Control", "no-store, no-cache, must-revalidate, private")
+  c.header("Pragma", "no-cache")
+}
 
 function sessionProfileResponse(session: NonNullable<AuthSession>) {
   return {
@@ -102,8 +113,10 @@ app.use(
   "/api/auth/*",
   cors(corsOptions),
 )
+app.use("/api/auth/*", applyNoStoreCacheHeaders)
 
 app.use("/v1/*", cors(corsOptions))
+app.use("/v1/auth/native/*", applyNoStoreCacheHeaders)
 
 app.onError((error, c) => {
   console.error("[clicky-backend]", error)
@@ -163,6 +176,9 @@ app.get("/v1", (c) => {
       "POST /v1/web-companion/sessions/:sessionId/messages",
       "POST /v1/web-companion/sessions/:sessionId/transcribe",
       "POST /v1/web-companion/sessions/:sessionId/end",
+      "POST /v1/tutorials/extract",
+      "GET /v1/tutorials/extract/:jobId",
+      "GET /v1/tutorials/evidence/:videoId",
       "GET /v1/auth/native/start",
       "GET /v1/auth/native/google/start",
       "GET /v1/auth/native/callback",
@@ -199,6 +215,9 @@ app.post("/v1/web-companion/sessions/:sessionId/events", handleRecordWebCompanio
 app.post("/v1/web-companion/sessions/:sessionId/messages", handleSendWebCompanionMessage)
 app.post("/v1/web-companion/sessions/:sessionId/transcribe", handleTranscribeWebCompanionAudio)
 app.post("/v1/web-companion/sessions/:sessionId/end", handleEndWebCompanionSession)
+app.post("/v1/tutorials/extract", handleStartTutorialExtraction)
+app.get("/v1/tutorials/extract/:jobId", handleGetTutorialExtractionJob)
+app.get("/v1/tutorials/evidence/:videoId", handleGetTutorialEvidence)
 
 app.get("/v1/auth/native/start", async (c) => {
   try {
@@ -379,7 +398,19 @@ app.get("/v1/auth/native/callback", async (c) => {
     })
   }
 
-  return c.redirect(nativeCallbackUrl.toString(), 302)
+  const webOrigin = readEnvValue(c.env, "WEB_ORIGIN")?.trim()
+
+  if (!webOrigin) {
+    return c.redirect(nativeCallbackUrl.toString(), 302)
+  }
+
+  try {
+    const webCallbackUrl = new URL("/auth/native/complete", webOrigin)
+    webCallbackUrl.searchParams.set("nativeCallbackUrl", nativeCallbackUrl.toString())
+    return c.redirect(webCallbackUrl.toString(), 302)
+  } catch {
+    return c.redirect(nativeCallbackUrl.toString(), 302)
+  }
 })
 
 app.post("/v1/auth/native/exchange", async (c) => {
