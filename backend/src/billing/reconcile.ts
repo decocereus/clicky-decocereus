@@ -66,7 +66,7 @@ function resolveLaunchProviderState(orders: Order[]) {
 
   if (
     latestOrder.status === "refunded"
-    || latestOrder.refundedAmount >= latestOrder.totalAmount
+    || (latestOrder.totalAmount > 0 && latestOrder.refundedAmount >= latestOrder.totalAmount)
   ) {
     return {
       latestOrder,

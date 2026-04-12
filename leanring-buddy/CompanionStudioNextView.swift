@@ -803,74 +803,6 @@ private struct CompanionStudioCompanionScene: View {
 
 }
 
-private struct CompanionStudioConnectionScene: View {
-    @ObservedObject var companionManager: CompanionManager
-    private let palette = CompanionStudioScalaPalette()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            CompanionStudioReadableCard(
-                eyebrow: "Connection",
-                title: "How Clicky Reaches Your Assistant"
-            ) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("This page shows where Clicky is connecting and how your assistant identity appears inside the app.")
-                        .font(ClickyTypography.body(size: 14))
-                        .foregroundColor(palette.cardSecondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    HStack(spacing: 10) {
-                        CompanionStudioGlassChip(text: connectionStatusChip)
-                        CompanionStudioGlassChip(text: companionManager.isOpenClawGatewayRemote ? "Remote gateway" : "Local gateway")
-                    }
-                }
-            }
-
-            HStack(alignment: .top, spacing: 18) {
-                CompanionStudioReadableCard(
-                    eyebrow: "Current Setup",
-                    title: "Where Clicky Is Pointing"
-                ) {
-                    VStack(spacing: 12) {
-                        CompanionStudioKeyValueRow(label: "Agent", value: companionManager.effectiveClickyPresentationName)
-                        CompanionStudioKeyValueRow(label: "Gateway", value: companionManager.isOpenClawGatewayRemote ? "Remote OpenClaw" : "This Mac")
-                        CompanionStudioKeyValueRow(label: "Bridge", value: companionManager.clickyOpenClawPluginStatusLabel)
-                    }
-                }
-
-                CompanionStudioReadableCard(
-                    eyebrow: "Identity",
-                    title: "How Clicky Presents Your Assistant"
-                ) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(companionManager.inferredOpenClawAgentIdentityDisplayName)
-                            .font(ClickyTypography.section(size: 22))
-                            .foregroundColor(palette.cardPrimaryText)
-
-                        Text("Clicky keeps your upstream OpenClaw identity intact and only changes how that assistant appears inside Clicky if you choose to override it.")
-                            .font(.caption)
-                            .foregroundColor(palette.cardSecondaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
-    }
-
-    private var connectionStatusChip: String {
-        switch companionManager.openClawConnectionStatus {
-        case .idle:
-            return "Connection not checked yet"
-        case .testing:
-            return "Checking connection"
-        case .connected:
-            return "Connected"
-        case .failed:
-            return "Needs attention"
-        }
-    }
-}
-
 private struct CompanionStudioProfileScene: View {
     @ObservedObject var companionManager: CompanionManager
     private let palette = CompanionStudioScalaPalette()
@@ -1458,27 +1390,6 @@ private struct CompanionStudioJourneyStep: View {
     }
 }
 
-private struct CompanionStudioStatusLine: View {
-    let title: String
-    let value: String
-
-    private let palette = CompanionStudioScalaPalette()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(ClickyTypography.mono(size: 10, weight: .semibold))
-                .foregroundColor(palette.cardSecondaryText)
-                .tracking(0.8)
-
-            Text(value)
-                .font(ClickyTypography.body(size: 14, weight: .semibold))
-                .foregroundColor(palette.cardPrimaryText)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
 private struct CompanionStudioPreferenceRow: View {
     let title: String
     let subtitle: String
@@ -1581,28 +1492,6 @@ private struct CompanionStudioMiniMetric: View {
     }
 }
 
-private struct CompanionStudioChecklistRow: View {
-    let systemImage: String
-    let text: String
-
-    private let palette = CompanionStudioScalaPalette()
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(palette.cardPrimaryText)
-                .frame(width: 18, height: 18)
-                .padding(.top, 2)
-
-            Text(text)
-                .font(ClickyTypography.body(size: 13))
-                .foregroundColor(palette.cardSecondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
 private struct CompanionStudioKeyValueRow: View {
     let label: String
     let value: String
@@ -1672,32 +1561,6 @@ private struct CompanionStudioModeButtonModifier: ViewModifier {
                         .fill(isSelected ? palette.sage : palette.cardAccent.opacity(0.50))
                 )
         }
-    }
-}
-
-private struct CompanionStudioBrandButtonModifier: ViewModifier {
-    private let palette = CompanionStudioScalaPalette()
-
-    func body(content: Content) -> some View {
-        content
-            .foregroundColor(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [palette.sage, palette.lavender],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-            )
-            .shadow(color: palette.lavender.opacity(0.18), radius: 10, y: 4)
     }
 }
 

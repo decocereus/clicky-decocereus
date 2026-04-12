@@ -14,6 +14,7 @@ struct CompanionScreenCapture {
     let imageData: Data
     let label: String
     let isCursorScreen: Bool
+    let capturedAt: Date
     let displayWidthInPoints: Int
     let displayHeightInPoints: Int
     let displayFrame: CGRect
@@ -27,7 +28,9 @@ enum CompanionScreenCaptureUtility {
     /// Captures all connected displays as JPEG data, labeling each with
     /// whether the user's cursor is on that screen. This gives the AI
     /// full context across multiple monitors.
-    static func captureAllScreensAsJPEG() async throws -> [CompanionScreenCapture] {
+    static func captureAllScreensAsJPEG(
+        cursorLocationOverride: CGPoint? = nil
+    ) async throws -> [CompanionScreenCapture] {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
         guard !content.displays.isEmpty else {
@@ -35,7 +38,7 @@ enum CompanionScreenCaptureUtility {
                           userInfo: [NSLocalizedDescriptionKey: "No display available for capture"])
         }
 
-        let mouseLocation = NSEvent.mouseLocation
+        let mouseLocation = cursorLocationOverride ?? NSEvent.mouseLocation
 
         // Exclude all windows belonging to this app so the AI sees
         // only the user's content, not our overlays or panels.
@@ -95,6 +98,7 @@ enum CompanionScreenCaptureUtility {
                 contentFilter: filter,
                 configuration: configuration
             )
+            let capturedAt = Date()
 
             guard let jpegData = NSBitmapImageRep(cgImage: cgImage)
                     .representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
@@ -114,6 +118,7 @@ enum CompanionScreenCaptureUtility {
                 imageData: jpegData,
                 label: screenLabel,
                 isCursorScreen: isCursorScreen,
+                capturedAt: capturedAt,
                 displayWidthInPoints: Int(displayFrame.width),
                 displayHeightInPoints: Int(displayFrame.height),
                 displayFrame: displayFrame,

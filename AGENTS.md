@@ -12,7 +12,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Framework**: SwiftUI (macOS native) with AppKit bridging for the menu bar panel and cursor overlay
 - **Studio Window Host**: custom AppKit-managed `NSWindow` hosting SwiftUI content so Clicky can control the real outer shell, keep native traffic lights, and avoid Settings-scene chrome regressions
 - **State Pattern**: Prefer the simplest state ownership model that fits the surrounding feature. Preserve existing patterns in-place, use SwiftUI-native state by default, and only introduce additional view-model-style abstraction when the feature genuinely needs it.
-- **Agent Backends**: Claude via Cloudflare Worker proxy plus OpenClaw Gateway via WebSocket with image attachments and Gateway session routing
+- **Agent Backends**: Clicky now uses a provider-agnostic assistant turn contract with backend-specific adapter files. Claude currently routes through the Cloudflare Worker proxy, and OpenClaw Gateway routes over WebSocket with image attachments and Gateway session routing. Future direct providers such as OpenAI/Codex should plug into the same contract rather than adding ad hoc logic in the main manager.
 - **OpenClaw Plugin Direction**: The repo includes a native OpenClaw plugin scaffold in `plugins/openclaw-clicky-shell` and a contract doc in `docs/clicky-openclaw-integration-contract.md` so Clicky can become a first-class desktop shell integration for OpenClaw
 - **Web Companion Direction**: The marketing site should keep its current landing-page design and add the companion as a layered shell experience. Use per-visitor OpenClaw sessions/threads with curated section context, a semantic target registry for pointing, and a generated site-layout reference image rather than unrestricted DOM access or browser screen-share prompts. See `docs/web-companion-prd.md` and `docs/web-openclaw-session-architecture.md`
 - **Identity Model**: The upstream agent identity belongs to OpenClaw. Clicky may optionally override presentation **inside Clicky only**; it should not silently rewrite the upstream agent identity
@@ -20,6 +20,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Text-to-Speech**: ElevenLabs via the worker, with system speech fallback for local development
 - **Web Voice Pipeline**: The website companion should record mic audio in the browser, transcribe it on the backend with AssemblyAI, and play backend-generated ElevenLabs audio. The live website flow should not depend on browser screen-share. Do not rely on browser `SpeechRecognition` or `speechSynthesis` as the primary production path.
 - **Screen Capture**: ScreenCaptureKit (macOS 14.2+), multi-monitor support
+- **Focus Context**: The assistant turn contract now carries cursor/focus context in addition to screenshots: active display, cursor position, recent trail, screenshot-relative cursor coordinates, screenshot freshness delta, frontmost app/window, and best-effort AX focused element metadata.
 - **Voice Input**: Push-to-talk via `AVAudioEngine` and a pluggable transcription-provider layer
 - **Element Pointing**: Agent replies may include `[POINT:x,y:label:screenN]` tags that drive the blue cursor overlay
 - **Launch Commerce Model**: direct-download website, free download plus in-app taste, in-app paywall, Polar-hosted checkout launched from the Mac app, lightweight auth plus backend-backed entitlement restore
@@ -29,10 +30,12 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - Instruction priority for this repo:
   1. Repo `AGENTS.md` files define product constraints, workflow guardrails, and launch assumptions.
   2. The Build macOS Apps plugin is the default source of macOS implementation guidance.
-  3. `docs/macos-design.md` is the design source of truth for desktop UI.
-  4. SwiftUI and Liquid Glass skills provide implementation-quality guidance unless they conflict with a more specific repo rule.
+  3. `docs/clicky-identity.md` is the source of truth for Clicky's product identity, public-facing voice, and experience philosophy.
+  4. `docs/macos-design.md` is the design source of truth for desktop UI.
+  5. SwiftUI and Liquid Glass skills provide implementation-quality guidance unless they conflict with a more specific repo rule.
 - Before starting any work in this repo, use the Build macOS Apps plugin as the default source of platform guidance.
 - Pick the smallest relevant Build macOS Apps skill set for the task first, then say which skills are guiding the work. Most common fits here are `swiftui-patterns`, `window-management`, `appkit-interop`, `telemetry`, `view-refactor`, `build-run-debug`, `test-triage`, `signing-entitlements`, and `packaging-notarization`.
+- Before writing public-facing copy, shaping onboarding/paywalls, or designing interfaces, read `docs/clicky-identity.md` first and treat it as the source of truth for what Clicky is supposed to feel like.
 - For any macOS UI work, read `docs/macos-design.md` first and treat it as the design source of truth for the desktop app.
 - When the task touches the menu bar companion, prioritize `liquid-glass` guidance first and preserve the compact single-shell panel design described in `docs/macos-design.md`.
 - Treat the plugin as the default reference for macOS-specific decisions: scene structure, menu bar behavior, window activation/focus, toolbar and command design, app bundle behavior, unified logging, telemetry, packaging, and other desktop-native details.
@@ -69,6 +72,7 @@ The Codex app `Run` action is wired through `.codex/environments/environment.tom
 - Add comments only where they explain a non-obvious *why*.
 - All interactive controls should show a pointer cursor on hover.
 - Do not change the desktop design direction casually. If a macOS UI change meaningfully changes the design system, update `docs/macos-design.md`, this file, and `leanring-buddy/AGENTS.md` together.
+- Do not write public-facing copy or design core product experiences in a way that conflicts with `docs/clicky-identity.md`. If the product identity changes meaningfully, update that doc and both `AGENTS.md` files in the same turn.
 
 ## Do NOT
 
@@ -88,3 +92,5 @@ The Codex app `Run` action is wired through `.codex/environments/environment.tom
 ## Self-Update Instructions
 
 When you make meaningful architecture or workflow changes, update this file and `leanring-buddy/AGENTS.md` together so all tracked agent entry points stay aligned.
+
+When you make meaningful changes to Clicky's product identity, public-facing voice, or experience philosophy, update `docs/clicky-identity.md`, this file, and `leanring-buddy/AGENTS.md` together in the same turn.

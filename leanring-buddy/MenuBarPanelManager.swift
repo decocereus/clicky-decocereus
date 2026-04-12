@@ -20,8 +20,6 @@ extension Notification.Name {
     static let clickyOpenStudio = Notification.Name("clickyOpenStudio")
     static let clickyCheckForUpdates = Notification.Name("clickyCheckForUpdates")
     static let clickyShowPanel = Notification.Name("clickyShowPanel")
-    static let clickyStudioDidAppear = Notification.Name("clickyStudioDidAppear")
-    static let clickyStudioDidDisappear = Notification.Name("clickyStudioDidDisappear")
 }
 
 /// Custom NSPanel subclass that can become the key window even with

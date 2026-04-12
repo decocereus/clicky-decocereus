@@ -7,7 +7,8 @@ Clicky now works as a real desktop shell around an OpenClaw agent on macOS.
 The app can:
 - capture push-to-talk audio
 - capture screen context
-- send that context to either the built-in Claude path or an OpenClaw Gateway backend
+- capture cursor/focus context alongside screenshots
+- send that context through a shared provider-agnostic assistant turn contract
 - speak the reply back locally
 - show cursor-side presence and pointing
 - register itself as a live Clicky shell with the `clicky-shell` OpenClaw plugin
@@ -21,6 +22,17 @@ The app can:
 - Local development fallback path when the Cloudflare worker is not configured
 - Better voice state UX: listening, transcribing, thinking, responding
 - Structured logging + in-app diagnostics buffer
+- Provider-adapter assistant pipeline with canonical turn request/response models
+- Shared turn builder, system-prompt planner, base-prompt source, provider registry, and turn executor
+- Backend-specific adapter files for Claude and OpenClaw instead of inline request assembly in the main manager
+
+### Focus context
+
+- Cursor/focus context captured per turn
+- Screenshot-relative cursor grounding with timing delta
+- Frontmost app + window title context
+- Best-effort AX focused element metadata
+- Shared focus context formatting that flows to every backend through the canonical turn contract
 
 ### OpenClaw integration
 
@@ -64,8 +76,8 @@ The app can:
 
 ## Recommended Next Steps
 
-1. Finish simplifying the user-facing Studio/OpenClaw UI.
-2. Verify the linked `clicky-shell` plugin end-to-end in the running OpenClaw Gateway.
-3. Deepen the trust/presence policy once the simplified UI is in place.
-4. Add Clicky-local voice and appearance customization.
-5. Add auth + Polar when the shell experience is stable enough to package.
+1. Add the next direct provider on top of the new assistant contract, starting with Codex/OpenAI.
+2. Improve model-level observability and surface the effective provider/model identity in telemetry and UI.
+3. Finish simplifying the user-facing Studio/OpenClaw UI.
+4. Verify the linked `clicky-shell` plugin end-to-end in the running OpenClaw Gateway.
+5. Add Clicky-local voice and appearance customization.

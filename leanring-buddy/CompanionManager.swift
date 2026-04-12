@@ -241,7 +241,60 @@ final class CompanionManager: ObservableObject {
         return ClaudeAPI(proxyURL: "\(CompanionRuntimeConfiguration.workerBaseURL)/chat", model: selectedModel)
     }()
 
+    private lazy var claudeAssistantProvider: ClaudeAssistantProvider = {
+        ClaudeAssistantProvider(claudeAPI: claudeAPI)
+    }()
+
     private let openClawGatewayCompanionAgent = OpenClawGatewayCompanionAgent()
+
+    private lazy var openClawAssistantProvider: OpenClawAssistantProvider = {
+        OpenClawAssistantProvider(
+            gatewayAgent: openClawGatewayCompanionAgent,
+            configurationProvider: { [weak self] in
+                guard let self else {
+                    return OpenClawAssistantProviderConfiguration(
+                        gatewayURLString: "",
+                        gatewayAuthToken: nil,
+                        agentIdentifier: "",
+                        sessionKey: ""
+                    )
+                }
+
+                return OpenClawAssistantProviderConfiguration(
+                    gatewayURLString: self.openClawGatewayURL,
+                    gatewayAuthToken: self.openClawGatewayAuthToken,
+                    agentIdentifier: self.openClawAgentIdentifier,
+                    sessionKey: self.openClawSessionKey
+                )
+            }
+        )
+    }()
+
+    private let assistantTurnBuilder = ClickyAssistantTurnBuilder()
+    private let assistantSystemPromptPlanner = ClickyAssistantSystemPromptPlanner()
+    private let assistantFocusContextProvider = ClickyAssistantFocusContextProvider()
+    private lazy var assistantBasePromptSource = ClickyAssistantBasePromptSource { [weak self] backend in
+        guard let self else { return "" }
+        switch backend {
+        case .claude:
+            return self.companionVoiceResponseSystemPrompt()
+        case .openClaw:
+            return self.openClawShellScopedSystemPrompt()
+        }
+    }
+
+    private lazy var assistantProviderRegistry: ClickyAssistantProviderRegistry = {
+        ClickyAssistantProviderRegistry(
+            providers: [
+                claudeAssistantProvider,
+                openClawAssistantProvider,
+            ]
+        )
+    }()
+
+    private lazy var assistantTurnExecutor: ClickyAssistantTurnExecutor = {
+        ClickyAssistantTurnExecutor(providerRegistry: assistantProviderRegistry)
+    }()
 
     private lazy var elevenLabsTTSClient: ElevenLabsTTSClient = {
         return ElevenLabsTTSClient(proxyURL: "\(CompanionRuntimeConfiguration.workerBaseURL)/tts")
@@ -1251,6 +1304,25 @@ final class CompanionManager: ObservableObject {
         activeClickyPersonaDefinition.displayName
     }
 
+    var selectedAssistantModelIdentityLabel: String {
+        switch selectedAgentBackend {
+        case .claude:
+            return selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .openClaw:
+            let configuredAgentIdentifier = openClawAgentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !configuredAgentIdentifier.isEmpty {
+                return configuredAgentIdentifier
+            }
+
+            let inferredAgentIdentifier = inferredOpenClawAgentIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !inferredAgentIdentifier.isEmpty {
+                return inferredAgentIdentifier
+            }
+
+            return effectiveOpenClawAgentName
+        }
+    }
+
     var elevenLabsStatusLabel: String {
         switch elevenLabsVoiceFetchStatus {
         case .idle:
@@ -1273,18 +1345,85 @@ final class CompanionManager: ObservableObject {
     private func logActivePersonaForRequest(transcript: String, backend: CompanionAgentBackend, systemPrompt: String) {
         ClickyLogger.notice(
             .agent,
-            "request backend=\(backend.displayName) persona=\(activeClickyPersonaLabel) display=\(effectiveClickyPresentationName) voice=\(effectiveClickyVoicePreset.displayName) cursor=\(effectiveClickyCursorStyle.displayName) scope=\(clickyPersonaScopeLabel) transcriptLength=\(transcript.count)"
+            "request backend=\(backend.displayName) model=\(selectedAssistantModelIdentityLabel) persona=\(activeClickyPersonaLabel) display=\(effectiveClickyPresentationName) voice=\(effectiveClickyVoicePreset.displayName) cursor=\(effectiveClickyCursorStyle.displayName) scope=\(clickyPersonaScopeLabel) transcriptLength=\(transcript.count)"
         )
         ClickyLogger.debug(
             .agent,
-            "prompt-shape backend=\(backend.displayName) persona=\(activeClickyPersonaLabel) promptLength=\(systemPrompt.count)"
+            "prompt-shape backend=\(backend.displayName) model=\(selectedAssistantModelIdentityLabel) persona=\(activeClickyPersonaLabel) promptLength=\(systemPrompt.count)"
         )
     }
 
     private func logAgentResponse(_ response: String, backend: CompanionAgentBackend) {
         ClickyLogger.notice(
             .agent,
-            "response backend=\(backend.displayName) persona=\(activeClickyPersonaLabel) display=\(effectiveClickyPresentationName) voice=\(effectiveClickyVoicePreset.displayName) responseLength=\(response.count)"
+            "response backend=\(backend.displayName) model=\(selectedAssistantModelIdentityLabel) persona=\(activeClickyPersonaLabel) display=\(effectiveClickyPresentationName) voice=\(effectiveClickyVoicePreset.displayName) responseLength=\(response.count)"
+        )
+    }
+
+    private func makeAssistantTurnRequest(
+        systemPrompt: String,
+        transcript: String,
+        labeledImages: [(data: Data, label: String)],
+        focusContext: ClickyAssistantFocusContext?
+    ) -> ClickyAssistantTurnRequest {
+        assistantTurnBuilder.buildRequest(
+            systemPrompt: systemPrompt,
+            userPrompt: transcript,
+            conversationHistory: conversationHistory,
+            labeledImages: labeledImages.map { labeledImage in
+                ClickyAssistantLabeledImage(
+                    data: labeledImage.data,
+                    label: labeledImage.label,
+                    mimeType: "image/jpeg"
+                )
+            },
+            focusContext: focusContext
+        )
+    }
+
+    private func launchPromptMode(
+        for authorization: LaunchAssistantTurnAuthorization
+    ) -> ClickyAssistantLaunchPromptMode {
+        if authorization.shouldUsePaywallTurn {
+            return .paywall
+        }
+        if authorization.shouldUseWelcomeTurn {
+            return .welcome
+        }
+        return .standard
+    }
+
+    private func makeSystemPrompt(
+        basePrompt: String,
+        authorization: LaunchAssistantTurnAuthorization
+    ) -> String {
+        assistantSystemPromptPlanner.buildSystemPrompt(
+            basePrompt: basePrompt,
+            launchMode: launchPromptMode(for: authorization)
+        )
+    }
+
+    private func makeAssistantTurnPlan(
+        backend: CompanionAgentBackend,
+        authorization: LaunchAssistantTurnAuthorization,
+        transcript: String,
+        labeledImages: [(data: Data, label: String)],
+        focusContext: ClickyAssistantFocusContext?
+    ) -> ClickyAssistantTurnPlan {
+        let systemPrompt = makeSystemPrompt(
+            basePrompt: assistantBasePromptSource.basePrompt(for: backend),
+            authorization: authorization
+        )
+
+        return ClickyAssistantTurnPlan(
+            backend: backend,
+            systemPrompt: systemPrompt,
+            request: makeAssistantTurnRequest(
+                systemPrompt: systemPrompt,
+                transcript: transcript,
+                labeledImages: labeledImages,
+                focusContext: focusContext
+            )
         )
     }
 
@@ -2357,35 +2496,6 @@ final class CompanionManager: ObservableObject {
         )
     }
 
-    private func launchWelcomeTurnSystemPrompt(basePrompt: String) -> String {
-        """
-        \(basePrompt)
-
-        launch onboarding override:
-        - this is the first real clicky turn after setup completed.
-        - give a short, warm welcome that explains what clicky can help with on the user's screen and through voice.
-        - mention that they are in a limited launch trial, but keep it light and helpful rather than salesy.
-        - answer the user's request normally if they already asked for something concrete.
-        - if their first request is vague, steer them toward one or two concrete things clicky can do right now.
-        - keep the reply compact and natural.
-        """
-    }
-
-    private func launchPaywallTurnSystemPrompt(basePrompt: String) -> String {
-        """
-        \(basePrompt)
-
-        launch commerce override:
-        - the user's clicky launch trial is exhausted.
-        - do not answer their request or partially complete the task.
-        - instead, give a short spoken paywall message that says clicky now requires purchase to continue.
-        - if it fits naturally, briefly acknowledge the kind of thing they were trying to do, but do not provide the actual help.
-        - direct them to buy or restore access in clicky's studio window.
-        - keep the reply warm and natural, not robotic.
-        - always end with [POINT:none].
-        """
-    }
-
     private func presentLaunchSignInRequiredState(openStudio: Bool) {
         openClawGatewayCompanionAgent.cancelActiveRequest()
         elevenLabsTTSClient.stopPlayback()
@@ -3076,8 +3186,17 @@ final class CompanionManager: ObservableObject {
                     return
                 }
 
-                // Capture all connected screens so the AI has full context
-                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                let initialFocusContext = assistantFocusContextProvider.captureCurrentFocusContext()
+
+                // Capture all connected screens so the AI has full context.
+                // Reuse the same sampled cursor location so the cursor screen
+                // and focus context stay aligned.
+                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG(
+                    cursorLocationOverride: CGPoint(
+                        x: initialFocusContext.cursorX,
+                        y: initialFocusContext.cursorY
+                    )
+                )
 
                 guard !Task.isCancelled else { return }
 
@@ -3089,77 +3208,35 @@ final class CompanionManager: ObservableObject {
                     return (data: capture.imageData, label: capture.label + dimensionInfo)
                 }
 
-                let fullResponseText: String
-                switch selectedAgentBackend {
-                case .claude:
-                    let basePrompt = companionVoiceResponseSystemPrompt()
-                    let systemPrompt: String
-                    if launchAuthorization.shouldUsePaywallTurn {
-                        systemPrompt = launchPaywallTurnSystemPrompt(basePrompt: basePrompt)
-                    } else if launchAuthorization.shouldUseWelcomeTurn {
-                        systemPrompt = launchWelcomeTurnSystemPrompt(basePrompt: basePrompt)
-                    } else {
-                        systemPrompt = basePrompt
-                    }
-                    logActivePersonaForRequest(
-                        transcript: transcript,
-                        backend: .claude,
-                        systemPrompt: systemPrompt
-                    )
+                let focusContext = assistantFocusContextProvider.enrich(
+                    initialFocusContext,
+                    with: screenCaptures
+                )
+                ClickyLogger.info(
+                    .agent,
+                    "focus-context backend=\(selectedAgentBackend.displayName) display=\(focusContext.activeDisplayLabel) app=\(focusContext.frontmostApplicationName ?? "unknown") window=\(focusContext.frontmostWindowTitle ?? "unknown") cursor=(\(Int(focusContext.cursorX)),\(Int(focusContext.cursorY))) screenshotCursor=(\(focusContext.screenshotContext?.cursorPixelX ?? -1),\(focusContext.screenshotContext?.cursorPixelY ?? -1)) deltaMs=\(focusContext.screenshotContext?.cursorToScreenshotDeltaMilliseconds ?? -1) trailCount=\(focusContext.recentCursorTrail.count)"
+                )
 
-                    // Pass conversation history so Claude remembers prior exchanges
-                    let historyForAPI = conversationHistory.map { entry in
-                        (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
-                    }
+                let plan = makeAssistantTurnPlan(
+                    backend: selectedAgentBackend,
+                    authorization: launchAuthorization,
+                    transcript: transcript,
+                    labeledImages: labeledImages,
+                    focusContext: focusContext
+                )
+                logActivePersonaForRequest(
+                    transcript: transcript,
+                    backend: selectedAgentBackend,
+                    systemPrompt: plan.systemPrompt
+                )
 
-                    let response = try await claudeAPI.analyzeImageStreaming(
-                        images: labeledImages,
-                        systemPrompt: systemPrompt,
-                        conversationHistory: historyForAPI,
-                        userPrompt: transcript,
-                        onTextChunk: { _ in
-                            // No streaming text display — spinner stays until TTS plays
-                        }
-                    )
-                    fullResponseText = response.text
-                case .openClaw:
-                    let basePrompt = openClawShellScopedSystemPrompt()
-                    let systemPrompt: String
-                    if launchAuthorization.shouldUsePaywallTurn {
-                        systemPrompt = launchPaywallTurnSystemPrompt(basePrompt: basePrompt)
-                    } else if launchAuthorization.shouldUseWelcomeTurn {
-                        systemPrompt = launchWelcomeTurnSystemPrompt(basePrompt: basePrompt)
-                    } else {
-                        systemPrompt = basePrompt
+                let response = try await assistantTurnExecutor.execute(
+                    plan,
+                    onTextChunk: { _ in
+                        // No streaming text display — spinner stays until TTS plays
                     }
-                    logActivePersonaForRequest(
-                        transcript: transcript,
-                        backend: .openClaw,
-                        systemPrompt: systemPrompt
-                    )
-
-                    let imageAttachments = labeledImages.map { labeledImage in
-                        OpenClawGatewayImageAttachment(
-                            imageData: labeledImage.data,
-                            label: labeledImage.label,
-                            mimeType: "image/jpeg"
-                        )
-                    }
-
-                    let response = try await openClawGatewayCompanionAgent.analyzeImageStreaming(
-                        gatewayURLString: openClawGatewayURL,
-                        explicitGatewayAuthToken: openClawGatewayAuthToken,
-                        configuredAgentIdentifier: openClawAgentIdentifier,
-                        configuredSessionKey: openClawSessionKey,
-                        images: imageAttachments,
-                        systemPrompt: systemPrompt,
-                        userPrompt: transcript,
-                        onTextChunk: { _ in
-                            // No streaming text display — spinner stays until TTS plays
-                        }
-                    )
-                    fullResponseText = response.text
-                }
+                )
+                let fullResponseText = response.text
 
                 guard !Task.isCancelled else { return }
 
