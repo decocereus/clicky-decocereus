@@ -234,6 +234,7 @@ private struct CompanionStudioCompanionScene: View {
     @Binding var isSupportModeEnabled: Bool
 
     @Environment(\.clickyTheme) private var theme
+    @State private var isPersonaPopoverPresented = false
     @State private var isVoicePopoverPresented = false
     @State private var isThemePopoverPresented = false
     @State private var isProviderPanelExpanded = false
@@ -502,13 +503,15 @@ private struct CompanionStudioCompanionScene: View {
                         ViewThatFits(in: .horizontal) {
                             VStack(spacing: 12) {
                                 HStack(spacing: 12) {
+                                    personaPresetButton
                                     voicePresetButton
-                                    themePresetButton
                                 }
+                                themePresetButton
                                 providerButton
                             }
 
                             VStack(spacing: 12) {
+                                personaPresetButton
                                 voicePresetButton
                                 themePresetButton
                                 providerButton
@@ -606,6 +609,24 @@ private struct CompanionStudioCompanionScene: View {
         }
     }
 
+    private var personaPresetButton: some View {
+        Button {
+            isPersonaPopoverPresented.toggle()
+        } label: {
+            CompanionStudioMiniMetric(
+                title: "Persona",
+                value: companionManager.clickyPersonaPreset.definition.displayName,
+                allowExpansion: true
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .popover(isPresented: $isPersonaPopoverPresented, arrowEdge: .bottom) {
+            CompanionStudioPersonaPresetPopover(companionManager: companionManager)
+                .frame(width: 360, height: 340)
+        }
+    }
+
     private var themePresetButton: some View {
         Button {
             isThemePopoverPresented.toggle()
@@ -691,27 +712,59 @@ private struct CompanionStudioCompanionScene: View {
             eyebrow: "Access",
             title: "Your Access"
         ) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(accessSummaryCopy)
-                    .font(ClickyTypography.body(size: 14))
-                    .foregroundColor(palette.cardSecondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 18) {
+                accessAccountHeader
+
+                if companionManager.hasUnlimitedClickyLaunchAccess {
+                    CompanionStudioAccessCelebrationCard()
+                } else {
+                    Text(accessSummaryCopy)
+                        .font(ClickyTypography.body(size: 14))
+                        .foregroundColor(palette.cardSecondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 HStack(spacing: 10) {
-                    CompanionStudioGlassChip(text: companionManager.clickyLaunchAuthStatusLabel)
-                    CompanionStudioGlassChip(text: companionManager.clickyLaunchEntitlementStatusLabel)
+                    ForEach(accessChipLabels, id: \.self) { label in
+                        CompanionStudioGlassChip(text: label)
+                    }
                 }
 
                 VStack(spacing: 12) {
-                    CompanionStudioKeyValueRow(label: "Signed in", value: companionManager.clickyLaunchAuthStatusLabel)
-                    CompanionStudioKeyValueRow(label: "Trial", value: companionManager.clickyLaunchTrialStatusLabel)
-                    CompanionStudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
+                    CompanionStudioKeyValueRow(label: "Account", value: companionManager.clickyLaunchDisplayName)
+
+                    if !companionManager.hasUnlimitedClickyLaunchAccess {
+                        if companionManager.isClickyLaunchSignedIn {
+                            CompanionStudioKeyValueRow(label: "Access", value: accessStatusLine)
+                        }
+
+                        if showsTrialRow {
+                            CompanionStudioKeyValueRow(label: "Trial", value: companionManager.clickyLaunchTrialStatusLabel)
+                        }
+
+                        if showsCheckoutRow {
+                            CompanionStudioKeyValueRow(label: "Checkout", value: companionManager.clickyLaunchBillingStatusLabel)
+                        }
+                    }
                 }
 
-                accessActions
+                VStack(alignment: .leading, spacing: 10) {
+                    accessPrimaryAction
+                    accessSecondaryActions
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .task(id: accessBackgroundSyncToken) {
+            guard companionManager.isClickyLaunchSignedIn else {
+                return
+            }
+
+            companionManager.refreshClickyLaunchEntitlementQuietlyIfNeeded(
+                reason: "studio-access-card",
+                minimumInterval: 15
+            )
+        }
     }
 
     private var connectionStatusChip: String {
@@ -741,63 +794,152 @@ private struct CompanionStudioCompanionScene: View {
     }
 
     private var accessSummaryCopy: String {
+        if companionManager.hasUnlimitedClickyLaunchAccess {
+            return "Your subscription is live. Clicky is fully unlocked here, so you can talk to it as much as you want."
+        }
+
         if companionManager.requiresLaunchSignInForCompanionUse {
             return "Sign in to start your Clicky trial and keep your access tied to your account."
         }
 
         if companionManager.isClickyLaunchPaywallActive {
-            return "Your trial is finished. Unlock Clicky or restore an existing purchase to keep using the companion."
+            return "Your included taste is finished. Unlock Clicky to keep the companion with you across as many turns as you want."
         }
 
-        return "Your account is in good shape, and Clicky is ready to use on this Mac."
+        if companionManager.clickyLaunchBillingStatusLabel == "Waiting for purchase" {
+            return "Clicky is checking your purchase in the background so this Mac can unlock itself as soon as it lands."
+        }
+
+        return "Your account is in good shape, and Clicky is quietly keeping your access up to date on this Mac."
+    }
+
+    private var accessAccountHeader: some View {
+        HStack(alignment: .center, spacing: 14) {
+            CompanionStudioAccessAvatar(
+                initials: companionManager.clickyLaunchDisplayInitials,
+                imageURL: companionManager.clickyLaunchProfileImageURL,
+                palette: palette
+            )
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(companionManager.clickyLaunchDisplayName)
+                    .font(ClickyTypography.section(size: 24))
+                    .foregroundColor(palette.cardPrimaryText)
+                    .lineLimit(1)
+
+                Text(accessHeaderSubtitle)
+                    .font(ClickyTypography.body(size: 13))
+                    .foregroundColor(palette.cardSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var accessHeaderSubtitle: String {
+        if companionManager.hasUnlimitedClickyLaunchAccess {
+            return "You’re fully unlocked on this Mac."
+        }
+
+        if companionManager.requiresLaunchSignInForCompanionUse {
+            return "Sign in once to tie your trial and future access to your account."
+        }
+
+        if companionManager.isClickyLaunchPaywallActive {
+            return "Your trial has wrapped, but this is where Clicky can unlock for good."
+        }
+
+        return "Clicky keeps this Mac in sync with your access in the background."
+    }
+
+    private var accessChipLabels: [String] {
+        if companionManager.hasUnlimitedClickyLaunchAccess {
+            return ["Subscription active", "Unlimited access"]
+        }
+
+        if companionManager.requiresLaunchSignInForCompanionUse {
+            return ["Sign in required"]
+        }
+
+        if companionManager.isClickyLaunchPaywallActive {
+            return ["Trial finished", "Unlock available"]
+        }
+
+        if companionManager.clickyLaunchBillingStatusLabel == "Waiting for purchase" {
+            return ["Finishing purchase"]
+        }
+
+        return ["Ready on this Mac"]
+    }
+
+    private var accessStatusLine: String {
+        if companionManager.isClickyLaunchPaywallActive {
+            return "Needs unlock"
+        }
+
+        if companionManager.clickyLaunchBillingStatusLabel == "Waiting for purchase" {
+            return "Checking purchase"
+        }
+
+        return "Ready to use"
+    }
+
+    private var showsTrialRow: Bool {
+        !companionManager.hasUnlimitedClickyLaunchAccess
+    }
+
+    private var showsCheckoutRow: Bool {
+        !companionManager.hasUnlimitedClickyLaunchAccess
+            && companionManager.isClickyLaunchSignedIn
+            && companionManager.clickyLaunchBillingStatusLabel != "Idle"
+    }
+
+    private var accessBackgroundSyncToken: String {
+        [
+            companionManager.clickyLaunchAuthStatusLabel,
+            companionManager.clickyLaunchBillingStatusLabel,
+            companionManager.clickyLaunchTrialStatusLabel
+        ].joined(separator: "|")
     }
 
     @ViewBuilder
-    private var accessActions: some View {
-        HStack(spacing: 10) {
-            if companionManager.isClickyLaunchSignedIn {
-                if companionManager.isClickyLaunchPaywallActive {
-                    Button {
-                        companionManager.startClickyLaunchCheckout()
-                    } label: {
-                        Label("Unlock Clicky", systemImage: "creditcard")
-                            .font(ClickyTypography.body(size: 13, weight: .semibold))
-                            .frame(minWidth: 150)
-                    }
-                    .modifier(CompanionStudioPrimaryButtonModifier())
-                    .pointerCursor()
-                }
-
-                Button {
-                    companionManager.restoreClickyLaunchAccess()
-                } label: {
-                    Label("Restore Access", systemImage: "arrow.clockwise.circle")
-                        .font(ClickyTypography.body(size: 13, weight: .semibold))
-                        .frame(minWidth: 150)
-                }
-                .modifier(CompanionStudioModeButtonModifier(isSelected: false))
-                .pointerCursor()
-
-                Button {
-                    companionManager.refreshClickyLaunchEntitlement()
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                        .font(ClickyTypography.body(size: 13, weight: .semibold))
-                        .frame(minWidth: 120)
-                }
-                .modifier(CompanionStudioModeButtonModifier(isSelected: false))
-                .pointerCursor()
-            } else {
-                Button {
-                    companionManager.startClickyLaunchSignIn()
-                } label: {
-                    Label("Sign In", systemImage: "person.crop.circle.badge.plus")
-                        .font(ClickyTypography.body(size: 13, weight: .semibold))
-                        .frame(minWidth: 150)
-                }
-                .modifier(CompanionStudioPrimaryButtonModifier())
-                .pointerCursor()
+    private var accessPrimaryAction: some View {
+        if companionManager.requiresLaunchSignInForCompanionUse {
+            Button {
+                companionManager.startClickyLaunchSignIn()
+            } label: {
+                Label("Sign In", systemImage: "person.crop.circle.badge.plus")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .frame(minWidth: 150)
             }
+            .modifier(CompanionStudioPrimaryButtonModifier())
+            .pointerCursor()
+        } else if companionManager.isClickyLaunchPaywallActive {
+            Button {
+                companionManager.startClickyLaunchCheckout()
+            } label: {
+                Label("Unlock Clicky", systemImage: "creditcard")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .frame(minWidth: 150)
+            }
+            .modifier(CompanionStudioPrimaryButtonModifier())
+            .pointerCursor()
+        }
+    }
+
+    @ViewBuilder
+    private var accessSecondaryActions: some View {
+        if companionManager.isClickyLaunchSignedIn {
+            Button {
+                companionManager.signOutClickyLaunchSession()
+            } label: {
+                Text("Sign Out")
+                    .font(ClickyTypography.body(size: 12, weight: .semibold))
+                    .foregroundColor(palette.cardSecondaryText)
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
         }
     }
 
@@ -1192,6 +1334,65 @@ private struct CompanionStudioVoicePresetPopover: View {
     }
 }
 
+private struct CompanionStudioPersonaPresetPopover: View {
+    @ObservedObject var companionManager: CompanionManager
+
+    private let palette = CompanionStudioScalaPalette()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Persona")
+                .font(ClickyTypography.section(size: 24))
+                .foregroundColor(palette.cardPrimaryText)
+
+            Text("Choose the overall feeling Clicky should bring. Picking a persona also resets the default voice, theme, and cursor pairing for that style.")
+                .font(ClickyTypography.body(size: 13))
+                .foregroundColor(palette.cardSecondaryText)
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(ClickyPersonaPreset.allCases) { preset in
+                    Button {
+                        companionManager.setClickyPersonaPreset(preset)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(preset.definition.displayName)
+                                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                                Text(preset.definition.summary)
+                                    .font(.caption)
+                                    .foregroundColor(palette.cardSecondaryText)
+                                    .multilineTextAlignment(.leading)
+                            }
+
+                            Spacer()
+
+                            if companionManager.clickyPersonaPreset == preset {
+                                Image(systemName: "checkmark.circle.fill")
+                            }
+                        }
+                        .foregroundColor(palette.cardPrimaryText)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(companionManager.clickyPersonaPreset == preset ? palette.cardAccent.opacity(0.60) : palette.cardAccent.opacity(0.28))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 18)
+        .padding(.top, 24)
+        .padding(.bottom, 18)
+        .background(palette.cardBackground)
+    }
+}
+
 private struct CompanionStudioThemePresetPopover: View {
     @ObservedObject var companionManager: CompanionManager
 
@@ -1247,6 +1448,123 @@ private struct CompanionStudioThemePresetPopover: View {
         .padding(.top, 24)
         .padding(.bottom, 18)
         .background(palette.cardBackground)
+    }
+}
+
+private struct CompanionStudioAccessAvatar: View {
+    let initials: String
+    let imageURL: String
+    let palette: CompanionStudioScalaPalette
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            palette.sage.opacity(0.92),
+                            palette.cardAccent.opacity(0.95)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            if let avatarURL = resolvedAvatarURL {
+                AsyncImage(url: avatarURL) { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } placeholder: {
+                    fallbackInitials
+                }
+                .clipShape(Circle())
+            } else {
+                fallbackInitials
+            }
+
+            Circle()
+                .stroke(palette.cardBorder.opacity(0.55), lineWidth: 1)
+        }
+        .frame(width: 56, height: 56)
+    }
+
+    private var resolvedAvatarURL: URL? {
+        let trimmedURL = imageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedURL.isEmpty else {
+            return nil
+        }
+
+        return URL(string: trimmedURL)
+    }
+
+    private var fallbackInitials: some View {
+        Text(initials.isEmpty ? "CU" : initials)
+            .font(ClickyTypography.mono(size: 18, weight: .semibold))
+            .foregroundColor(palette.cardPrimaryText)
+    }
+}
+
+private struct CompanionStudioAccessCelebrationCard: View {
+    @State private var isAnimating = false
+
+    private let palette = CompanionStudioScalaPalette()
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                palette.sage.opacity(0.88),
+                                palette.cardAccent.opacity(0.84)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.50), lineWidth: 1)
+                    )
+
+                Image(systemName: "checkmark")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(palette.cardPrimaryText)
+                    .scaleEffect(isAnimating ? 1.03 : 0.98)
+            }
+            .frame(width: 60, height: 60)
+            .shadow(color: palette.sage.opacity(isAnimating ? 0.18 : 0.08), radius: isAnimating ? 14 : 8, y: 2)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Subscription active")
+                    .font(ClickyTypography.section(size: 22))
+                    .foregroundColor(palette.cardPrimaryText)
+
+                Text("You’ve bought full access, so Clicky is now yours to use however much you want.")
+                    .font(ClickyTypography.body(size: 13))
+                    .foregroundColor(palette.cardSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(palette.cardAccent.opacity(0.36))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(palette.cardBorder.opacity(0.42), lineWidth: 0.9)
+                )
+        )
+        .onAppear {
+            guard !isAnimating else { return }
+            withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
+                isAnimating = true
+            }
+        }
     }
 }
 

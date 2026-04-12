@@ -26,6 +26,8 @@ struct ClickyBackendNativeAuthStartPayload: Decodable {
 struct ClickyBackendSessionUserPayload: Decodable {
     let id: String
     let email: String
+    let name: String?
+    let image: String?
 }
 
 struct ClickyBackendSessionPayload: Decodable {

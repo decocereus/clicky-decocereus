@@ -29,6 +29,8 @@ struct ClickyAuthSessionSnapshot: Codable {
     let sessionToken: String
     let userID: String
     let email: String
+    let name: String?
+    let image: String?
     let entitlement: ClickyLaunchEntitlementSnapshot
     let trial: ClickyLaunchTrialSnapshot?
 }

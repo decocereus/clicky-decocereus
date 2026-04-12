@@ -11,7 +11,7 @@ type SubmitState =
 type ExistingSessionState =
   | { status: 'checking' }
   | { status: 'signed-out' }
-  | { status: 'signed-in'; email: string }
+  | { status: 'signed-in'; email: string; name: string }
   | { status: 'error'; message: string };
 
 function readSearchParams() {
@@ -69,13 +69,14 @@ export function NativeAuthPage() {
         }
 
         const data = (await response.json()) as {
-          user?: { email?: string };
+          user?: { email?: string; name?: string };
         };
 
         startTransition(() => {
           setSessionState({
             status: 'signed-in',
             email: data.user?.email ?? 'your account',
+            name: data.user?.name ?? data.user?.email ?? 'your account',
           });
         });
       } catch (error) {
@@ -172,7 +173,7 @@ export function NativeAuthPage() {
             <div className="space-y-5">
               <div className="rounded-3xl border border-black/10 bg-white p-5 text-sm leading-7 text-charcoal">
                 This browser is already signed in as{' '}
-                <strong>{sessionState.email}</strong>. Continue and Clicky will pick
+                <strong>{sessionState.name}</strong>. Continue and Clicky will pick
                 up that session right away.
               </div>
 

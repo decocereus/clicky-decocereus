@@ -160,6 +160,7 @@ All endpoints below are first-pass names and can be adjusted once the backend is
 
 - `GET /v1/me`
   - returns user profile summary for the active session
+  - current payload shape: `user.id`, `user.email`, `user.name`, `user.image`
 
 ## Entitlement endpoints
 

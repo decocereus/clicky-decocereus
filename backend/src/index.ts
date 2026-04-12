@@ -8,7 +8,7 @@ import {
   exchangeNativeAuthCode,
   getNativeAuthHandoff,
 } from "./auth/native"
-import { requireSession } from "./auth/session"
+import { requireSession, type AuthSession } from "./auth/session"
 import {
   handleBillingCancelCallback,
   handleCreateCheckout,
@@ -39,6 +39,17 @@ import {
 } from "./trial/routes"
 
 const app = new Hono<{ Bindings: Env }>()
+
+function sessionProfileResponse(session: NonNullable<AuthSession>) {
+  return {
+    user: {
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      image: session.user.image,
+    },
+  }
+}
 
 function expandLocalhostOrigin(origin: string | undefined) {
   if (!origin) {
@@ -167,7 +178,7 @@ app.get("/v1/me", async (c) => {
     return sessionResult.response
   }
 
-  return c.json(sessionResult.session)
+  return c.json(sessionProfileResponse(sessionResult.session))
 })
 
 app.get("/v1/entitlements/me", handleGetEntitlements)

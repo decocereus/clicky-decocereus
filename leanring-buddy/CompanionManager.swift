@@ -480,6 +480,8 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var clickyLaunchEntitlementStatusLabel: String = "Unknown"
     @Published private(set) var clickyLaunchBillingState: ClickyLaunchBillingState = .idle
     @Published private(set) var clickyLaunchTrialState: ClickyLaunchTrialState = .inactive
+    @Published private(set) var clickyLaunchProfileName: String = ""
+    @Published private(set) var clickyLaunchProfileImageURL: String = ""
     @Published var clickyBackendBaseURL: String = CompanionManager.resolvedInitialClickyBackendBaseURL() {
         didSet {
             UserDefaults.standard.set(clickyBackendBaseURL, forKey: "clickyBackendBaseURL")
@@ -564,6 +566,62 @@ final class CompanionManager: ObservableObject {
 
     var isClickyLaunchSignedIn: Bool {
         if case .signedIn = clickyLaunchAuthState {
+            return true
+        }
+
+        return false
+    }
+
+    var clickyLaunchDisplayName: String {
+        let profileName = clickyLaunchProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !profileName.isEmpty {
+            return profileName
+        }
+
+        let fullUserName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fullUserName.isEmpty {
+            return fullUserName
+        }
+
+        guard case let .signedIn(email) = clickyLaunchAuthState else {
+            return "Clicky User"
+        }
+
+        let localPart = email.split(separator: "@").first.map(String.init) ?? ""
+        let normalizedLocalPart = localPart
+            .replacingOccurrences(of: ".", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if normalizedLocalPart.isEmpty {
+            return "Clicky User"
+        }
+
+        return normalizedLocalPart
+            .split(separator: " ")
+            .map { fragment in
+                let lowercased = fragment.lowercased()
+                return lowercased.prefix(1).uppercased() + lowercased.dropFirst()
+            }
+            .joined(separator: " ")
+    }
+
+    var clickyLaunchDisplayInitials: String {
+        let words = clickyLaunchDisplayName
+            .split(whereSeparator: { $0.isWhitespace || $0 == "-" || $0 == "_" })
+            .map(String.init)
+
+        if words.count >= 2 {
+            return String(words.prefix(2).compactMap(\.first)).uppercased()
+        }
+
+        let compactName = clickyLaunchDisplayName.replacingOccurrences(of: " ", with: "")
+        return String(compactName.prefix(2)).uppercased()
+    }
+
+    var hasUnlimitedClickyLaunchAccess: Bool {
+        if case .unlocked = clickyLaunchTrialState {
             return true
         }
 
@@ -845,6 +903,8 @@ final class CompanionManager: ObservableObject {
         clickyLaunchEntitlementStatusLabel = "Unknown"
         setLaunchBillingState(.idle, reason: "sign-out")
         setLaunchTrialState(.inactive, reason: "sign-out")
+        clickyLaunchProfileName = ""
+        clickyLaunchProfileImageURL = ""
         ClickyUnifiedTelemetry.launchAuth.info("Launch auth sign-out completed")
         ClickyLogger.notice(.app, "Cleared Clicky launch auth session")
     }
@@ -888,6 +948,8 @@ final class CompanionManager: ObservableObject {
         guard let storedSession = ClickyAuthSessionStore.load() else {
             setLaunchAuthState(.signedOut, reason: "manual-entitlement-refresh-no-session")
             clickyLaunchEntitlementStatusLabel = "Unknown"
+            clickyLaunchProfileName = ""
+            clickyLaunchProfileImageURL = ""
             ClickyUnifiedTelemetry.billing.info("Entitlement refresh blocked reason=no-session")
             ClickyLogger.error(.app, "Entitlement refresh blocked because no launch auth session is available")
             return
@@ -2186,6 +2248,8 @@ final class CompanionManager: ObservableObject {
     private func persistLaunchSessionSnapshot(_ snapshot: ClickyAuthSessionSnapshot, reason: String) throws {
         try ClickyAuthSessionStore.save(snapshot)
         setLaunchAuthState(.signedIn(email: snapshot.email), reason: reason)
+        clickyLaunchProfileName = snapshot.name ?? ""
+        clickyLaunchProfileImageURL = snapshot.image ?? ""
         clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(snapshot.entitlement)
         setLaunchTrialState(formatLaunchTrialState(
             snapshot.trial,
@@ -2246,11 +2310,30 @@ final class CompanionManager: ObservableObject {
             return true
         }
 
+        if clickyLaunchTrialState == .paywalled {
+            return true
+        }
+
         switch clickyLaunchBillingState {
         case .waitingForCompletion, .completed:
             return true
         default:
             return false
+        }
+    }
+
+    private func quietLaunchEntitlementSyncMode(
+        for storedSession: ClickyAuthSessionSnapshot
+    ) -> ClickyLaunchEntitlementSyncMode {
+        if launchEntitlementHasEffectiveAccess(storedSession.entitlement) {
+            return .refresh
+        }
+
+        switch clickyLaunchBillingState {
+        case .waitingForCompletion, .completed:
+            return .refresh
+        default:
+            return .restore
         }
     }
 
@@ -2291,11 +2374,12 @@ final class CompanionManager: ObservableObject {
             }
 
             do {
+                let syncMode = quietLaunchEntitlementSyncMode(for: storedSession)
                 let refreshedSnapshot = try await synchronizeLaunchSessionSnapshot(
                     sessionToken: storedSession.sessionToken,
                     fallbackUserID: storedSession.userID,
                     fallbackEmail: storedSession.email,
-                    entitlementSyncMode: .refresh
+                    entitlementSyncMode: syncMode
                 )
 
                 try persistLaunchSessionSnapshot(refreshedSnapshot, reason: "quiet-entitlement-refresh")
@@ -2316,6 +2400,8 @@ final class CompanionManager: ObservableObject {
                     clickyLaunchEntitlementStatusLabel = "Unknown"
                     setLaunchBillingState(.idle, reason: "quiet-entitlement-refresh-invalid-session")
                     setLaunchTrialState(.inactive, reason: "quiet-entitlement-refresh-invalid-session")
+                    clickyLaunchProfileName = ""
+                    clickyLaunchProfileImageURL = ""
                     ClickyUnifiedTelemetry.billing.error(
                         "Quiet entitlement refresh cleared invalid session reason=\(reason, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
                     )
@@ -2358,6 +2444,8 @@ final class CompanionManager: ObservableObject {
             sessionToken: sessionToken,
             userID: fallbackUserID ?? sessionPayload.user.id,
             email: fallbackEmail ?? sessionPayload.user.email,
+            name: sessionPayload.user.name,
+            image: sessionPayload.user.image,
             entitlement: makeLaunchEntitlementSnapshot(from: entitlementPayload),
             trial: trialPayload.map(makeLaunchTrialSnapshot)
         )
@@ -2676,6 +2764,8 @@ final class CompanionManager: ObservableObject {
             setLaunchAuthState(.signedOut, reason: "restore-no-session")
             clickyLaunchEntitlementStatusLabel = "Unknown"
             setLaunchTrialState(.inactive, reason: "restore-no-session")
+            clickyLaunchProfileName = ""
+            clickyLaunchProfileImageURL = ""
             ClickyUnifiedTelemetry.launchAuth.info("Launch auth restore skipped reason=no-stored-session")
             return
         }
@@ -2702,6 +2792,8 @@ final class CompanionManager: ObservableObject {
                     clickyLaunchEntitlementStatusLabel = "Unknown"
                     setLaunchBillingState(.idle, reason: "restore-invalid-session")
                     setLaunchTrialState(.inactive, reason: "restore-invalid-session")
+                    clickyLaunchProfileName = ""
+                    clickyLaunchProfileImageURL = ""
                     ClickyUnifiedTelemetry.launchAuth.error(
                         "Launch auth restore cleared invalid stored session error=\(error.localizedDescription, privacy: .public)"
                     )
@@ -2710,6 +2802,8 @@ final class CompanionManager: ObservableObject {
                 }
 
                 setLaunchAuthState(.signedIn(email: storedSession.email), reason: "restore-cached-fallback")
+                clickyLaunchProfileName = storedSession.name ?? ""
+                clickyLaunchProfileImageURL = storedSession.image ?? ""
                 clickyLaunchEntitlementStatusLabel = formatEntitlementStatus(storedSession.entitlement)
                 setLaunchTrialState(formatLaunchTrialState(
                     storedSession.trial,

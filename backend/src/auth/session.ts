@@ -4,7 +4,7 @@ import type { Context } from "hono"
 import { createAuth } from "./config"
 import type { Env } from "../env"
 
-type AuthSession = Awaited<ReturnType<Auth["api"]["getSession"]>>
+export type AuthSession = Awaited<ReturnType<Auth["api"]["getSession"]>>
 
 export async function getSession(c: Context<{ Bindings: Env }>): Promise<AuthSession> {
   const auth = createAuth(c.env)
