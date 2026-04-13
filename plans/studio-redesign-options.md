@@ -1,5 +1,10 @@
 # Studio Redesign Options
 
+Status note:
+
+- the current `CompanionStudioNextView` already reflects part of this redesign direction
+- this doc should now be treated as design exploration and cleanup guidance rather than a pure future-state brainstorm
+
 > Three distinct UI directions for Clicky's Studio panel, aligned to the current web app visual language and the launch product direction. In every option below, diagnostics and test controls are removed from the main user-facing flow and live in a dedicated support/debug surface.
 
 ## Shared Principles

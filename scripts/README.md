@@ -40,6 +40,10 @@ The script checks GitHub for the latest release (e.g. `v1.5`, build 6) and autom
 8. Creates a GitHub Release with the DMG attached
 9. Commits and pushes the updated `appcast.xml` in this repo
 
+## Important repo note
+
+Using `xcodebuild` from the terminal is still discouraged for normal local iteration in this repo because it can disturb TCC-sensitive permissions. This script is for release packaging only, not the day-to-day build loop.
+
 ### One-time setup (prerequisites)
 
 1. **Xcode** with your Developer ID signing certificate

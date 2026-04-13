@@ -1,6 +1,7 @@
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -25,6 +26,7 @@ import {
 } from '../lib/webCompanion'
 
 const VISITOR_STORAGE_KEY = 'clicky:web-companion:visitor:v1'
+const SESSION_STORAGE_KEY = 'clicky:web-companion:session:v1'
 const MAX_AUTOMATED_SPOKEN_MESSAGES = 4
 const MIN_SPEECH_GAP_MS = 12_000
 const SECTION_SETTLE_DELAY_MS = 1_600
@@ -77,6 +79,15 @@ interface WebCompanionExperienceValue {
   }) => Promise<void>
 }
 
+type StartExperienceFn = (options?: {
+  mode?: StartExperienceMode
+}) => Promise<void>
+
+type StoredSessionCredentials = {
+  sessionId: string
+  sessionToken: string
+}
+
 const WebCompanionExperienceContext =
   createContext<WebCompanionExperienceValue | null>(null)
 
@@ -94,6 +105,44 @@ function writeStoredVisitorId(visitorId: string) {
   }
 
   window.localStorage.setItem(VISITOR_STORAGE_KEY, visitorId)
+}
+
+function readStoredSessionCredentials(): StoredSessionCredentials | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(SESSION_STORAGE_KEY)
+    if (!storedValue) {
+      return null
+    }
+
+    const parsedValue = JSON.parse(storedValue) as unknown
+    if (
+      typeof parsedValue === 'object' &&
+      parsedValue !== null &&
+      typeof (parsedValue as StoredSessionCredentials).sessionId === 'string' &&
+      typeof (parsedValue as StoredSessionCredentials).sessionToken === 'string'
+    ) {
+      return parsedValue as StoredSessionCredentials
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+function writeStoredSessionCredentials(credentials: StoredSessionCredentials) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.localStorage.setItem(
+    SESSION_STORAGE_KEY,
+    JSON.stringify(credentials)
+  )
 }
 
 function stripMarkdownArtifacts(text: string) {
@@ -180,6 +229,8 @@ export function WebCompanionExperienceProvider({
   )
 
   const sessionRef = useRef<WebCompanionSessionSnapshot | null>(null)
+  const sessionTokenRef = useRef<string | null>(null)
+  const startExperienceRef = useRef<StartExperienceFn | null>(null)
   const statusRef = useRef<ExperienceStatus>('idle')
   const activeSectionIdRef = useRef<string | null>(activeSectionId)
   const isReadyForVoiceRef = useRef(false)
@@ -278,16 +329,16 @@ export function WebCompanionExperienceProvider({
     }
   }, [])
 
-  const hideBubble = () => {
+  const hideBubble = useCallback(() => {
     if (bubbleTimeoutRef.current !== null) {
       window.clearTimeout(bubbleTimeoutRef.current)
       bubbleTimeoutRef.current = null
     }
 
     setBubbleText(null)
-  }
+  }, [])
 
-  const showTemporaryBubble = (text: string, delayMs = 2_400) => {
+  const showTemporaryBubble = useCallback((text: string, delayMs = 2_400) => {
     setBubbleText(text)
 
     if (bubbleTimeoutRef.current !== null) {
@@ -297,24 +348,24 @@ export function WebCompanionExperienceProvider({
     bubbleTimeoutRef.current = window.setTimeout(() => {
       hideBubble()
     }, delayMs)
-  }
+  }, [hideBubble])
 
-  const applyResponseBubble = (bubble: WebCompanionReply['bubble']) => {
+  const applyResponseBubble = useCallback((bubble: WebCompanionReply['bubble']) => {
     if (!bubble || bubble.mode !== 'brief' || !bubble.text?.trim()) {
       return
     }
 
     showTemporaryBubble(stripMarkdownArtifacts(bubble.text), 2_800)
-  }
+  }, [showTemporaryBubble])
 
-  const executeActions = (actions: WebCompanionAction[]) => {
+  const executeActions: (actions: WebCompanionAction[]) => void = useCallback((actions: WebCompanionAction[]) => {
     if (!actions.length) {
       return
     }
 
     for (const action of actions) {
       if (action.type === 'open_companion') {
-        void startExperience()
+        void startExperienceRef.current?.()
         continue
       }
 
@@ -370,9 +421,9 @@ export function WebCompanionExperienceProvider({
         }
       }, action.type === 'pulse' ? 2900 : 2200)
     }
-  }
+  }, [])
 
-  const showBubbleText = async (text: string) => {
+  const showBubbleText = useCallback(async (text: string) => {
     const nextText = stripMarkdownArtifacts(text)
     setBubbleText(nextText)
 
@@ -383,9 +434,9 @@ export function WebCompanionExperienceProvider({
     bubbleTimeoutRef.current = window.setTimeout(() => {
       setBubbleText(null)
     }, 6_000)
-  }
+  }, [])
 
-  const clearBubbleSoon = (delayMs: number) => {
+  const clearBubbleSoon = useCallback((delayMs: number) => {
     if (bubbleTimeoutRef.current !== null) {
       window.clearTimeout(bubbleTimeoutRef.current)
     }
@@ -393,9 +444,9 @@ export function WebCompanionExperienceProvider({
     bubbleTimeoutRef.current = window.setTimeout(() => {
       setBubbleText(null)
     }, delayMs)
-  }
+  }, [])
 
-  const playOpenClawAudio = async (
+  const playOpenClawAudio = useCallback(async (
     audio:
       | {
           audioBase64: string
@@ -462,15 +513,18 @@ export function WebCompanionExperienceProvider({
 
       audioElementRef.current = null
     }
-  }
+  }, [])
 
-  const ensureSession = async () => {
+  const ensureSession = useCallback(async () => {
     if (sessionRef.current) {
       return sessionRef.current
     }
 
+    const storedSessionCredentials = readStoredSessionCredentials()
     const payload = await bootstrapWebCompanionSession({
       visitorId: readStoredVisitorId(),
+      sessionId: storedSessionCredentials?.sessionId,
+      sessionToken: storedSessionCredentials?.sessionToken,
       path: window.location.pathname,
       currentSectionId: activeSectionId,
       referrerSource: document.referrer || undefined,
@@ -478,12 +532,17 @@ export function WebCompanionExperienceProvider({
     })
 
     writeStoredVisitorId(payload.visitorId)
+    sessionTokenRef.current = payload.sessionToken
+    writeStoredSessionCredentials({
+      sessionId: payload.session.id,
+      sessionToken: payload.sessionToken,
+    })
     visitedSectionIdsRef.current = payload.session.visitedSectionIds
     setSession(payload.session)
     return payload.session
-  }
+  }, [activeSectionId])
 
-  const buildSiteLayoutReferenceContext =
+  const buildSiteLayoutReferenceContext = useCallback(
     (): WebCompanionScreenContextInput | null => {
       if (typeof document === 'undefined') {
         return null
@@ -616,14 +675,28 @@ export function WebCompanionExperienceProvider({
         ],
         source: 'site-layout-reference',
       }
-    }
+    },
+    [experienceMode]
+  )
 
-  const captureScreenContext =
-    async (): Promise<WebCompanionScreenContextInput | null> => {
-      return buildSiteLayoutReferenceContext()
-    }
+  const captureScreenContext = useCallback(
+    async (): Promise<WebCompanionScreenContextInput | null> =>
+      buildSiteLayoutReferenceContext(),
+    [buildSiteLayoutReferenceContext]
+  )
 
-  const dispatchEvent = async (
+  const dispatchEvent: (
+    input: {
+      type: string
+      path: string
+      sectionId?: string | null
+      ctaId?: string | null
+      visitedSectionIds?: string[]
+    },
+    options?: {
+      shouldSpeak?: boolean
+    }
+  ) => Promise<void> = useCallback(async (
     input: {
       type: string
       path: string
@@ -641,7 +714,12 @@ export function WebCompanionExperienceProvider({
     })
 
     const currentSession = await ensureSession()
-    const payload = await sendWebCompanionEvent(currentSession.id, {
+    const sessionToken = sessionTokenRef.current
+    if (!sessionToken) {
+      throw new Error('Clicky session token is missing.')
+    }
+
+    const payload = await sendWebCompanionEvent(currentSession.id, sessionToken, {
       ...input,
       screenContext: await captureScreenContext(),
     })
@@ -669,16 +747,29 @@ export function WebCompanionExperienceProvider({
       hasAudio: Boolean(payload.response?.audio?.audioBase64),
       type: input.type,
     })
-  }
+  }, [
+    applyResponseBubble,
+    captureScreenContext,
+    clearBubbleSoon,
+    ensureSession,
+    executeActions,
+    playOpenClawAudio,
+    showBubbleText,
+  ])
 
-  const dispatchVoiceMessage = async (transcript: string) => {
+  const dispatchVoiceMessage = useCallback(async (transcript: string) => {
     logVoiceDebug('voice-message:start', {
       transcriptLength: transcript.length,
     })
     setVoiceTurnPhase('thinking')
 
     const currentSession = await ensureSession()
-    const payload = await sendWebCompanionMessage(currentSession.id, {
+    const sessionToken = sessionTokenRef.current
+    if (!sessionToken) {
+      throw new Error('Clicky session token is missing.')
+    }
+
+    const payload = await sendWebCompanionMessage(currentSession.id, sessionToken, {
       message: transcript,
       path: window.location.pathname,
       sectionId: activeSectionIdRef.current,
@@ -705,9 +796,17 @@ export function WebCompanionExperienceProvider({
     logVoiceDebug('voice-message:done', {
       hasAudio: Boolean(payload.response?.audio?.audioBase64),
     })
-  }
+  }, [
+    applyResponseBubble,
+    captureScreenContext,
+    clearBubbleSoon,
+    ensureSession,
+    executeActions,
+    playOpenClawAudio,
+    showBubbleText,
+  ])
 
-  const ensureMicrophoneStream = async () => {
+  const ensureMicrophoneStream = useCallback(async () => {
     if (
       typeof navigator === 'undefined' ||
       !navigator.mediaDevices ||
@@ -729,17 +828,21 @@ export function WebCompanionExperienceProvider({
     })
 
     return mediaStreamRef.current
-  }
+  }, [])
 
-  const requestMicPermission = async () => {
+  const requestMicPermission = useCallback(async () => {
     const stream = await ensureMicrophoneStream()
     if (!stream.getAudioTracks().length) {
       throw new Error('No microphone track is available.')
     }
-  }
+  }, [ensureMicrophoneStream])
 
-  const dispatchRecordedAudio = async (audioBlob: Blob) => {
+  const dispatchRecordedAudio = useCallback(async (audioBlob: Blob) => {
     const currentSession = await ensureSession()
+    const sessionToken = sessionTokenRef.current
+    if (!sessionToken) {
+      throw new Error('Clicky session token is missing.')
+    }
     setVoiceTurnPhase('transcribing')
     hideBubble()
 
@@ -748,7 +851,7 @@ export function WebCompanionExperienceProvider({
       sizeBytes: audioBlob.size,
     })
 
-    const transcription = await transcribeWebCompanionAudio(currentSession.id, {
+    const transcription = await transcribeWebCompanionAudio(currentSession.id, sessionToken, {
       audioBlob,
       filename: `clicky-web-${Date.now()}.webm`,
     })
@@ -787,9 +890,9 @@ export function WebCompanionExperienceProvider({
           setIsProcessingVoiceTurn(false)
         })
     }, 260)
-  }
+  }, [ensureSession, dispatchVoiceMessage, hideBubble, showTemporaryBubble])
 
-  const ensureRecorder = async () => {
+  const ensureRecorder = useCallback(async () => {
     if (typeof MediaRecorder === 'undefined') {
       throw new Error('MediaRecorder is not supported in this browser.')
     }
@@ -851,9 +954,9 @@ export function WebCompanionExperienceProvider({
 
     mediaRecorderRef.current = recorder
     return recorder
-  }
+  }, [dispatchRecordedAudio, ensureMicrophoneStream, showTemporaryBubble])
 
-  const startListening = () => {
+  const startListening = useCallback(() => {
     if (
       !isReadyForVoiceRef.current ||
       isListeningRef.current ||
@@ -917,18 +1020,18 @@ export function WebCompanionExperienceProvider({
           message: error instanceof Error ? error.message : String(error),
         })
       })
-  }
+  }, [ensureRecorder, hideBubble, showTemporaryBubble])
 
-  const stopListening = () => {
+  const stopListening = useCallback(() => {
     if (!captureSessionActiveRef.current) {
       return
     }
 
     logVoiceDebug('recorder:stop-requested', {})
     mediaRecorderRef.current?.stop()
-  }
+  }, [])
 
-  const startExperience = async (options?: {
+  const startExperience: StartExperienceFn = useCallback(async (options?: {
     mode?: StartExperienceMode
   }) => {
     if (status === 'requesting-permission') {
@@ -980,7 +1083,11 @@ export function WebCompanionExperienceProvider({
           : 'Clicky could not start the guided experience. You can still watch the demo below.'
       )
     }
-  }
+  }, [activeSectionId, dispatchEvent, ensureSession, requestMicPermission, status])
+
+  useEffect(() => {
+    startExperienceRef.current = startExperience
+  }, [startExperience])
 
   useEffect(() => {
     if (activeSectionId && !visitedSectionIdsRef.current.includes(activeSectionId)) {
@@ -1047,7 +1154,7 @@ export function WebCompanionExperienceProvider({
         sectionAnnouncementTimeoutRef.current = null
       }
     }
-  }, [activeSection, activeSectionId, isListening, isProcessingVoiceTurn, isReadyForVoice, isSpeaking, status])
+  }, [activeSection, activeSectionId, dispatchEvent, isListening, isProcessingVoiceTurn, isReadyForVoice, isSpeaking, status])
 
   useEffect(() => {
     if (status !== 'active') {
@@ -1097,7 +1204,7 @@ export function WebCompanionExperienceProvider({
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('blur', handleBlur)
     }
-  }, [status])
+  }, [startListening, status, stopListening])
 
   const companionVisualState = useMemo<CompanionVisualState>(() => {
     if (status !== 'active') {
@@ -1143,6 +1250,7 @@ export function WebCompanionExperienceProvider({
       guidanceTarget,
       isListening,
       isSpeaking,
+      startExperience,
       status,
     ]
   )

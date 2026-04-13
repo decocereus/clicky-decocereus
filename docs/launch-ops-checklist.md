@@ -1,5 +1,10 @@
 # Launch Ops Checklist
 
+Status note:
+
+- this checklist is still current
+- the items here remain mostly operational verification work rather than missing application code
+
 Use this as the operational checklist before shipping a new Clicky build.
 
 ## Launch Run Order

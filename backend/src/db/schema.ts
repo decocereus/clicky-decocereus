@@ -63,6 +63,13 @@ export const webCompanionTriggerTypeEnum = pgEnum(
   ["bootstrap", "event", "message", "fallback"],
 )
 
+export const rateLimitScopeEnum = pgEnum("rate_limit_scope", [
+  "web_companion_sessions",
+  "web_companion_events",
+  "web_companion_messages",
+  "web_companion_transcribe",
+])
+
 export const polarCustomerLinks = pgTable(
   "polar_customer_link",
   {
@@ -273,6 +280,30 @@ export const webCompanionTurns = pgTable(
     sessionCreatedIndex: index("web_companion_turn_session_created_idx").on(
       table.sessionId,
       table.createdAt,
+    ),
+  }),
+)
+
+export const rateLimitWindows = pgTable(
+  "rate_limit_window",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    scope: rateLimitScopeEnum("scope").notNull(),
+    key: text("key").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").default(1).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    scopeKeyWindowIndex: uniqueIndex("rate_limit_window_scope_key_window_idx").on(
+      table.scope,
+      table.key,
+      table.windowStart,
+    ),
+    scopeUpdatedAtIndex: index("rate_limit_window_scope_updated_at_idx").on(
+      table.scope,
+      table.updatedAt,
     ),
   }),
 )

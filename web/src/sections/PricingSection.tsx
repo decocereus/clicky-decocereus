@@ -2,6 +2,7 @@ import { useRef, useLayoutEffect } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { Check, Sparkles, Shield, Zap, Download } from 'lucide-react';
+import { getDownloadUrl } from '../lib/download';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -10,6 +11,7 @@ export function PricingSection() {
   const headingRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const featuresRef = useRef<HTMLDivElement>(null);
+  const downloadUrl = getDownloadUrl();
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
@@ -77,10 +79,10 @@ export function PricingSection() {
   }, []);
 
   const features = [
-    { icon: Zap, text: 'Unlimited screen conversations' },
-    { icon: Sparkles, text: 'Workflow recording & replay' },
-    { icon: Shield, text: 'YouTube → step-by-step automation' },
-    { icon: Check, text: 'Custom personality & voice' },
+    { icon: Zap, text: 'Unlimited guided conversations while you work' },
+    { icon: Sparkles, text: 'Workflow capture and replay' },
+    { icon: Shield, text: 'Tutorial videos turned into step-by-step guidance' },
+    { icon: Check, text: 'Custom personality and voice' },
     { icon: Check, text: 'Priority support via email' },
     { icon: Check, text: 'All future updates included' },
   ];
@@ -105,7 +107,7 @@ export function PricingSection() {
             }}
           >
             <span className="font-semibold">One plan.</span>{' '}
-            <span className="font-serif-italic text-lavender">Everything included.</span>
+            <span className="font-serif-italic text-lavender">Keep Clicky with you.</span>
           </h2>
         </div>
 
@@ -141,8 +143,9 @@ export function PricingSection() {
             </div>
 
             {/* CTA Button */}
-            <button
+            <a
               id="pricing-download-cta"
+              href={downloadUrl}
               data-companion-cta-id="pricing-download-cta"
               data-companion-section-id="pricing"
               data-companion-target-kind="cta"
@@ -150,7 +153,7 @@ export function PricingSection() {
             >
               <Download size={18} className="group-hover:translate-y-0.5 transition-transform" />
               Download for macOS
-            </button>
+            </a>
 
             {/* Features Grid - Auto-sizing for content */}
             <div

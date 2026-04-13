@@ -1,6 +1,6 @@
 # Clicky Backend
 
-TypeScript backend for launch auth, billing, and entitlements.
+TypeScript backend for launch auth, billing, entitlements, the website companion, and tutorial extraction proxying.
 
 This service is separate from `worker/`:
 
@@ -49,12 +49,14 @@ For local development you can start from `.dev.vars.example`:
 cp .dev.vars.example .dev.vars
 ```
 
-The current scaffold exposes:
+The current implementation exposes:
 
 - health routes
 - Better Auth handler routes at `/api/auth/*`
 - session inspection at `/v1/me`
-- placeholder native auth contract routes under `/v1/auth/native/*`
+- native auth handoff and exchange routes under `/v1/auth/native/*`
+- entitlement and launch trial routes under `/v1/entitlements/*` and `/v1/trial/*`
+- Polar checkout, restore, callback, and webhook routes under `/v1/billing/*`
 - web companion session bootstrap, events, and messages under `/v1/web-companion/*`
 - authenticated tutorial extraction proxy routes under `/v1/tutorials/*`
 
@@ -64,6 +66,21 @@ For the web companion runtime:
   when you want the backend to speak the native OpenClaw Gateway WebSocket protocol
 - set `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` when you want the backend to
   synthesize website companion audio directly through ElevenLabs
+
+## Current reality
+
+This service is no longer just a contract scaffold.
+
+It already contains:
+
+- Better Auth-backed session routes
+- native auth handoff storage and one-time code exchange
+- launch entitlement and launch trial state
+- Polar checkout creation and restore reconciliation
+- Polar webhook processing
+- per-visitor website companion sessions
+- backend-mediated OpenClaw website companion routing with local fallback
+- tutorial extraction proxy routes to an external ingestion service
 
 ## Schema generation
 

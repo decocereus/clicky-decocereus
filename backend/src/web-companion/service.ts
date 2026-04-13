@@ -25,9 +25,26 @@ const MAX_PROACTIVE_NUDGES_PER_SESSION = 3
 const MAX_MESSAGE_LENGTH = 800
 const MAX_SCREEN_ATTACHMENTS = 2
 const MAX_SCREEN_ATTACHMENT_BASE64_LENGTH = 3_000_000
+const SESSION_TOKEN_BYTE_LENGTH = 32
 
 type WebCompanionSessionRow = typeof webCompanionSessions.$inferSelect
 type WebCompanionTurnRow = typeof webCompanionTurns.$inferSelect
+
+export class WebCompanionAccessError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "WebCompanionAccessError"
+    this.status = status
+  }
+}
+
+export function isWebCompanionAccessError(
+  error: unknown,
+): error is WebCompanionAccessError {
+  return error instanceof WebCompanionAccessError
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -134,6 +151,7 @@ function normalizeSessionMetadata(raw: unknown): WebCompanionSessionMetadata {
       visitedSectionIds: [],
       nudgedSectionIds: [],
       mutedUntil: null,
+      sessionTokenHash: null,
     }
   }
 
@@ -148,7 +166,37 @@ function normalizeSessionMetadata(raw: unknown): WebCompanionSessionMetadata {
       typeof raw.mutedUntil === "string" && raw.mutedUntil.trim()
         ? raw.mutedUntil
         : null,
+    sessionTokenHash:
+      typeof raw.sessionTokenHash === "string" && raw.sessionTokenHash.trim()
+        ? raw.sessionTokenHash.trim()
+        : null,
   }
+}
+
+function encodeBase64Url(bytes: Uint8Array) {
+  let binary = ""
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "")
+}
+
+function createSessionToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(SESSION_TOKEN_BYTE_LENGTH))
+  return encodeBase64Url(bytes)
+}
+
+async function hashSessionToken(token: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(token),
+  )
+
+  return encodeBase64Url(new Uint8Array(digest))
 }
 
 function mergeVisitedSectionIds(
@@ -244,6 +292,66 @@ async function getSessionBundle(env: Env, sessionId: string) {
     session,
     visitor,
   }
+}
+
+async function issueSessionToken(
+  env: Env,
+  session: WebCompanionSessionRow,
+) {
+  const sessionToken = createSessionToken()
+  const metadata = normalizeSessionMetadata(session.metadata)
+  const nextMetadata: WebCompanionSessionMetadata = {
+    ...metadata,
+    sessionTokenHash: await hashSessionToken(sessionToken),
+  }
+
+  const updatedSession = await updateSessionState(env, session.id, {
+    metadata: nextMetadata,
+  })
+
+  return {
+    sessionToken,
+    session: updatedSession ?? session,
+  }
+}
+
+async function requireAuthorizedSessionBundle(
+  env: Env,
+  sessionId: string,
+  sessionToken: unknown,
+) {
+  const normalizedSessionToken =
+    typeof sessionToken === "string" ? sessionToken.trim() : ""
+
+  if (!normalizedSessionToken) {
+    throw new WebCompanionAccessError(
+      "Web companion session token is required.",
+      401,
+    )
+  }
+
+  const bundle = await getSessionBundle(env, sessionId)
+  if (!bundle) {
+    return null
+  }
+
+  const metadata = normalizeSessionMetadata(bundle.session.metadata)
+  if (!metadata.sessionTokenHash) {
+    throw new WebCompanionAccessError(
+      "Web companion session is missing access credentials.",
+      403,
+    )
+  }
+
+  const tokenHash = await hashSessionToken(normalizedSessionToken)
+  if (tokenHash !== metadata.sessionTokenHash) {
+    throw new WebCompanionAccessError(
+      "Unauthorized web companion session access.",
+      403,
+    )
+  }
+
+  return bundle
 }
 
 async function storeAssistantTurn(
@@ -435,6 +543,8 @@ export async function bootstrapWebCompanionSession(
   env: Env,
   input: {
     visitorId?: unknown
+    sessionId?: unknown
+    sessionToken?: unknown
     path?: unknown
     currentSectionId?: unknown
     referrerSource?: unknown
@@ -452,6 +562,10 @@ export async function bootstrapWebCompanionSession(
       ? input.currentSectionId
       : null
   const activeCutoff = new Date(Date.now() - ACTIVE_SESSION_WINDOW_MS)
+  const requestedSessionId =
+    typeof input.sessionId === "string" && input.sessionId.trim()
+      ? input.sessionId.trim()
+      : null
 
   const [existingSession] = await db
     .select()
@@ -467,22 +581,46 @@ export async function bootstrapWebCompanionSession(
     .limit(1)
 
   if (existingSession) {
-    const history = await listRecentTurns(env, existingSession.id)
-    console.info("[web-companion] bootstrap:resume", {
+    if (requestedSessionId === existingSession.id) {
+      const authorizedBundle = await requireAuthorizedSessionBundle(
+        env,
+        existingSession.id,
+        input.sessionToken,
+      ).catch((error) => {
+        if (isWebCompanionAccessError(error)) {
+          return null
+        }
+
+        throw error
+      })
+
+      if (authorizedBundle) {
+        const issuedAccess = await issueSessionToken(env, existingSession)
+        const history = await listRecentTurns(env, existingSession.id)
+        console.info("[web-companion] bootstrap:resume", {
+          sessionId: existingSession.id,
+          visitorId: visitor.anonymousId,
+        })
+        return {
+          visitorId: visitor.anonymousId,
+          session: serializeSession(issuedAccess.session, visitor.anonymousId),
+          sessionToken: issuedAccess.sessionToken,
+          history: history.map(serializeTurn),
+        }
+      }
+    }
+
+    console.info("[web-companion] bootstrap:existing-session-unbound", {
       sessionId: existingSession.id,
       visitorId: visitor.anonymousId,
     })
-    return {
-      visitorId: visitor.anonymousId,
-      session: serializeSession(existingSession, visitor.anonymousId),
-      history: history.map(serializeTurn),
-    }
   }
 
   const initialMetadata: WebCompanionSessionMetadata = {
     visitedSectionIds: currentSectionId ? [currentSectionId] : [],
     nudgedSectionIds: [],
     mutedUntil: null,
+    sessionTokenHash: null,
   }
 
   const [newSession] = await db
@@ -496,19 +634,26 @@ export async function bootstrapWebCompanionSession(
     })
     .returning()
 
+  const issuedAccess = await issueSessionToken(env, newSession)
+
   console.info("[web-companion] bootstrap:new", {
     sessionId: newSession.id,
     visitorId: visitor.anonymousId,
   })
   return {
     visitorId: visitor.anonymousId,
-    session: serializeSession(newSession, visitor.anonymousId),
+    session: serializeSession(issuedAccess.session, visitor.anonymousId),
+    sessionToken: issuedAccess.sessionToken,
     history: [],
   }
 }
 
-export async function getWebCompanionSessionSnapshot(env: Env, sessionId: string) {
-  const bundle = await getSessionBundle(env, sessionId)
+export async function getWebCompanionSessionSnapshot(
+  env: Env,
+  sessionId: string,
+  sessionToken?: unknown,
+) {
+  const bundle = await requireAuthorizedSessionBundle(env, sessionId, sessionToken)
 
   if (!bundle) {
     return null
@@ -521,6 +666,14 @@ export async function getWebCompanionSessionSnapshot(env: Env, sessionId: string
     session: serializeSession(bundle.session, bundle.visitor.anonymousId),
     history: history.map(serializeTurn),
   }
+}
+
+export async function assertWebCompanionSessionAccess(
+  env: Env,
+  sessionId: string,
+  sessionToken?: unknown,
+) {
+  return requireAuthorizedSessionBundle(env, sessionId, sessionToken)
 }
 
 function shouldSendProactiveNudge(
@@ -572,6 +725,7 @@ function shouldSendProactiveNudge(
 export async function recordWebCompanionEvent(
   env: Env,
   sessionId: string,
+  sessionToken: unknown,
   input: {
     type?: unknown
     path?: unknown
@@ -586,7 +740,7 @@ export async function recordWebCompanionEvent(
     sessionId,
     type: input.type,
   })
-  const bundle = await getSessionBundle(env, sessionId)
+  const bundle = await requireAuthorizedSessionBundle(env, sessionId, sessionToken)
 
   if (!bundle) {
     return null
@@ -707,6 +861,7 @@ export async function recordWebCompanionEvent(
 export async function sendWebCompanionMessage(
   env: Env,
   sessionId: string,
+  sessionToken: unknown,
   input: {
     message?: unknown
     path?: unknown
@@ -718,7 +873,7 @@ export async function sendWebCompanionMessage(
   console.info("[web-companion] message:start", {
     sessionId,
   })
-  const bundle = await getSessionBundle(env, sessionId)
+  const bundle = await requireAuthorizedSessionBundle(env, sessionId, sessionToken)
 
   if (!bundle) {
     return null
@@ -814,8 +969,12 @@ export async function sendWebCompanionMessage(
   }
 }
 
-export async function endWebCompanionSession(env: Env, sessionId: string) {
-  const bundle = await getSessionBundle(env, sessionId)
+export async function endWebCompanionSession(
+  env: Env,
+  sessionId: string,
+  sessionToken?: unknown,
+) {
+  const bundle = await requireAuthorizedSessionBundle(env, sessionId, sessionToken)
 
   if (!bundle) {
     return null

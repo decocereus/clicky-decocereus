@@ -2,6 +2,12 @@
 
 > Source PRD: Clicky product vision, the YouTube tutorial discussion, and the current desktop shell foundation.
 
+Status note:
+
+- phases 1 through 4 are partially implemented in code
+- the remaining work is mostly around persistence, polish, and verification
+- this file should now be read as a status-aware implementation plan, not a greenfield plan
+
 ## Why this is its own track
 
 The YouTube tutorial flow is still part of Clicky's learning wedge, but it should not depend on Teach Mode shipping first.
@@ -51,10 +57,11 @@ Add a dedicated tutorial-import flow that accepts a YouTube URL, validates it, a
 
 ### Acceptance criteria
 
-- [ ] User can submit a YouTube URL from the shell or Studio.
-- [ ] Clicky creates a local import draft with status and source metadata.
-- [ ] Import failures are explained clearly enough for the user to retry or switch sources.
-- [ ] The import flow does not depend on Teach Mode or recorded workflows.
+- [x] User can submit a YouTube URL from the companion shell.
+- [x] Clicky creates a local import draft with status and source metadata.
+- [x] Import failures are surfaced in the current shell flow.
+- [x] The import flow does not depend on Teach Mode or recorded workflows.
+- [ ] Studio-side import entry and richer review are still incomplete.
 
 ---
 
@@ -70,10 +77,11 @@ Integrate the external extraction pipeline behind a narrow adapter. From a singl
 
 ### Acceptance criteria
 
-- [ ] Clicky can request transcript and frame extraction for a YouTube URL.
-- [ ] Imported material includes transcript text, timestamps, and representative visual frames.
-- [ ] The adapter isolates the app from extractor-specific details.
-- [ ] Extraction can fail independently without corrupting the local draft.
+- [x] Clicky can request transcript and frame extraction for a YouTube URL.
+- [x] Imported material includes transcript text, timestamps, and representative visual frames.
+- [x] The adapter isolates the app from extractor-specific details.
+- [x] Extraction can fail independently without corrupting the local draft.
+- [ ] This still needs verification against real production extractor behavior.
 
 ---
 
@@ -89,10 +97,11 @@ Hand the imported evidence bundle to the user's selected agent backend and ask i
 
 ### Acceptance criteria
 
-- [ ] Imported tutorial evidence can be compiled into a structured lesson draft.
-- [ ] The compiled result is better than a raw transcript and clearly step-based.
-- [ ] Clicky can save the compiled lesson locally without requiring a manual Studio-only flow.
-- [ ] Studio can still review and edit the resulting lesson draft.
+- [x] Imported tutorial evidence can be compiled into a structured lesson draft.
+- [x] The compiled result is step-based rather than a raw transcript dump.
+- [x] Clicky can hold the compiled lesson locally for the active app session without requiring a Studio-only flow.
+- [ ] Durable local persistence across app restarts still needs work.
+- [ ] Studio review/edit support still needs work.
 
 ---
 
@@ -108,10 +117,10 @@ Build a guided playback mode for imported tutorials. Clicky should present the c
 
 ### Acceptance criteria
 
-- [ ] Clicky can run a compiled tutorial step by step.
-- [ ] The learner can move through steps and preserve progress locally.
-- [ ] Clicky can answer contextual questions without losing the current tutorial position.
-- [ ] Inline source-video context can be shown when it helps, but the lesson remains usable without constant playback.
+- [x] Clicky can run a compiled tutorial step by step.
+- [ ] The learner can preserve progress durably across sessions.
+- [x] Clicky can answer contextual questions without losing the current tutorial position.
+- [x] Inline source-video context can be shown when it helps, and the lesson remains usable without constant playback.
 
 ---
 
@@ -130,4 +139,4 @@ Polish the review surface in Studio so imported tutorials feel like a real produ
 - [ ] Imported tutorials can be reopened and resumed later.
 - [ ] Users can review lesson structure, progress, and import diagnostics in Studio.
 - [ ] The Studio surface feels intentionally designed for review and editing, not like a temporary debug panel.
-- [ ] The overall flow is launch-friendly and does not reintroduce Teach Mode complexity by accident.
+- [ ] The overall flow is launch-friendly and proven against real extractor and model output, not just local happy-path behavior.

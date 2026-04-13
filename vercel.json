@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "installCommand": "cd web && npm install",
-  "buildCommand": "cd web && npm run build",
+  "installCommand": "cd web && bun install --frozen-lockfile",
+  "buildCommand": "cd web && bun run build",
   "outputDirectory": "web/dist",
   "routes": [
     {

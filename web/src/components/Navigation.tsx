@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
+import { getDownloadUrl } from '../lib/download';
 
 export function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const downloadUrl = getDownloadUrl();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -63,14 +65,15 @@ export function Navigation() {
             >
               Pricing
             </button>
-            <button
+            <a
               id="nav-download-cta"
+              href={downloadUrl}
               data-companion-cta-id="nav-download-cta"
               data-companion-target-kind="cta"
               className="bg-charcoal text-warm px-5 py-2.5 rounded-full text-sm font-medium hover:bg-lavender transition-colors"
             >
               Download
-            </button>
+            </a>
           </div>
 
           {/* Mobile Menu Button */}
@@ -111,14 +114,15 @@ export function Navigation() {
             >
               Pricing
             </button>
-            <button
+            <a
               id="nav-mobile-download-cta"
+              href={downloadUrl}
               data-companion-cta-id="nav-mobile-download-cta"
               data-companion-target-kind="cta"
               className="bg-charcoal text-warm px-6 py-3 rounded-full text-lg font-medium mt-4"
             >
               Download
-            </button>
+            </a>
           </div>
         </div>
       )}

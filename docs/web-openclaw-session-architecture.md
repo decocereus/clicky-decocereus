@@ -1,6 +1,14 @@
 # Clicky Website Companion: OpenClaw Session Architecture
 
-Status: recommended implementation architecture
+Status: partially implemented architecture
+
+Implementation note:
+
+- the backend-mediated session architecture described here now exists in code under `backend/src/web-companion/*`
+- the web client uses those routes from `web/src/components/WebCompanionExperience.tsx`
+- OpenClaw-backed generation plus local fallback exists
+- AssemblyAI transcription and ElevenLabs playback are backend-mediated when configured
+- remaining gaps are mostly around deeper verification, prompt tuning, and launch-quality QA
 
 ## Objective
 

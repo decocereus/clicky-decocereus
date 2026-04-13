@@ -5,6 +5,59 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
 gsap.registerPlugin(ScrollTrigger);
 
+const DEMO_FRAMES = [
+  {
+    caption: 'Clicky spots the active canvas and responds with context-aware help.',
+    src: '/screen_design_tool.jpg',
+    title: 'Screen-aware guidance',
+  },
+  {
+    caption: 'The companion points toward the right control instead of forcing you to search.',
+    src: '/screen_settings_panel.jpg',
+    title: 'Visual pointing',
+  },
+  {
+    caption: 'Clicky adapts to whatever app you are in, not just one workflow.',
+    src: '/screen_creative_app.jpg',
+    title: 'App-aware help',
+  },
+  {
+    caption: 'Once a pattern is clear, Clicky can help repeat it on demand.',
+    src: '/screen_workflow_builder.jpg',
+    title: 'Repeatable workflows',
+  },
+];
+
+function getEntranceTransform(direction: 'bottom' | 'top' | 'left' | 'right') {
+  switch (direction) {
+    case 'bottom':
+      return { y: '100vh', x: 0 };
+    case 'top':
+      return { y: '-100vh', x: 0 };
+    case 'left':
+      return { x: '-70vw', y: 0 };
+    case 'right':
+      return { x: '70vw', y: 0 };
+    default:
+      return { y: '100vh', x: 0 };
+  }
+}
+
+function getExitTransform(direction: 'left' | 'right' | 'top' | 'bottom') {
+  switch (direction) {
+    case 'left':
+      return { x: '-60vw', rotate: -4 };
+    case 'right':
+      return { x: '60vw', rotate: 4 };
+    case 'top':
+      return { y: '-60vh' };
+    case 'bottom':
+      return { y: '60vh' };
+    default:
+      return { x: '-60vw', rotate: -4 };
+  }
+}
+
 interface FeatureSectionProps {
   id: string;
   headline: string;
@@ -46,29 +99,6 @@ export function FeatureSection({
   const descRef = useRef<HTMLParagraphElement>(null);
   const stepsRef = useRef<HTMLDivElement>(null);
   const [demoFrameIndex, setDemoFrameIndex] = useState(0);
-
-  const demoFrames = [
-    {
-      caption: 'Clicky spots the active canvas and responds with context-aware help.',
-      src: '/screen_design_tool.jpg',
-      title: 'Screen-aware guidance',
-    },
-    {
-      caption: 'The companion points toward the right control instead of forcing you to search.',
-      src: '/screen_settings_panel.jpg',
-      title: 'Visual pointing',
-    },
-    {
-      caption: 'Clicky adapts to whatever app you are in, not just one workflow.',
-      src: '/screen_creative_app.jpg',
-      title: 'App-aware help',
-    },
-    {
-      caption: 'Once a pattern is clear, Clicky can help repeat it on demand.',
-      src: '/screen_workflow_builder.jpg',
-      title: 'Repeatable workflows',
-    },
-  ];
 
   const getBgClass = () => {
     switch (bgColor) {
@@ -113,36 +143,6 @@ export function FeatureSection({
     }
   };
 
-  const getEntranceTransform = () => {
-    switch (entranceDirection) {
-      case 'bottom':
-        return { y: '100vh', x: 0 };
-      case 'top':
-        return { y: '-100vh', x: 0 };
-      case 'left':
-        return { x: '-70vw', y: 0 };
-      case 'right':
-        return { x: '70vw', y: 0 };
-      default:
-        return { y: '100vh', x: 0 };
-    }
-  };
-
-  const getExitTransform = () => {
-    switch (exitDirection) {
-      case 'left':
-        return { x: '-60vw', rotate: -4 };
-      case 'right':
-        return { x: '60vw', rotate: 4 };
-      case 'top':
-        return { y: '-60vh' };
-      case 'bottom':
-        return { y: '60vh' };
-      default:
-        return { x: '-60vw', rotate: -4 };
-    }
-  };
-
   useLayoutEffect(() => {
     const section = sectionRef.current;
     if (!section) return;
@@ -158,8 +158,8 @@ export function FeatureSection({
         },
       });
 
-      const entrance = getEntranceTransform();
-      const exit = getExitTransform();
+      const entrance = getEntranceTransform(entranceDirection);
+      const exit = getExitTransform(exitDirection);
 
       // FASTER ENTRANCE PHASE (0-20%) - Quick build up for fast scrollers
       // Card entrance - comes in quickly
@@ -273,22 +273,23 @@ export function FeatureSection({
     }, section);
 
     return () => ctx.revert();
-  }, [entranceDirection, exitDirection, mascotPosition, description, showSteps]);
+  }, [description, entranceDirection, exitDirection, mascotPosition, showSteps]);
 
   useEffect(() => {
     if (!showDemoReel) {
-      setDemoFrameIndex(0);
       return undefined;
     }
 
     const intervalId = window.setInterval(() => {
-      setDemoFrameIndex((currentIndex) => (currentIndex + 1) % demoFrames.length);
+      setDemoFrameIndex((currentIndex) => (currentIndex + 1) % DEMO_FRAMES.length);
     }, 2200);
 
     return () => {
       window.clearInterval(intervalId);
     };
   }, [showDemoReel]);
+
+  const activeDemoFrame = DEMO_FRAMES[showDemoReel ? demoFrameIndex : 0];
 
   return (
     <section
@@ -362,7 +363,7 @@ export function FeatureSection({
           <div className="flex-1 relative overflow-hidden">
             {showDemoReel ? (
               <>
-                {demoFrames.map((frame, frameIndex) => (
+                {DEMO_FRAMES.map((frame, frameIndex) => (
                   <img
                     key={frame.src}
                     src={frame.src}
@@ -387,7 +388,7 @@ export function FeatureSection({
 
                 <div className="absolute inset-x-0 bottom-0 space-y-3 bg-gradient-to-t from-black/65 via-black/20 to-transparent px-5 pb-5 pt-16 text-white">
                   <div className="flex gap-1.5">
-                    {demoFrames.map((frame, frameIndex) => (
+                    {DEMO_FRAMES.map((frame, frameIndex) => (
                       <span
                         key={frame.src}
                         className="h-1.5 flex-1 rounded-full transition-all duration-500"
@@ -401,10 +402,10 @@ export function FeatureSection({
                     ))}
                   </div>
                   <p className="text-sm font-semibold tracking-[0.02em]">
-                    {demoFrames[demoFrameIndex]?.title}
+                    {activeDemoFrame?.title}
                   </p>
                   <p className="max-w-xl text-sm leading-6 text-white/88">
-                    {demoFrames[demoFrameIndex]?.caption}
+                    {activeDemoFrame?.caption}
                   </p>
                   <p className="text-xs uppercase tracking-[0.18em] text-white/70">
                     Enable mic + screen anytime for the live version

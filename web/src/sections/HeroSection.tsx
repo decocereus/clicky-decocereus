@@ -4,6 +4,7 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { CursorCompanion } from '../components/CursorCompanion';
 import { useWebCompanionExperience } from '../components/WebCompanionExperience';
 import { Download, LoaderCircle, Mic, PlayCircle, Sparkles } from 'lucide-react';
+import { getDownloadUrl } from '../lib/download';
 import {
   Dialog,
   DialogContent,
@@ -22,6 +23,7 @@ export function HeroSection() {
     status: companionStatus,
   } = useWebCompanionExperience();
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
+  const downloadUrl = getDownloadUrl();
   const sectionRef = useRef<HTMLDivElement>(null);
   const headlineRef = useRef<HTMLDivElement>(null);
   const subheadRef = useRef<HTMLParagraphElement>(null);
@@ -275,7 +277,7 @@ export function HeroSection() {
             ref={taglineRef}
             className="text-muted-elegant text-xs tracking-[0.2em] uppercase mb-6 font-mono"
           >
-            An unexpectedly conscious AI companion
+            Voice-first. Screen-aware. Ready to guide.
           </p>
 
           {/* Headline with mixed styling */}
@@ -287,8 +289,7 @@ export function HeroSection() {
                 lineHeight: 1.05,
               }}
             >
-              <span className="font-semibold">Soft.</span>{' '}
-              <span className="font-semibold">Fluid.</span>
+              <span className="font-semibold">Clicky stays</span>
             </h1>
             <h1
               className="text-lavender font-serif-italic mt-1"
@@ -297,7 +298,7 @@ export function HeroSection() {
                 lineHeight: 1.05,
               }}
             >
-              Intuitive.
+              next to your cursor
             </h1>
           </div>
 
@@ -306,14 +307,16 @@ export function HeroSection() {
             className="text-muted-elegant text-center mt-8 max-w-lg px-6 leading-relaxed"
             style={{ fontSize: 'clamp(14px, 1.2vw, 17px)' }}
           >
-            Clicky is an organic layer of intelligence that flows through your software, 
-            anticipating your needs before they become tasks.
+            Ask out loud. Clicky understands what you are looking at, points to the
+            right place, and helps you learn unfamiliar software without breaking your
+            flow.
           </p>
 
           <div ref={ctaRef} className="mt-10 flex flex-col items-center gap-4">
             <div className="flex flex-col items-center gap-3 sm:flex-row">
-              <button
+              <a
                 id="hero-download-cta"
+                href={downloadUrl}
                 data-companion-cta-id="hero-download-cta"
                 data-companion-section-id="hero-section"
                 data-companion-target-kind="cta"
@@ -323,7 +326,7 @@ export function HeroSection() {
                 <Sparkles size={18} className="relative z-10 group-hover:rotate-12 transition-transform duration-300" />
                 <span className="relative z-10">Download for macOS</span>
                 <Download size={18} className="relative z-10 group-hover:translate-y-0.5 transition-transform duration-300" />
-              </button>
+              </a>
 
               <button
                 id="hero-try-clicky-cta"
@@ -376,14 +379,16 @@ export function HeroSection() {
                 )
                 : (
                   <>
-                    Best experience: allow mic + screen. If not, Clicky still falls back gracefully and the next section will show a guided demo.
+                    Best experience here: allow mic. Clicky already knows this page, and
+                    the Mac app goes even further with live screen-aware guidance across
+                    real software.
                   </>
                 )}
             </p>
 
             {!isCompanionActive && !isDemoOnlyMode ? (
               <p className="text-center text-muted-elegant text-[11px]">
-                2-step voice demo: 1. Choose permissions. 2. Hold{' '}
+                Two-step live demo: 1. Choose permissions. 2. Hold{' '}
                 <span className="inline-flex items-center gap-1 align-middle">
                   <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
                     Ctrl
@@ -393,7 +398,7 @@ export function HeroSection() {
                     Option
                   </kbd>
                 </span>{' '}
-                and talk to Clicky.
+                and ask what you should do next.
               </p>
             ) : null}
 
@@ -414,8 +419,10 @@ export function HeroSection() {
                     Give Clicky the right context
                   </DialogTitle>
                   <DialogDescription className="max-w-lg text-sm leading-6 text-muted-elegant">
-                    For the best live demo, let Clicky hear you and see the site you are looking at.
-                    If you would rather not, the website still keeps going and the next section switches into a built-in demo reel.
+                    For the best live website demo, let Clicky hear you. It already has a
+                    semantic map of this page, so it can point you to the right controls
+                    without browser screen sharing. If you would rather not, the site keeps
+                    going and the next section switches into a built-in demo reel.
                   </DialogDescription>
                 </DialogHeader>
               </div>
@@ -440,7 +447,8 @@ export function HeroSection() {
                           Start live Clicky
                         </p>
                         <p className="mt-1 text-sm leading-6 text-muted-elegant">
-                          Ask for mic only. Clicky can still talk with you live and use the website target map to point at the right controls.
+                          Turn on the mic and talk naturally. Clicky uses the website target
+                          map to point at the right controls and answer in context.
                         </p>
                       </div>
                     </div>
@@ -462,18 +470,20 @@ export function HeroSection() {
                       <PlayCircle size={20} />
                     </div>
                     <div>
-                      <p className="text-base font-semibold text-charcoal">
-                        Watch the demo first
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-muted-elegant">
-                        No permissions yet. The site keeps going, and the next section shows a permission-free Clicky demo reel instead.
-                      </p>
+                        <p className="text-base font-semibold text-charcoal">
+                          Watch the demo first
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-muted-elegant">
+                          No permissions yet. Keep scrolling and the next section will show a
+                          permission-free Clicky demo reel instead.
+                        </p>
                     </div>
                   </button>
                 </div>
 
                 <p className="px-1 text-xs leading-5 text-muted-elegant">
-                  This web version now uses semantic website targets instead of browser screen share, so the live path only needs microphone permission.
+                  This web version uses semantic website targets instead of browser screen
+                  share, so the live path only needs microphone permission.
                 </p>
               </div>
             </div>

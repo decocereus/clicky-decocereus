@@ -1,5 +1,10 @@
 # Plan: Focus Mode Implementation Path
 
+Status note:
+
+- this remains planning-only
+- I did not find a corresponding implemented Focus Mode slice in the current codebase
+
 > Source PRD: Clicky product vision, focus-mode discussion, and the current desktop shell foundation.
 
 ## Why this is a separate track

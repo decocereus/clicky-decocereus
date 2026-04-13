@@ -1,5 +1,10 @@
 # Plan: YouTube Tutorial Playback UX Contract
 
+Status note:
+
+- the inline player, anchored bubble, keyboard controls, and pointing handoff model are now implemented
+- remaining work is mainly QA and polish, not first-pass UX invention
+
 This document defines the tutorial playback UX that Clicky should preserve when the imported tutorial flow lands in the cursor companion.
 
 ## Non-negotiable UX
@@ -113,14 +118,9 @@ These states should drive the overlay instead of ad hoc boolean combinations.
 
 ## Recommended implementation sequence
 
-1. Add tutorial playback state to `CompanionManager`.
-2. Generalize the overlay rendering so onboarding video mode and tutorial video mode share one anchored media surface pattern.
-3. Add keyboard handlers that only activate while the tutorial player surface is visible.
-4. Add the pointer handoff transition:
-   - inline player visible
-   - switch to pointer guidance
-   - pointing animation
-   - resume player if appropriate
+1. Verify the current playback surface against real tutorial sessions and pointing scenarios.
+2. Tighten any regressions in keyboard control, point handoff, and bubble anchoring.
+3. Preserve the same shared anchored-media pattern as more tutorial polish lands.
 
 ## Product rule
 

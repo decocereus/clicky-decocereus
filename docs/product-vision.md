@@ -137,6 +137,19 @@ These are also in scope:
 6. Deepen the trust + identity handshake.
 7. Expand local persona and appearance customization.
 
+## Status Note
+
+As of the current repo state:
+
+- steps `1` through `5` are materially implemented in code
+- step `6` is partial and still needs stronger trust semantics than registration + heartbeat alone
+- step `7` is still mostly future work
+
+The product has also expanded beyond the original version of this doc in two important ways:
+
+- Clicky now has a shared provider-agnostic assistant contract that already supports `Claude`, `Codex`, and `OpenClaw`
+- the repo includes a real launch-platform backend plus a website companion and tutorial-import path, even though the core thesis is still "Clicky is the shell"
+
 ## Product Test
 
 The product is on the right track if a user can say:

@@ -109,9 +109,6 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         if !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted {
             menuBarPanelManager?.showPanelOnLaunch()
         }
-        #if DEBUG
-        menuBarPanelManager?.showStudioOnLaunch()
-        #endif
         registerAsLoginItemIfNeeded()
         startSparkleUpdater()
     }

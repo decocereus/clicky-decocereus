@@ -2,9 +2,15 @@ import type { Context } from "hono"
 
 import type { Env } from "../env"
 import {
+  enforceRateLimit,
+  isRateLimitExceededError,
+} from "../rate-limit/service"
+import {
+  assertWebCompanionSessionAccess,
   bootstrapWebCompanionSession,
   endWebCompanionSession,
   getWebCompanionSessionSnapshot,
+  isWebCompanionAccessError,
   recordWebCompanionEvent,
   sendWebCompanionMessage,
 } from "./service"
@@ -14,12 +20,42 @@ function getUserAgent(c: Context<{ Bindings: Env }>) {
   return c.req.header("user-agent") ?? null
 }
 
+function getSessionToken(c: Context<{ Bindings: Env }>) {
+  return c.req.header("x-clicky-session-token") ?? null
+}
+
+function getClientIp(c: Context<{ Bindings: Env }>) {
+  const forwardedIp =
+    c.req.header("cf-connecting-ip") ??
+    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
+    null
+
+  return forwardedIp || "unknown"
+}
+
+function buildRateLimitKey(c: Context<{ Bindings: Env }>, sessionId?: string) {
+  const userAgent = getUserAgent(c)?.slice(0, 160) ?? "unknown"
+  const ipAddress = getClientIp(c)
+
+  return sessionId ? `${ipAddress}:${sessionId}` : `${ipAddress}:${userAgent}`
+}
+
 export async function handleCreateWebCompanionSession(
   c: Context<{ Bindings: Env }>,
 ) {
-  const body = (await c.req.json().catch(() => null)) as
-    | {
+  try {
+    await enforceRateLimit(c.env, {
+      scope: "web_companion_sessions",
+      key: buildRateLimitKey(c),
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+    })
+
+    const body = (await c.req.json().catch(() => null)) as
+      | {
         visitorId?: unknown
+        sessionId?: unknown
+        sessionToken?: unknown
         path?: unknown
         currentSectionId?: unknown
         referrerSource?: unknown
@@ -27,16 +63,26 @@ export async function handleCreateWebCompanionSession(
       }
     | null
 
-  const result = await bootstrapWebCompanionSession(c.env, {
-    visitorId: body?.visitorId,
-    path: body?.path,
-    currentSectionId: body?.currentSectionId,
-    referrerSource: body?.referrerSource,
-    locale: body?.locale,
-    userAgent: getUserAgent(c),
-  })
+    const result = await bootstrapWebCompanionSession(c.env, {
+      visitorId: body?.visitorId,
+      sessionId: body?.sessionId,
+      sessionToken: body?.sessionToken,
+      path: body?.path,
+      currentSectionId: body?.currentSectionId,
+      referrerSource: body?.referrerSource,
+      locale: body?.locale,
+      userAgent: getUserAgent(c),
+    })
 
-  return c.json(result)
+    return c.json(result)
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      c.header("Retry-After", String(error.retryAfterSeconds))
+      return c.json({ error: error.message }, 429)
+    }
+
+    throw error
+  }
 }
 
 export async function handleGetWebCompanionSession(
@@ -51,18 +97,30 @@ export async function handleGetWebCompanionSession(
       400,
     )
   }
-  const result = await getWebCompanionSessionSnapshot(c.env, sessionId)
-
-  if (!result) {
-    return c.json(
-      {
-        error: "Unknown web companion session.",
-      },
-      404,
+  try {
+    const result = await getWebCompanionSessionSnapshot(
+      c.env,
+      sessionId,
+      getSessionToken(c),
     )
-  }
 
-  return c.json(result)
+    if (!result) {
+      return c.json(
+        {
+          error: "Unknown web companion session.",
+        },
+        404,
+      )
+    }
+
+    return c.json(result)
+  } catch (error) {
+    if (isWebCompanionAccessError(error)) {
+      return c.json({ error: error.message }, error.status as 401 | 403)
+    }
+
+    throw error
+  }
 }
 
 export async function handleRecordWebCompanionEvent(
@@ -89,26 +147,46 @@ export async function handleRecordWebCompanionEvent(
       }
     | null
 
-  const result = await recordWebCompanionEvent(c.env, sessionId, {
-    type: body?.type,
-    path: body?.path,
-    sectionId: body?.sectionId,
-    ctaId: body?.ctaId,
-    visitedSectionIds: body?.visitedSectionIds,
-    dwellMs: body?.dwellMs,
-    screenContext: body?.screenContext,
-  })
+  try {
+    await enforceRateLimit(c.env, {
+      scope: "web_companion_events",
+      key: buildRateLimitKey(c, sessionId),
+      limit: 120,
+      windowMs: 5 * 60 * 1000,
+    })
 
-  if (!result) {
-    return c.json(
-      {
-        error: "Unknown web companion session.",
-      },
-      404,
-    )
+    const result = await recordWebCompanionEvent(c.env, sessionId, getSessionToken(c), {
+      type: body?.type,
+      path: body?.path,
+      sectionId: body?.sectionId,
+      ctaId: body?.ctaId,
+      visitedSectionIds: body?.visitedSectionIds,
+      dwellMs: body?.dwellMs,
+      screenContext: body?.screenContext,
+    })
+
+    if (!result) {
+      return c.json(
+        {
+          error: "Unknown web companion session.",
+        },
+        404,
+      )
+    }
+
+    return c.json(result)
+  } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      c.header("Retry-After", String(error.retryAfterSeconds))
+      return c.json({ error: error.message }, 429)
+    }
+
+    if (isWebCompanionAccessError(error)) {
+      return c.json({ error: error.message }, error.status as 401 | 403)
+    }
+
+    throw error
   }
-
-  return c.json(result)
 }
 
 export async function handleSendWebCompanionMessage(
@@ -124,6 +202,14 @@ export async function handleSendWebCompanionMessage(
         400,
       )
     }
+
+    await enforceRateLimit(c.env, {
+      scope: "web_companion_messages",
+      key: buildRateLimitKey(c, sessionId),
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+    })
+
     const body = (await c.req.json().catch(() => null)) as
       | {
           message?: unknown
@@ -134,7 +220,7 @@ export async function handleSendWebCompanionMessage(
         }
       | null
 
-    const result = await sendWebCompanionMessage(c.env, sessionId, {
+    const result = await sendWebCompanionMessage(c.env, sessionId, getSessionToken(c), {
       message: body?.message,
       path: body?.path,
       sectionId: body?.sectionId,
@@ -153,6 +239,15 @@ export async function handleSendWebCompanionMessage(
 
     return c.json(result)
   } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      c.header("Retry-After", String(error.retryAfterSeconds))
+      return c.json({ error: error.message }, 429)
+    }
+
+    if (isWebCompanionAccessError(error)) {
+      return c.json({ error: error.message }, error.status as 401 | 403)
+    }
+
     return c.json(
       {
         error:
@@ -177,18 +272,26 @@ export async function handleEndWebCompanionSession(
       400,
     )
   }
-  const result = await endWebCompanionSession(c.env, sessionId)
+  try {
+    const result = await endWebCompanionSession(c.env, sessionId, getSessionToken(c))
 
-  if (!result) {
-    return c.json(
-      {
-        error: "Unknown web companion session.",
-      },
-      404,
-    )
+    if (!result) {
+      return c.json(
+        {
+          error: "Unknown web companion session.",
+        },
+        404,
+      )
+    }
+
+    return c.json(result)
+  } catch (error) {
+    if (isWebCompanionAccessError(error)) {
+      return c.json({ error: error.message }, error.status as 401 | 403)
+    }
+
+    throw error
   }
-
-  return c.json(result)
 }
 
 export async function handleTranscribeWebCompanionAudio(
@@ -205,6 +308,27 @@ export async function handleTranscribeWebCompanionAudio(
   }
 
   try {
+    await enforceRateLimit(c.env, {
+      scope: "web_companion_transcribe",
+      key: buildRateLimitKey(c, sessionId),
+      limit: 12,
+      windowMs: 10 * 60 * 1000,
+    })
+
+    const authorizedSession = await assertWebCompanionSessionAccess(
+      c.env,
+      sessionId,
+      getSessionToken(c),
+    )
+    if (!authorizedSession) {
+      return c.json(
+        {
+          error: "Unknown web companion session.",
+        },
+        404,
+      )
+    }
+
     const formData = await c.req.formData()
     const audioFile = formData.get("audio") as
       | {
@@ -243,6 +367,15 @@ export async function handleTranscribeWebCompanionAudio(
       transcript,
     })
   } catch (error) {
+    if (isRateLimitExceededError(error)) {
+      c.header("Retry-After", String(error.retryAfterSeconds))
+      return c.json({ error: error.message }, 429)
+    }
+
+    if (isWebCompanionAccessError(error)) {
+      return c.json({ error: error.message }, error.status as 401 | 403)
+    }
+
     console.error("[web-companion] transcribe:error", error)
     return c.json(
       {

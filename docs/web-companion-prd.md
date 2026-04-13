@@ -1,6 +1,13 @@
 # Clicky Website Companion PRD
 
-Status: draft implementation spec
+Status: partially implemented product spec
+
+Implementation note:
+
+- the backend session, event, message, transcribe, and end routes exist
+- the website companion UI, per-visitor session model, curated section context, target registry, and opt-in voice path exist
+- the current browser flow uses a generated site-layout reference image as visual context rather than unrestricted live DOM or screen-share access
+- the main remaining work is verification, tuning, and product polish rather than first-pass scaffolding
 
 ## Problem Statement
 

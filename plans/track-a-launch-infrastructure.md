@@ -124,6 +124,7 @@ These are implemented enough to exist, but are not proven or polished enough to 
 ### Mac app access flow
 
 - [ ] Runtime purchase, restore, and update flows still need one end-to-end polish pass after live verification.
+- [ ] Tutorial import, compilation, and playback now exist in the Mac app, but they still need a proper end-to-end verification pass against real extractor output before they can be treated as launch-solid.
 
 ## Remaining Before Launch
 
@@ -198,8 +199,9 @@ If we were executing from this checklist right now, the next best sequence would
 
 1. Run one real purchase with a public webhook URL.
 2. Verify provider-backed restore/refresh and the runtime Sparkle feed against real production-like conditions.
-3. Harden whatever breaks in restore/unlock/offline behavior.
-4. Clean up any remaining website contract drift.
+3. Run one proper end-to-end verification pass for the YouTube tutorial flow.
+4. Harden whatever breaks in restore/unlock/offline behavior.
+5. Clean up any remaining website contract drift.
 
 ## Notes
 

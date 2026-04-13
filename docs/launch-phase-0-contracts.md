@@ -1,6 +1,11 @@
 # Launch Phase 0 Contracts
 
-Status: initial implementation contract for launch infrastructure
+Status: implemented contract with remaining live-verification work
+
+Implementation note:
+
+- the backend/runtime shape described here now exists in code
+- the remaining risk is mostly real production verification for auth, billing, restore, and updates rather than first-pass scaffolding
 
 This document freezes the first-pass backend and contract decisions for Clicky's launch path so the Mac app, backend, billing, and website can evolve against one shared model.
 

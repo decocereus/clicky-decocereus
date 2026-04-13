@@ -1,5 +1,10 @@
 # Plan: YouTube Tutorial Integration Contract
 
+Status note:
+
+- the app-side import seam and backend tutorial proxy routes described here now exist
+- the next missing piece is not first-pass integration but durable persistence and end-to-end verification
+
 This document defines the next concrete seam between Clicky, the authenticated Clicky backend, and the external tutorial extraction service.
 
 It assumes the fast extraction service can already do:
@@ -179,8 +184,8 @@ That keeps the happy path out of Studio while preserving a real review surface.
 
 The next implementation step in Clicky should be:
 
-1. create a `TutorialImportManager`
-2. attach it to `CompanionManager`
-3. use `TutorialExtractionClient` to create and track local import drafts
+1. persist tutorial drafts and tutorial session progress beyond the current in-memory state
+2. add a stronger review/resume surface in Studio
+3. run real end-to-end verification against actual extraction jobs and lesson-compilation output
 
-That is the smallest real Clicky integration step that makes the new extraction service usable without committing to the full lesson playback UI yet.
+The smallest useful integration step has already landed. The next work should make it durable and trustworthy.

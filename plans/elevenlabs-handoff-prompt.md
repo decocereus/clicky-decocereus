@@ -1,5 +1,10 @@
 # ElevenLabs Handoff Prompt
 
+Status note:
+
+- this is a historical handoff prompt, not a current source-of-truth spec
+- the current repo already contains working system speech plus local ElevenLabs support, so use the app code and main product docs as the authoritative source before following this file literally
+
 Use this prompt as the starting context for a new coding agent taking over the remaining ElevenLabs work in Clicky.
 
 ## Prompt
@@ -155,4 +160,3 @@ The task is complete when:
 - do not touch OpenClaw plugin/runtime behavior unless strictly needed
 - do not expand into general provider infrastructure beyond what is necessary for ElevenLabs polish
 - do not use terminal `xcodebuild`
-

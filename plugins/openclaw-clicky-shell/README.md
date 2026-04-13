@@ -9,13 +9,17 @@ Native OpenClaw plugin scaffold for connecting OpenClaw to the Clicky desktop sh
 - registers Clicky-namespaced Gateway methods
 - registers a simple `/clicky` command
 - registers a `clicky_status` tool
+- accepts real shell registrations
+- tracks shell heartbeat freshness in memory
+- reports shell status and session binding state
+- injects prompt context for fresh, bound Clicky shells during prompt build
 
 ## What it will do next
 
-- accept real Clicky shell registrations from the desktop app
-- keep shell heartbeat state fresh
-- expose shell capability status to OpenClaw sessions
-- become the installable bridge that makes local and remote OpenClaw work cleanly with Clicky
+- deepen shell trust semantics beyond freshness and transport scope
+- make registration state more durable than process-memory-only state
+- tighten stale-shell recovery behavior
+- continue maturing the installable bridge for local and remote OpenClaw
 
 ## Local install
 
@@ -33,6 +37,6 @@ openclaw gateway restart
 
 ## Notes
 
-This is intentionally a conservative first scaffold. The transport and identity contract is documented in:
+This is still intentionally conservative. It is no longer a placeholder-only scaffold, but it is also not yet the final trust layer. The transport and identity contract is documented in:
 
 - `docs/clicky-openclaw-integration-contract.md`

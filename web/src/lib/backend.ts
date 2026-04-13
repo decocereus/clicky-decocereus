@@ -1,4 +1,5 @@
 const DEFAULT_LOCAL_BACKEND_URL = "http://localhost:8788";
+const DEFAULT_DOWNLOAD_URL = "https://downloads.clickyhq.com/Clicky.dmg";
 
 function isLoopbackHost(hostname: string) {
   return hostname === "localhost" || hostname === "127.0.0.1";
@@ -23,14 +24,18 @@ export function getBackendUrl() {
     return configuredBackendUrl ?? DEFAULT_LOCAL_BACKEND_URL;
   }
 
-  if (!configuredBackendUrl) {
-    return origin;
-  }
-
   try {
-    const configuredOrigin = new URL(configuredBackendUrl).origin;
-    return configuredOrigin === origin ? configuredOrigin : origin;
+    return configuredBackendUrl
+      ? new URL(configuredBackendUrl, origin).origin
+      : origin;
   } catch {
     return origin;
   }
+}
+
+export function getDownloadUrl() {
+  return (
+    normalizeConfiguredBackendUrl(import.meta.env.VITE_CLICKY_DOWNLOAD_URL) ??
+    DEFAULT_DOWNLOAD_URL
+  );
 }

@@ -43,6 +43,13 @@
       "when": 1775823663771,
       "tag": "0005_salty_roland_deschain",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776075291142,
+      "tag": "0006_daily_alex_power",
+      "breakpoints": true
     }
   ]
 }

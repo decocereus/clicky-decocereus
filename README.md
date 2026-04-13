@@ -9,6 +9,27 @@ Here's the [original tweet](https://x.com/FarzaTV/status/2041314633978659092) th
 
 This is the open-source version of Clicky for those that want to hack on it, build their own features, or just see how it works under the hood.
 
+## Current status
+
+This repo is well past the original demo stage.
+
+Implemented today:
+
+- macOS menu bar companion with a floating panel and a custom Studio window
+- provider-agnostic assistant pipeline with `Claude`, `Codex`, and `OpenClaw`
+- push-to-talk audio capture, screen capture, cursor pointing, and local speech playback
+- backend-backed auth, entitlements, launch trial credits, paywall flow, and Polar checkout plumbing
+- OpenClaw `clicky-shell` plugin scaffold plus real shell registration, heartbeat, and session binding
+- website companion with per-visitor sessions, section-aware context, optional voice input, and backend-mediated OpenClaw routing
+- YouTube tutorial import, evidence fetch, lesson compilation, inline playback, and tutorial-mode guidance in the Mac app
+
+Still not fully proven:
+
+- one real production Google sign-in loop
+- one real production Polar purchase + webhook + restore loop
+- one real Sparkle update flow against a published release
+- full end-to-end verification of the YouTube tutorial flow against real extractor output and repeated real-world use
+
 ## Get started with Claude Code
 
 The fastest way to get this running is with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
@@ -127,7 +148,14 @@ The app will appear in your menu bar (not the dock). Click the icon to open the 
 
 If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
 
-**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio over a websocket to AssemblyAI, sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All three APIs are proxied through a Cloudflare Worker.
+**Menu bar app** with a floating companion shell, a custom Studio window, and a full-screen transparent cursor overlay. Push-to-talk captures audio, captures screen context plus cursor/focus context, routes the turn through a provider-agnostic assistant contract, and plays the response through local speech. `Claude`, `Codex`, and `OpenClaw` all plug into that shared turn model. Replies can embed `[POINT:x,y:label:screenN]` tags so the cursor can fly to specific UI elements across multiple monitors.
+
+The repo also contains:
+
+- `worker/` for the AI-provider secret proxy
+- `backend/` for auth, billing, entitlements, launch trial state, website companion APIs, and tutorial extraction proxying
+- `web/` for the marketing site plus the website companion layer
+- `plugins/openclaw-clicky-shell/` for the OpenClaw shell integration
 
 ## Project structure
 
@@ -135,14 +163,20 @@ If you want the full technical breakdown, read `CLAUDE.md`. But here's the short
 leanring-buddy/          # Swift source (yes, the typo stays)
   CompanionManager.swift    # Central state machine
   CompanionPanelView.swift  # Menu bar panel UI
-  ClaudeAPI.swift           # Claude streaming client
-  ElevenLabsTTSClient.swift # Text-to-speech playback
+  CompanionStudioNextView.swift # Current Studio window root
+  ClickyAssistant*.swift    # Provider-agnostic assistant contract
+  ClaudeAssistantProvider.swift # Claude adapter
+  CodexAssistantProvider.swift  # Codex adapter
+  OpenClawAssistantProvider.swift # OpenClaw adapter
   OverlayWindow.swift       # Blue cursor overlay
   AssemblyAI*.swift         # Real-time transcription
+  Tutorial*.swift           # Tutorial import and playback models/clients
   BuddyDictation*.swift     # Push-to-talk pipeline
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Three routes: /chat, /tts, /transcribe-token
-CLAUDE.md                # Full architecture doc (agents read this)
+  src/index.ts              # Claude / TTS / transcription secret proxy
+backend/                 # Auth, billing, entitlements, web companion, tutorials
+web/                     # Marketing site + web companion layer
+plugins/openclaw-clicky-shell/ # OpenClaw shell plugin scaffold
 ```
 
 ## Contributing

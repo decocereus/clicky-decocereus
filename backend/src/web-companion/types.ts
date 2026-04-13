@@ -91,4 +91,5 @@ export interface WebCompanionSessionMetadata {
   visitedSectionIds: string[]
   nudgedSectionIds: string[]
   mutedUntil: string | null
+  sessionTokenHash?: string | null
 }

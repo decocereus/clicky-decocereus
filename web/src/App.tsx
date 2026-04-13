@@ -266,9 +266,9 @@ function LandingPage() {
         {/* Section 2: Clicky sees your screen - z-20 */}
         <FeatureSection
           id="sees-screen"
-          headline="Clicky sees"
-          headlineItalic="your screen"
-          bubbleText="I can see that!"
+          headline="Clicky reads"
+          headlineItalic="the context"
+          bubbleText="You're here."
           imageSrc="/screen_design_tool.jpg"
           imageAlt="Design tool interface"
           mascotPosition="top-right"
@@ -282,9 +282,9 @@ function LandingPage() {
         {/* Section 3: Clicky points the way - z-30 */}
         <FeatureSection
           id="points-way"
-          headline="Clicky points"
-          headlineItalic="the way"
-          bubbleText="Click this!"
+          headline="Clicky shows"
+          headlineItalic="where to look"
+          bubbleText="Right here."
           imageSrc="/screen_settings_panel.jpg"
           imageAlt="Settings panel interface"
           mascotPosition="top-left"
@@ -297,9 +297,9 @@ function LandingPage() {
         {/* Section 4: Clicky knows your apps - z-40 */}
         <FeatureSection
           id="knows-apps"
-          headline="Clicky knows"
-          headlineItalic="your apps"
-          bubbleText="I know Photoshop!"
+          headline="Clicky learns"
+          headlineItalic="your tools"
+          bubbleText="I know this."
           imageSrc="/screen_creative_app.jpg"
           imageAlt="Creative software interface"
           mascotPosition="top-right"
@@ -312,9 +312,9 @@ function LandingPage() {
         {/* Section 5: Clicky learns from video - z-50 */}
         <FeatureSection
           id="learns-video"
-          headline="Clicky learns"
-          headlineItalic="from video"
-          bubbleText="I'll handle it!"
+          headline="Clicky turns tutorials"
+          headlineItalic="into guidance"
+          bubbleText="Let's run it."
           imageSrc="/screen_youtube.jpg"
           imageAlt="YouTube video page"
           mascotPosition="bottom-right"
@@ -322,16 +322,16 @@ function LandingPage() {
           entranceDirection="left"
           exitDirection="top"
           bgColor="sage"
-          description="Drop any YouTube tutorial link and watch Clicky transform it into an actionable step-by-step automation."
+          description="Paste a tutorial link and Clicky turns passive watching into step-by-step help you can actually follow while you work."
           showSteps={true}
         />
 
         {/* Section 6: Clicky can be anything - z-60 */}
         <FeatureSection
           id="can-be-anything"
-          headline="Clicky can be"
-          headlineItalic="anything"
-          bubbleText="What's next?"
+          headline="Clicky adapts"
+          headlineItalic="to the moment"
+          bubbleText="Choose the vibe."
           imageSrc="/screen_personality_picker.jpg"
           imageAlt="Personality picker interface"
           mascotPosition="bottom-left"
@@ -344,9 +344,9 @@ function LandingPage() {
         {/* Section 7: Clicky repeats workflows - z-70 */}
         <FeatureSection
           id="repeats-workflows"
-          headline="Clicky repeats"
-          headlineItalic="workflows"
-          bubbleText="On it!"
+          headline="Clicky keeps"
+          headlineItalic="the useful parts"
+          bubbleText="Again?"
           imageSrc="/screen_workflow_builder.jpg"
           imageAlt="Workflow builder interface"
           mascotPosition="top-right"

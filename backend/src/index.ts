@@ -102,9 +102,9 @@ const corsOptions = {
 
     return allowedOrigins.has(origin) ? origin : ""
   },
-  allowHeaders: ["Content-Type", "Authorization"],
+  allowHeaders: ["Content-Type", "Authorization", "x-clicky-session-token"],
   allowMethods: ["GET", "POST", "OPTIONS"],
-  exposeHeaders: ["Content-Length", "set-auth-token"],
+  exposeHeaders: ["Content-Length", "set-auth-token", "Retry-After"],
   credentials: true,
   maxAge: 600,
 }

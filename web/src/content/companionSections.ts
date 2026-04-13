@@ -13,7 +13,7 @@ const baseCompanionSections: Omit<CompanionSectionDefinition, 'targetIds'>[] = [
     id: 'hero-section',
     title: 'Hero',
     summary:
-      'Clicky is introduced as an organic layer of intelligence that feels present inside the work, not separate from it.',
+      'Clicky is introduced as a voice-first companion that understands context, points to the right place, and helps inside real software.',
     suggestedReplies: [
       'What makes Clicky different from a chatbot?',
       'What does Clicky actually do on my Mac?',
@@ -21,9 +21,9 @@ const baseCompanionSections: Omit<CompanionSectionDefinition, 'targetIds'>[] = [
   },
   {
     id: 'sees-screen',
-    title: 'Clicky sees your screen',
+    title: 'Clicky reads the context',
     summary:
-      'This section explains the screen-context layer that helps Clicky respond to what you are already doing.',
+      'This section explains how Clicky stays grounded in what is already on screen instead of replying like a detached chatbot.',
     suggestedReplies: [
       'What does screen awareness mean here?',
       'Does Clicky just read screenshots?',
@@ -31,9 +31,9 @@ const baseCompanionSections: Omit<CompanionSectionDefinition, 'targetIds'>[] = [
   },
   {
     id: 'points-way',
-    title: 'Clicky points the way',
+    title: 'Clicky shows where to look',
     summary:
-      'This section focuses on guided attention: Clicky should be able to show you where to go, not only tell you.',
+      'This section focuses on guided attention: Clicky should point, orient, and guide instead of only describing steps in text.',
     suggestedReplies: [
       'How does the pointing behavior work?',
       'Is this like a guided walkthrough?',
@@ -41,9 +41,9 @@ const baseCompanionSections: Omit<CompanionSectionDefinition, 'targetIds'>[] = [
   },
   {
     id: 'knows-apps',
-    title: 'Clicky knows your apps',
+    title: 'Clicky learns your tools',
     summary:
-      'This section frames Clicky as grounded in the tools you already use rather than living in a detached assistant pane.',
+      'This section frames Clicky as grounded in the tools you already use rather than living in a separate assistant workspace.',
     suggestedReplies: [
       'What apps is Clicky meant for?',
       'Does it work outside design tools too?',
@@ -51,9 +51,9 @@ const baseCompanionSections: Omit<CompanionSectionDefinition, 'targetIds'>[] = [
   },
   {
     id: 'learns-video',
-    title: 'Clicky learns from video',
+    title: 'Clicky turns tutorials into guidance',
     summary:
-      'This part of the page turns tutorial content into guided, actionable knowledge instead of passive video watching.',
+      'This part of the page shows how Clicky turns tutorial content into guided, actionable help instead of passive video watching.',
     suggestedReplies: [
       'Can Clicky turn tutorials into workflows?',
       'What other inputs can it use?',
@@ -61,9 +61,9 @@ const baseCompanionSections: Omit<CompanionSectionDefinition, 'targetIds'>[] = [
   },
   {
     id: 'can-be-anything',
-    title: 'Clicky can be anything',
+    title: 'Clicky adapts to the moment',
     summary:
-      'This section is about identity and presentation: the shell can adapt without erasing the upstream agent.',
+      'This section is about identity and presentation: the shell can adapt to the task and persona without erasing the upstream agent.',
     suggestedReplies: [
       'Can I use my own OpenClaw agent identity?',
       'How much of Clicky is customizable?',
@@ -71,9 +71,9 @@ const baseCompanionSections: Omit<CompanionSectionDefinition, 'targetIds'>[] = [
   },
   {
     id: 'repeats-workflows',
-    title: 'Clicky repeats workflows',
+    title: 'Clicky keeps the useful parts',
     summary:
-      'This section is about repeatability. Clicky should help capture useful patterns, not only answer one-off questions.',
+      'This section is about repeatability. Clicky should capture useful patterns so good guidance can become reusable workflow help.',
     suggestedReplies: [
       'Can Clicky automate recurring tasks?',
       'Is this more than a live assistant?',

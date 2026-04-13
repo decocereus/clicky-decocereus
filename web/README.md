@@ -1,21 +1,25 @@
-# React + TypeScript + Vite + shadcn/ui
+# Clicky Website
 
-This is a template for a new Vite project with React, TypeScript, and shadcn/ui.
+React + TypeScript + Vite marketing site for Clicky, plus the website companion layer.
 
-## Adding components
+## Current scope
 
-To add components to your app, run the following command:
+- landing page / marketing site
+- additive website companion experience
+- backend-mediated per-visitor companion sessions
+- optional voice demo path using browser mic capture and backend transcription
+- target registry for section-aware highlighting and pulse guidance
 
-```bash
-npx shadcn@latest add button
-```
+## Stack
 
-This will place the ui components in the `src/components` directory.
+- React
+- TypeScript
+- Vite
+- shadcn/ui primitives
+- backend companion APIs under `/v1/web-companion/*`
 
-## Using components
+## Notes
 
-To use the components in your app, import them as follows:
-
-```tsx
-import { Button } from "@/components/ui/button"
-```
+- this is no longer a fresh template project
+- the site preserves the current landing-page design and layers the companion on top
+- the current companion visual context path uses a generated site-layout reference image rather than unrestricted browser vision

@@ -64,6 +64,7 @@ export interface WebCompanionSessionSnapshot {
 export interface WebCompanionSessionPayload {
   visitorId: string
   session: WebCompanionSessionSnapshot
+  sessionToken: string
   history: WebCompanionMessage[]
 }
 
@@ -92,12 +93,21 @@ function normalizeErrorMessage(error: unknown) {
   return 'Something went wrong while talking to Clicky.'
 }
 
-async function requestJson<T>(path: string, init: RequestInit) {
+async function requestJson<T>(
+  path: string,
+  init: RequestInit,
+  sessionToken?: string | null
+) {
   const response = await fetch(`${getBackendUrl()}${path}`, {
     ...init,
     credentials: 'include',
     headers: {
       'content-type': 'application/json',
+      ...(sessionToken
+        ? {
+            'x-clicky-session-token': sessionToken,
+          }
+        : {}),
       ...(init.headers ?? {}),
     },
   })
@@ -115,6 +125,8 @@ async function requestJson<T>(path: string, init: RequestInit) {
 
 export async function bootstrapWebCompanionSession(input: {
   visitorId?: string | null
+  sessionId?: string | null
+  sessionToken?: string | null
   path: string
   currentSectionId?: string | null
   referrerSource?: string
@@ -135,6 +147,7 @@ export async function bootstrapWebCompanionSession(input: {
 
 export async function sendWebCompanionEvent(
   sessionId: string,
+  sessionToken: string,
   input: {
     type: string
     path: string
@@ -151,7 +164,8 @@ export async function sendWebCompanionEvent(
       {
         method: 'POST',
         body: JSON.stringify(input),
-      }
+      },
+      sessionToken
     )
   } catch (error) {
     throw new Error(normalizeErrorMessage(error))
@@ -160,6 +174,7 @@ export async function sendWebCompanionEvent(
 
 export async function sendWebCompanionMessage(
   sessionId: string,
+  sessionToken: string,
   input: {
     message: string
     path: string
@@ -174,7 +189,8 @@ export async function sendWebCompanionMessage(
       {
         method: 'POST',
         body: JSON.stringify(input),
-      }
+      },
+      sessionToken
     )
   } catch (error) {
     throw new Error(normalizeErrorMessage(error))
@@ -183,6 +199,7 @@ export async function sendWebCompanionMessage(
 
 export async function transcribeWebCompanionAudio(
   sessionId: string,
+  sessionToken: string,
   input: {
     audioBlob: Blob
     filename?: string
@@ -201,6 +218,9 @@ export async function transcribeWebCompanionAudio(
       method: 'POST',
       body: formData,
       credentials: 'include',
+      headers: {
+        'x-clicky-session-token': sessionToken,
+      },
     }
   )
 

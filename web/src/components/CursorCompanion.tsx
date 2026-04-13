@@ -156,7 +156,7 @@ function CompanionGlyph({
 
 export function CursorCompanion() {
   const companionExperience = useOptionalCursorCompanionExperience()
-  const [isMounted, setIsMounted] = useState(false)
+  const [isMounted] = useState(() => typeof window !== 'undefined')
   const [isVisible, setIsVisible] = useState(false)
   const [bubblePlacement, setBubblePlacement] =
     useState<BubblePlacement>('right-below')
@@ -184,14 +184,12 @@ export function CursorCompanion() {
       window.localStorage.getItem('clicky-guidance-debug') === 'true')
 
   useEffect(() => {
-    setIsMounted(true)
     if (typeof window !== 'undefined') {
       pointerPositionRef.current = {
         x: window.innerWidth / 2,
         y: window.innerHeight / 2,
       }
     }
-    return () => setIsMounted(false)
   }, [])
 
   useEffect(() => {
@@ -314,20 +312,12 @@ export function CursorCompanion() {
     navigationPhase !== 'returning' &&
     companionVisualState !== 'thinking' &&
     companionVisualState !== 'transcribing'
+  const effectiveDebugTargetGeometry = guidanceTarget ? debugTargetGeometry : null
+  const effectiveNavigationPhase = guidanceTarget ? navigationPhase : 'following'
+  const effectiveManualTargetPosition = guidanceTarget ? manualTargetPosition : null
   const followerTargetPosition =
-    navigationPhase === 'following' ? null : manualTargetPosition
+    effectiveNavigationPhase === 'following' ? null : effectiveManualTargetPosition
   const followerRotationMode = 'none'
-
-  useEffect(() => {
-    if (!guidanceTarget && isMounted) {
-      logGuidanceDebug('guidance:reset', {
-        phase: navigationPhase,
-      })
-      setDebugTargetGeometry(null)
-      setNavigationPhase('following')
-      setManualTargetPosition(null)
-    }
-  }, [guidanceTarget, isMounted, navigationPhase])
 
   useEffect(() => {
     if (!guidanceTarget || !isMounted) {
@@ -393,6 +383,8 @@ export function CursorCompanion() {
       targetPoint: initialGeometry.targetPoint,
       travelDistance,
     }
+    // This effect coordinates a short-lived pointer animation in response to a guidance target.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDebugTargetGeometry({
       elementRect: initialGeometry.elementRect,
       position: initialGeometry.position,
@@ -469,31 +461,31 @@ export function CursorCompanion() {
       zIndex={9999}
     >
       <div className="relative isolate">
-        {isGuidanceDebugEnabled && debugTargetGeometry ? (
+        {isGuidanceDebugEnabled && effectiveDebugTargetGeometry ? (
           <>
             <div
               className="pointer-events-none fixed rounded-[20px] border border-rose-400/70 bg-rose-200/10"
               style={{
-                left: debugTargetGeometry.elementRect.left,
-                top: debugTargetGeometry.elementRect.top,
-                width: debugTargetGeometry.elementRect.width,
-                height: debugTargetGeometry.elementRect.height,
+                left: effectiveDebugTargetGeometry.elementRect.left,
+                top: effectiveDebugTargetGeometry.elementRect.top,
+                width: effectiveDebugTargetGeometry.elementRect.width,
+                height: effectiveDebugTargetGeometry.elementRect.height,
                 zIndex: 9997,
               }}
             />
             <div
               className="pointer-events-none fixed h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-rose-500 bg-rose-400/90 shadow-[0_0_0_6px_rgba(251,113,133,0.18)]"
               style={{
-                left: debugTargetGeometry.targetPoint.x,
-                top: debugTargetGeometry.targetPoint.y,
+                left: effectiveDebugTargetGeometry.targetPoint.x,
+                top: effectiveDebugTargetGeometry.targetPoint.y,
                 zIndex: 9998,
               }}
             />
             <div
               className="pointer-events-none fixed h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-sky-600 bg-sky-400/90 shadow-[0_0_0_6px_rgba(56,189,248,0.18)]"
               style={{
-                left: debugTargetGeometry.position.x,
-                top: debugTargetGeometry.position.y,
+                left: effectiveDebugTargetGeometry.position.x,
+                top: effectiveDebugTargetGeometry.position.y,
                 zIndex: 9998,
               }}
             />

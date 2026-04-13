@@ -1,7 +1,8 @@
 import { useRef, useLayoutEffect, useState } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { Twitter, Mail, Heart, ArrowUpRight } from 'lucide-react';
+import { Mail, Heart, ArrowUpRight } from 'lucide-react';
+import { getDownloadUrl } from '../lib/download';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -12,6 +13,7 @@ export function FooterSection() {
   const contentRef = useRef<HTMLDivElement>(null);
   const linksRef = useRef<HTMLDivElement>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const downloadUrl = getDownloadUrl();
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
@@ -113,15 +115,14 @@ export function FooterSection() {
     };
   }, []);
 
-  const socialLinks = [
-    { icon: Twitter, label: 'Twitter', href: '#' },
-    { icon: Mail, label: 'Email', href: 'mailto:hello@clicky.dev' },
+  const contactLinks = [
+    { icon: Mail, label: 'Email support', href: 'mailto:hello@clicky.dev' },
   ];
 
   const footerLinks = [
-    { label: 'Privacy', href: '#' },
-    { label: 'Terms', href: '#' },
-    { label: 'Support', href: '#' },
+    { label: 'Pricing', href: '#pricing' },
+    { label: 'Support', href: 'mailto:hello@clicky.dev' },
+    { label: 'Try Clicky', href: '#hero-section' },
   ];
 
   return (
@@ -217,21 +218,23 @@ export function FooterSection() {
         <div ref={contentRef} className="text-center mb-12">
           <h3 className="text-3xl font-semibold text-charcoal mb-3">Clicky</h3>
           <p className="text-muted-elegant text-sm max-w-xs mx-auto leading-relaxed">
-            Your AI companion that sees, understands, and helps you navigate any software.
+            The AI companion that stays next to your cursor and helps you understand,
+            learn, and act inside real software.
           </p>
         </div>
 
-        {/* Social Links */}
+        {/* Contact Links */}
         <div className="flex items-center gap-4 mb-12">
-          {socialLinks.map((link) => (
+          {contactLinks.map((link) => (
             <a
               key={link.label}
-              id={`footer-${link.label.toLowerCase()}-cta`}
+              id={`footer-${link.label.toLowerCase().replace(/\s+/g, '-')}-cta`}
               href={link.href}
-              className="group flex items-center justify-center w-12 h-12 rounded-full bg-white/80 hover:bg-white shadow-elegant hover:shadow-lg transition-all duration-300"
+              className="group inline-flex items-center gap-2 rounded-full bg-white/86 px-4 py-3 text-sm text-charcoal shadow-elegant transition-all duration-300 hover:bg-white hover:shadow-lg"
               aria-label={link.label}
             >
-              <link.icon size={20} className="text-charcoal/70 group-hover:text-charcoal transition-colors" />
+              <link.icon size={18} className="text-charcoal/70 group-hover:text-charcoal transition-colors" />
+              <span>{link.label}</span>
             </a>
           ))}
         </div>
@@ -242,7 +245,7 @@ export function FooterSection() {
           data-companion-cta-id="footer-download-cta"
           data-companion-section-id="footer"
           data-companion-target-kind="cta"
-          href="#"
+          href={downloadUrl}
           className="group flex items-center gap-2 bg-charcoal text-warm px-6 py-3 rounded-full font-medium text-sm hover:bg-charcoal/90 transition-all shadow-lg hover:shadow-xl mb-16"
         >
           <span>Download for macOS</span>
@@ -259,6 +262,7 @@ export function FooterSection() {
             {footerLinks.map((link) => (
               <a
                 key={link.label}
+                id={`footer-${link.label.toLowerCase().replace(/\s+/g, '-')}-link`}
                 href={link.href}
                 className="footer-link text-charcoal/60 hover:text-charcoal transition-colors"
               >

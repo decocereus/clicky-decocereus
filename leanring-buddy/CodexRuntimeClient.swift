@@ -16,13 +16,7 @@ struct CodexRuntimeStatusSnapshot {
 }
 
 final class CodexRuntimeClient {
-    private let fileManager = FileManager.default
-    private let knownExecutableCandidates = [
-        "/opt/homebrew/bin/codex",
-        "/usr/local/bin/codex",
-    ]
-
-    func inspectRuntime() -> CodexRuntimeStatusSnapshot {
+    nonisolated func inspectRuntime() -> CodexRuntimeStatusSnapshot {
         let executablePath = resolveExecutablePath()
         let authPayload = loadAuthPayload()
         let configModel = loadConfiguredModel()
@@ -36,11 +30,20 @@ final class CodexRuntimeClient {
         )
     }
 
-    func executeTurn(
+    nonisolated func executeTurn(
         request: ClickyAssistantTurnRequest,
         onTextChunk: @MainActor @escaping @Sendable (String) -> Void
     ) async throws -> ClickyAssistantTurnResponse {
         let runtimeStatus = inspectRuntime()
+        let fileManager = FileManager.default
+        let homeDirectoryURL = fileManager.homeDirectoryForCurrentUser
+        let prompt = Self.renderPrompt(from: request)
+        let configuredModel = runtimeStatus.configuredModel?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let executionEnvironment = Self.executionEnvironment(
+            fileManager: fileManager,
+            homeDirectoryURL: homeDirectoryURL
+        )
 
         guard runtimeStatus.isInstalled, let executablePath = runtimeStatus.executablePath else {
             throw NSError(
@@ -58,29 +61,28 @@ final class CodexRuntimeClient {
             )
         }
 
-        return try await Task.detached(priority: .userInitiated) {
+        let executionTask = Task.detached(priority: .userInitiated) {
             let startTime = Date()
-            let temporaryDirectoryURL = try self.fileManager.url(
+            let temporaryDirectoryURL = try fileManager.url(
                 for: .itemReplacementDirectory,
                 in: .userDomainMask,
-                appropriateFor: self.fileManager.homeDirectoryForCurrentUser,
+                appropriateFor: homeDirectoryURL,
                 create: true
             )
             defer {
-                try? self.fileManager.removeItem(at: temporaryDirectoryURL)
+                try? fileManager.removeItem(at: temporaryDirectoryURL)
             }
 
             let outputFileURL = temporaryDirectoryURL.appendingPathComponent("codex-last-message.txt")
-            let prompt = self.renderPrompt(from: request)
-            let imageFileURLs = try self.writeImageAttachments(
+            let imageFileURLs = try Self.writeImageAttachments(
                 request.imageAttachments,
                 into: temporaryDirectoryURL
             )
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executablePath)
-            process.currentDirectoryURL = self.fileManager.homeDirectoryForCurrentUser
-            process.environment = self.executionEnvironment()
+            process.currentDirectoryURL = homeDirectoryURL
+            process.environment = executionEnvironment
 
             var arguments = [
                 "-a", "never",
@@ -89,11 +91,11 @@ final class CodexRuntimeClient {
                 "--skip-git-repo-check",
                 "--ephemeral",
                 "-s", "read-only",
-                "-C", self.fileManager.homeDirectoryForCurrentUser.path,
+                "-C", homeDirectoryURL.path,
                 "-o", outputFileURL.path
             ]
 
-            if let configuredModel = runtimeStatus.configuredModel?.trimmingCharacters(in: .whitespacesAndNewlines),
+            if let configuredModel,
                !configuredModel.isEmpty {
                 arguments.append(contentsOf: ["-m", configuredModel])
             }
@@ -130,7 +132,7 @@ final class CodexRuntimeClient {
                 )
             }
 
-            let finalMessageText = self.readFinalMessage(
+            let finalMessageText = Self.readFinalMessage(
                 outputFileURL: outputFileURL,
                 stdoutData: stdoutData
             )
@@ -143,11 +145,18 @@ final class CodexRuntimeClient {
                 text: finalMessageText,
                 duration: Date().timeIntervalSince(startTime)
             )
-        }.value
+        }
+
+        return try await executionTask.value
     }
 
-    private func resolveExecutablePath() -> String? {
+    private nonisolated func resolveExecutablePath() -> String? {
+        let fileManager = FileManager.default
         let homeDirectoryPath = fileManager.homeDirectoryForCurrentUser.path
+        let knownExecutableCandidates = [
+            "/opt/homebrew/bin/codex",
+            "/usr/local/bin/codex",
+        ]
         let homeRelativeCandidates = [
             "\(homeDirectoryPath)/.bun/bin/codex",
             "\(homeDirectoryPath)/.npm-global/bin/codex",
@@ -163,7 +172,10 @@ final class CodexRuntimeClient {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["which", "codex"]
-        process.environment = executionEnvironment()
+        process.environment = Self.executionEnvironment(
+            fileManager: fileManager,
+            homeDirectoryURL: fileManager.homeDirectoryForCurrentUser
+        )
         let outputPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = Pipe()
@@ -182,8 +194,11 @@ final class CodexRuntimeClient {
         return output?.isEmpty == false ? output : nil
     }
 
-    func executionEnvironment() -> [String: String] {
-        let homeDirectoryPath = fileManager.homeDirectoryForCurrentUser.path
+    private nonisolated static func executionEnvironment(
+        fileManager: FileManager,
+        homeDirectoryURL: URL
+    ) -> [String: String] {
+        let homeDirectoryPath = homeDirectoryURL.path
         var environment = ProcessInfo.processInfo.environment
         environment["HOME"] = homeDirectoryPath
 
@@ -219,7 +234,8 @@ final class CodexRuntimeClient {
         return environment
     }
 
-    private func loadConfiguredModel() -> String? {
+    private nonisolated func loadConfiguredModel() -> String? {
+        let fileManager = FileManager.default
         let configURL = fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex", isDirectory: true)
             .appendingPathComponent("config.toml")
@@ -240,7 +256,8 @@ final class CodexRuntimeClient {
         return nil
     }
 
-    private func loadAuthPayload() -> (isAuthenticated: Bool, authModeLabel: String?)? {
+    private nonisolated func loadAuthPayload() -> (isAuthenticated: Bool, authModeLabel: String?)? {
+        let fileManager = FileManager.default
         let authURL = fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex", isDirectory: true)
             .appendingPathComponent("auth.json")
@@ -262,7 +279,7 @@ final class CodexRuntimeClient {
         )
     }
 
-    private func renderPrompt(from request: ClickyAssistantTurnRequest) -> String {
+    private nonisolated static func renderPrompt(from request: ClickyAssistantTurnRequest) -> String {
         var sections: [String] = []
         sections.append("System instructions:\n\(request.systemPrompt)")
 
@@ -286,7 +303,7 @@ final class CodexRuntimeClient {
         return sections.joined(separator: "\n\n")
     }
 
-    private func writeImageAttachments(
+    private nonisolated static func writeImageAttachments(
         _ attachments: [ClickyAssistantImageAttachment],
         into directoryURL: URL
     ) throws -> [URL] {
@@ -298,7 +315,7 @@ final class CodexRuntimeClient {
         }
     }
 
-    private func readFinalMessage(outputFileURL: URL, stdoutData: Data) -> String {
+    private nonisolated static func readFinalMessage(outputFileURL: URL, stdoutData: Data) -> String {
         if let outputText = try? String(contentsOf: outputFileURL, encoding: .utf8),
            !outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return outputText.trimmingCharacters(in: .whitespacesAndNewlines)

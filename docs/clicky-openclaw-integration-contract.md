@@ -1,5 +1,11 @@
 # Clicky x OpenClaw Integration Contract
 
+Status note:
+
+- the first stable plugin surface described here now exists in code
+- registration, heartbeat, status, bind-session, and prompt-injection behavior are implemented
+- the main remaining gap is deeper trust semantics and stronger durability than process-memory registration alone
+
 ## Goal
 
 Make Clicky the desktop shell for OpenClaw.

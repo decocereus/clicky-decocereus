@@ -1,5 +1,11 @@
 # Clicky Marketing Site Design
 
+Status note:
+
+- parts of this file reflect the earlier marketing-site direction rather than the current shared Clicky identity and desktop palette docs
+- use `docs/clicky-identity.md` and `docs/macos-design.md` as the current source of truth
+- treat this file as a historical design reference for the website rather than the canonical brand spec
+
 ## Brand Foundation
 
 **Product**: Clicky - An AI companion that lives next to your cursor on macOS

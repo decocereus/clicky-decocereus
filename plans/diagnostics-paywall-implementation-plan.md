@@ -1,5 +1,11 @@
 # Diagnostics And Agent-Mediated Paywall Plan
 
+Status note:
+
+- most of the launch-trial and paywall mechanics described here have landed
+- support-mode gating, diagnostics redaction, backend-backed trial state, welcome-turn handling, and paywall-turn enforcement now exist
+- what remains is live verification and polish rather than first-pass implementation
+
 > Execution plan for the next product slice after launch infrastructure: support-mode diagnostics, trial credits, welcome prompt injection, and the connected-agent paywall flow.
 
 ## Product Direction
