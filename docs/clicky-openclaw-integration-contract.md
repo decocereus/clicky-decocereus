@@ -4,6 +4,7 @@ Status note:
 
 - the first stable plugin surface described here now exists in code
 - registration, heartbeat, status, bind-session, and prompt-injection behavior are implemented
+- tool-driven final presentation for Clicky turns is now the preferred OpenClaw path
 - the main remaining gap is deeper trust semantics and stronger durability than process-memory registration alone
 
 ## Goal
@@ -62,6 +63,7 @@ The `clicky-shell` plugin should own:
 - Clicky status/introspection command/tool surfaces
 - prompt injection for bound/fresh Clicky shells so OpenClaw runs automatically understand the active shell capabilities
 - the server-side path for per-turn Clicky runtime/system prompt context, so Clicky does not serialize that prompt into raw user message payloads
+- the preferred tool-driven presentation surface for answer-only, single-point, and walkthrough-style Clicky replies
 - the future handshake that tells OpenClaw what Clicky capabilities are currently online
 
 The plugin should **not** own:
@@ -106,6 +108,8 @@ The plugin should **not** own:
   Simple operator command to inspect Clicky shell status.
 - `clicky_status`
   Agent-visible tool that reports whether a Clicky shell is connected and what it can do.
+- `clicky_present`
+  Agent-visible tool that lets OpenClaw finish a Clicky turn in `answer`, `point`, `walkthrough`, or `tutorial` mode using one explicit schema instead of relying on prompt-only JSON formatting.
 
 ## Shell Registration Payload
 
@@ -154,6 +158,7 @@ The long-term capability split should be:
 Concrete interpretation:
 - OpenClaw decides what to say and what to point at
 - Clicky decides how that is spoken, shown, and animated on the user’s machine
+- For OpenClaw-backed Clicky turns, the preferred finish path is now a `clicky_present` tool call that produces the same structured envelope the app already consumes internally. Raw structured JSON remains a fallback during migration.
 
 ## Remote-Ready Behavior
 

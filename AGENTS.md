@@ -15,6 +15,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Agent Backends**: Clicky now uses a provider-agnostic assistant turn contract with backend-specific adapter files. Claude currently routes through the Cloudflare Worker proxy, and OpenClaw Gateway routes over WebSocket with image attachments and Gateway session routing. Future direct providers such as OpenAI/Codex should plug into the same contract rather than adding ad hoc logic in the main manager.
 - **OpenClaw Plugin Direction**: The repo includes a native OpenClaw plugin scaffold in `plugins/openclaw-clicky-shell` and a contract doc in `docs/clicky-openclaw-integration-contract.md` so Clicky can become a first-class desktop shell integration for OpenClaw
 - **OpenClaw Prompt Hygiene**: Clicky runtime/system instructions for OpenClaw must flow through the `clicky-shell` plugin's prompt-injection path, not by being concatenated into the raw user `message` payload
+- **OpenClaw Presentation Path**: For OpenClaw-backed Clicky turns, prefer the plugin-exposed `clicky_present` tool as the final presentation surface. Keep the raw structured JSON reply path only as fallback during migration.
 - **Web Companion Direction**: The marketing site should keep its current landing-page design and add the companion as a layered shell experience. Use per-visitor OpenClaw sessions/threads with curated section context, a semantic target registry for pointing, and a generated site-layout reference image rather than unrestricted DOM access or browser screen-share prompts. See `docs/web-companion-prd.md` and `docs/web-openclaw-session-architecture.md`
 - **Identity Model**: The upstream agent identity belongs to OpenClaw. Clicky may optionally override presentation **inside Clicky only**; it should not silently rewrite the upstream agent identity
 - **Speech-to-Text**: AssemblyAI when the worker is configured, with OpenAI and Apple Speech fallbacks
@@ -23,7 +24,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Screen Capture**: ScreenCaptureKit (macOS 14.2+), multi-monitor support
 - **Focus Context**: The assistant turn contract now carries cursor/focus context in addition to screenshots: active display, cursor position, recent trail, screenshot-relative cursor coordinates, screenshot freshness delta, frontmost app/window, and best-effort AX focused element metadata.
 - **Voice Input**: Push-to-talk via `AVAudioEngine` and a pluggable transcription-provider layer
-- **Assistant Response Contract**: Agent backends should return one structured response object with `spokenText` plus ordered point targets, so Clicky renders speech and pointing from one canonical contract rather than backend-specific tag syntax
+- **Assistant Response Contract**: Clicky still renders one canonical structured response object with `spokenText` plus ordered point targets. For OpenClaw, prefer arriving at that contract through plugin tools rather than prompt-only formatting whenever possible.
 - **Launch Commerce Model**: direct-download website, free download plus in-app taste, in-app paywall, Polar-hosted checkout launched from the Mac app, lightweight auth plus backend-backed entitlement restore
 
 ## Codex Workflow

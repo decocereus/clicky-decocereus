@@ -148,7 +148,7 @@ The app will appear in your menu bar (not the dock). Click the icon to open the 
 
 If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
 
-**Menu bar app** with a floating companion shell, a custom Studio window, and a full-screen transparent cursor overlay. Push-to-talk captures audio, captures screen context plus cursor/focus context, routes the turn through a provider-agnostic assistant contract, and plays the response through local speech. `Claude`, `Codex`, and `OpenClaw` all plug into that shared turn model. The normal assistant path now expects one structured response envelope with top-level `spokenText` plus ordered point targets, so speech, bubbles, and cursor movement all come from the same contract.
+**Menu bar app** with a floating companion shell, a custom Studio window, and a full-screen transparent cursor overlay. Push-to-talk captures audio, captures screen context plus cursor/focus context, routes the turn through a provider-agnostic assistant contract, and plays the response through local speech. `Claude`, `Codex`, and `OpenClaw` all plug into that shared turn model. The normal assistant path expects one structured response envelope with top-level `spokenText` plus ordered point targets, so speech, bubbles, and cursor movement all come from the same contract. For OpenClaw-backed turns, the preferred finish path is now the plugin-exposed `clicky_present` tool, with raw structured JSON kept as fallback during migration.
 
 The repo also contains:
 

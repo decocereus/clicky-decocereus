@@ -24,7 +24,11 @@ type ClickyShellRegistration = {
 
 type ClickyShellFreshnessState = "fresh" | "stale";
 type ClickyShellTrustState = "trusted-local" | "trusted-remote";
+type ClickyPresentationMode = "answer" | "point" | "walkthrough" | "tutorial";
 const activeClickyNormalizationSessionKeys = new Set<string>();
+const pendingClickyPresentationRepliesBySessionKey = new Map<string, string>();
+const pendingClickyPresentationRepliesBySessionId = new Map<string, string>();
+const clickySessionKeyByTransportSessionId = new Map<string, string>();
 
 type ClickyStructuredPoint = {
   x: number;
@@ -38,6 +42,10 @@ type ClickyStructuredPoint = {
 type ClickyStructuredReply = {
   spokenText: string;
   points: ClickyStructuredPoint[];
+};
+
+type ClickyPresentationReply = ClickyStructuredReply & {
+  mode: ClickyPresentationMode;
 };
 
 function freshnessStateForRegistration(
@@ -73,6 +81,19 @@ function findFreshShellRegistrationForSessionKey(
     : null;
 }
 
+function buildClickyPresentationPromptInstructions() {
+  return [
+    "clicky presentation tools:",
+    "- finish clicky turns with the clicky_present tool whenever possible.",
+    "- use clicky_present mode answer for spoken guidance with no pointing.",
+    "- use clicky_present mode point for one grounded target with one detailed explanation.",
+    "- use clicky_present mode walkthrough for multiple grounded targets with an explanation on each point.",
+    "- use clicky_present mode tutorial for richer guided sequences that still need ordered point explanations.",
+    "- if you call clicky_present, do not add extra prose after the tool call.",
+    "- if tool use is unavailable, return clicky's structured response contract with ordered point targets.",
+  ].join("\n");
+}
+
 function buildClickyShellPromptContext(
   registration: ClickyShellRegistration
 ) {
@@ -82,7 +103,7 @@ function buildClickyShellPromptContext(
       : null;
 
   if (promptContext) {
-    return promptContext;
+    return `${promptContext}\n\n${buildClickyPresentationPromptInstructions()}`;
   }
 
   return [
@@ -94,8 +115,192 @@ function buildClickyShellPromptContext(
     `screen context transport: ${registration.screenContextTransport ?? "unknown"}.`,
     `cursor pointing protocol: ${registration.cursorPointingProtocol ?? "unknown"}.`,
     `speech output mode: ${registration.speechOutputMode ?? "unknown"}.`,
-    "when visual guidance would help, return clicky's structured response contract with ordered point targets.",
+    buildClickyPresentationPromptInstructions(),
   ].join(" ");
+}
+
+function extractNonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function extractInteger(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function extractClickyPoint(point: unknown): ClickyStructuredPoint | null {
+  if (!point || typeof point !== "object" || Array.isArray(point)) {
+    return null;
+  }
+
+  const pointRecord = point as Record<string, unknown>;
+  const x = extractInteger(pointRecord.x);
+  const y = extractInteger(pointRecord.y);
+  const label = extractNonEmptyString(pointRecord.label);
+
+  if (x === null || y === null || !label) {
+    return null;
+  }
+
+  const bubbleText = extractNonEmptyString(pointRecord.bubbleText) ?? undefined;
+  const explanation = extractNonEmptyString(pointRecord.explanation) ?? undefined;
+  const screenNumber = extractInteger(pointRecord.screenNumber);
+
+  return {
+    x,
+    y,
+    label,
+    bubbleText,
+    explanation,
+    screenNumber: screenNumber && screenNumber > 0 ? screenNumber : undefined,
+  };
+}
+
+function presentationModeRequiresPoints(mode: ClickyPresentationMode) {
+  return mode !== "answer";
+}
+
+function presentationModeRequiresPointExplanations(mode: ClickyPresentationMode) {
+  return mode !== "answer";
+}
+
+function buildClickyPresentationReply(params: unknown) {
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    return {
+      ok: false as const,
+      error: "clicky_present parameters were missing or invalid",
+    };
+  }
+
+  const paramsRecord = params as Record<string, unknown>;
+  const mode = extractNonEmptyString(paramsRecord.mode);
+  const spokenText = extractNonEmptyString(paramsRecord.spokenText);
+
+  if (!mode || !["answer", "point", "walkthrough", "tutorial"].includes(mode)) {
+    return {
+      ok: false as const,
+      error: "clicky_present mode must be one of: answer, point, walkthrough, tutorial",
+    };
+  }
+
+  if (!spokenText) {
+    return {
+      ok: false as const,
+      error: "clicky_present spokenText was empty",
+    };
+  }
+
+  const points = Array.isArray(paramsRecord.points)
+    ? paramsRecord.points
+        .map((point) => extractClickyPoint(point))
+        .filter((point): point is ClickyStructuredPoint => point !== null)
+    : [];
+
+  const presentationReply: ClickyPresentationReply = {
+    mode: mode as ClickyPresentationMode,
+    spokenText,
+    points,
+  };
+
+  const validationIssues = validateStructuredReply(
+    presentationReply,
+    presentationModeRequiresPoints(presentationReply.mode),
+    presentationModeRequiresPointExplanations(presentationReply.mode)
+  );
+
+  if (presentationReply.mode === "answer" && presentationReply.points.length > 0) {
+    validationIssues.push("clicky_present answer mode must not include points");
+  }
+
+  if (presentationReply.mode === "point" && presentationReply.points.length !== 1) {
+    validationIssues.push("clicky_present point mode must include exactly one point");
+  }
+
+  if (presentationReply.mode === "walkthrough" && presentationReply.points.length < 2) {
+    validationIssues.push("clicky_present walkthrough mode must include at least two points");
+  }
+
+  if (presentationReply.mode === "tutorial" && presentationReply.points.length < 1) {
+    validationIssues.push("clicky_present tutorial mode must include at least one point");
+  }
+
+  if (validationIssues.length > 0) {
+    return {
+      ok: false as const,
+      error: validationIssues.join("; "),
+    };
+  }
+
+  return {
+    ok: true as const,
+    reply: presentationReply,
+    replyText: JSON.stringify(presentationReply),
+  };
+}
+
+function recordClickyPresentationReplyForContext(extra: unknown, replyText: string) {
+  if (!extra || typeof extra !== "object" || Array.isArray(extra)) {
+    return;
+  }
+
+  const extraRecord = extra as Record<string, unknown>;
+  const sessionId = extractNonEmptyString(extraRecord.sessionId);
+
+  if (sessionId) {
+    pendingClickyPresentationRepliesBySessionId.set(sessionId, replyText);
+  }
+
+  const directSessionKey = extractNonEmptyString(extraRecord.sessionKey);
+  const mappedSessionKey = sessionId ? clickySessionKeyByTransportSessionId.get(sessionId) ?? null : null;
+  const nestedSessionKey =
+    extraRecord.ctx && typeof extraRecord.ctx === "object" && !Array.isArray(extraRecord.ctx)
+      ? extractNonEmptyString((extraRecord.ctx as Record<string, unknown>).sessionKey)
+      : null;
+
+  const sessionKey = directSessionKey ?? nestedSessionKey ?? mappedSessionKey;
+  if (sessionKey) {
+    pendingClickyPresentationRepliesBySessionKey.set(sessionKey, replyText);
+  }
+}
+
+function recordClickySessionMapping(ctx: unknown) {
+  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) {
+    return;
+  }
+
+  const ctxRecord = ctx as Record<string, unknown>;
+  const sessionKey = extractNonEmptyString(ctxRecord.sessionKey);
+  const sessionId = extractNonEmptyString(ctxRecord.sessionId);
+
+  if (sessionKey && sessionId) {
+    clickySessionKeyByTransportSessionId.set(sessionId, sessionKey);
+  }
+}
+
+function takePendingClickyPresentationReply(ctx: unknown) {
+  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) {
+    return null;
+  }
+
+  const ctxRecord = ctx as Record<string, unknown>;
+  const sessionKey = extractNonEmptyString(ctxRecord.sessionKey);
+  if (sessionKey) {
+    const replyForSessionKey = pendingClickyPresentationRepliesBySessionKey.get(sessionKey) ?? null;
+    if (replyForSessionKey) {
+      pendingClickyPresentationRepliesBySessionKey.delete(sessionKey);
+      return replyForSessionKey;
+    }
+  }
+
+  const sessionId = extractNonEmptyString(ctxRecord.sessionId);
+  if (sessionId) {
+    const replyForSessionId = pendingClickyPresentationRepliesBySessionId.get(sessionId) ?? null;
+    if (replyForSessionId) {
+      pendingClickyPresentationRepliesBySessionId.delete(sessionId);
+      return replyForSessionId;
+    }
+  }
+
+  return null;
 }
 
 function extractJSONObjectString(rawResponse: string) {
@@ -341,6 +546,52 @@ const clickyStatusToolParameters = {
   properties: {
     includeRegistrations: {
       type: "boolean",
+    },
+  },
+} as const;
+
+const clickyPresentToolParameters = {
+  type: "object",
+  additionalProperties: false,
+  required: ["mode", "spokenText", "points"],
+  properties: {
+    mode: {
+      type: "string",
+      enum: ["answer", "point", "walkthrough", "tutorial"],
+    },
+    spokenText: {
+      type: "string",
+      description: "The spoken intro or full answer text for this Clicky turn.",
+    },
+    points: {
+      type: "array",
+      description: "Ordered Clicky point targets. Leave empty for answer mode.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["x", "y", "label"],
+        properties: {
+          x: {
+            type: "integer",
+          },
+          y: {
+            type: "integer",
+          },
+          label: {
+            type: "string",
+          },
+          bubbleText: {
+            type: "string",
+          },
+          explanation: {
+            type: "string",
+          },
+          screenNumber: {
+            type: "integer",
+            minimum: 1,
+          },
+        },
+      },
     },
   },
 } as const;
@@ -728,7 +979,45 @@ export default definePluginEntry({
       },
     });
 
+    api.registerTool({
+      name: "clicky_present",
+      description: "Finish a Clicky turn in one of four modes: answer, point, walkthrough, or tutorial. Use this as the final presentation step for Clicky shell responses.",
+      parameters: clickyPresentToolParameters,
+      async execute(_toolCallId, params, extra) {
+        const presentationResult = buildClickyPresentationReply(params);
+        if (!presentationResult.ok) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: presentationResult.error,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        recordClickyPresentationReplyForContext(extra, presentationResult.replyText);
+
+        api.logger.info(
+          `clicky-shell: captured clicky_present tool output mode=${presentationResult.reply.mode}`
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: presentationResult.replyText,
+            },
+          ],
+          structuredContent: presentationResult.reply,
+        };
+      },
+    });
+
     api.on("before_prompt_build", async (_event, ctx) => {
+      recordClickySessionMapping(ctx);
+
       const normalizedPluginConfig = normalizePluginConfig(api.pluginConfig);
       const registration = findFreshShellRegistrationForSessionKey(
         ctx.sessionKey,
@@ -745,6 +1034,8 @@ export default definePluginEntry({
     });
 
     api.on("before_agent_reply", async (event, ctx) => {
+      recordClickySessionMapping(ctx);
+
       const normalizedPluginConfig = normalizePluginConfig(api.pluginConfig);
       const registration = findFreshShellRegistrationForSessionKey(
         ctx.sessionKey,
@@ -767,6 +1058,31 @@ export default definePluginEntry({
       const latestUserText = extractLatestUserText(sessionMessagesResult.messages ?? []);
       const requiresPoints = latestUserText ? transcriptRequiresVisiblePointing(latestUserText) : false;
       const requiresPointExplanations = latestUserText ? transcriptWantsNarratedWalkthrough(latestUserText) : false;
+      const pendingToolReply = takePendingClickyPresentationReply(ctx);
+
+      if (pendingToolReply) {
+        const parsedPendingToolReply = parseClickyStructuredReply(
+          pendingToolReply,
+          requiresPoints,
+          requiresPointExplanations
+        );
+
+        if (parsedPendingToolReply.ok) {
+          api.logger.info(`clicky-shell: finishing reply from clicky_present tool for ${ctx.sessionKey}`);
+          return {
+            handled: true,
+            reply: {
+              text: parsedPendingToolReply.reply,
+            },
+            reason: "clicky structured reply gate: clicky_present tool",
+          };
+        }
+
+        api.logger.warn(
+          `clicky-shell: clicky_present tool output was invalid for ${ctx.sessionKey}: ${parsedPendingToolReply.issues.join("; ")}`
+        );
+      }
+
       const parsedCurrentReply = parseClickyStructuredReply(
         event.cleanedBody,
         requiresPoints,

@@ -157,6 +157,7 @@ enum ClickyAgentTurnDiagnostics {
 
     static func logParsedResponse(
         backend: CompanionAgentBackend,
+        mode: ClickyAssistantPresentationMode?,
         spokenResponse: String,
         points: [ClickyAssistantResponsePoint]
     ) {
@@ -180,6 +181,7 @@ enum ClickyAgentTurnDiagnostics {
             """
             turn-parsed-response
             backend=\(backend.displayName)
+            mode=\(mode?.rawValue ?? "unspecified")
             spokenLength=\(spokenResponse.count)
             pointCount=\(points.count)
             points:

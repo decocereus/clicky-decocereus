@@ -146,6 +146,7 @@ Role:
 - stores in-memory shell registrations
 - exposes Clicky-specific gateway methods
 - injects Clicky shell prompt context for fresh bound sessions
+- prefers tool-driven final presentation via `clicky_present`, while keeping raw structured JSON as migration fallback
 
 Key file:
 
@@ -347,8 +348,12 @@ It also:
 
 - exposes `/clicky`
 - exposes `clicky_status`
+- exposes `clicky_present` as the preferred final presentation tool for Clicky turns
 - injects Clicky shell prompt context on `before_prompt_build` when a shell is
   fresh and bound
+- checks for a pending `clicky_present` tool result on `before_agent_reply`
+  before falling back to raw structured JSON validation and hidden
+  normalization
 
 This is enough for a working shell loop, but not yet a final trust model.
 

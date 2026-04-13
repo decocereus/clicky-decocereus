@@ -4790,8 +4790,9 @@ final class CompanionManager: ObservableObject {
               - no markdown, no headings, no bullets, no numbered lists, no bold markers, no code fences
               - the transport must be json even though spokenText itself should sound natural
               - use this exact schema:
-                {"spokenText":"string","points":[{"x":741,"y":213,"label":"gearshift","bubbleText":"gearshift","explanation":"the gearshift is down in the lower middle of the cabin.","screenNumber":1}]}
+                {"mode":"answer|point|walkthrough|tutorial","spokenText":"string","points":[{"x":741,"y":213,"label":"gearshift","bubbleText":"gearshift","explanation":"the gearshift is down in the lower middle of the cabin.","screenNumber":1}]}
               - spokenText is what clicky speaks aloud
+              - mode is optional but preferred when you know whether this is an answer, point, walkthrough, or tutorial
               - points is an ordered array of point targets
               - for multi-point walkthroughs, include explanation on each point so clicky can keep narration synced with the pointer
               - every point target must use real integer pixel coordinates from the screenshot
@@ -5002,6 +5003,7 @@ final class CompanionManager: ObservableObject {
                 let spokenText = structuredResponse.spokenText
                 ClickyAgentTurnDiagnostics.logParsedResponse(
                     backend: selectedAgentBackend,
+                    mode: structuredResponse.mode,
                     spokenResponse: spokenText,
                     points: structuredResponse.points
                 )
@@ -5316,6 +5318,7 @@ final class CompanionManager: ObservableObject {
             let spokenText = structuredResponse.spokenText
             ClickyAgentTurnDiagnostics.logParsedResponse(
                 backend: selectedAgentBackend,
+                mode: structuredResponse.mode,
                 spokenResponse: spokenText,
                 points: structuredResponse.points
             )

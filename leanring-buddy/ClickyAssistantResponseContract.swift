@@ -7,6 +7,13 @@
 
 import Foundation
 
+enum ClickyAssistantPresentationMode: String, Codable, Sendable {
+    case answer
+    case point
+    case walkthrough
+    case tutorial
+}
+
 struct ClickyAssistantResponsePoint: Codable, Sendable {
     let x: Int
     let y: Int
@@ -17,6 +24,7 @@ struct ClickyAssistantResponsePoint: Codable, Sendable {
 }
 
 struct ClickyAssistantStructuredResponse: Codable, Sendable {
+    let mode: ClickyAssistantPresentationMode?
     let spokenText: String
     let points: [ClickyAssistantResponsePoint]
 }
@@ -41,8 +49,9 @@ enum ClickyAssistantResponseContract {
     - return exactly one json object and nothing else. no markdown, no prose outside json, no code fences.
     - this response contract overrides any conflicting formatting or prose-style instruction. the transport must be json. only spokenText should read like natural speech.
     - schema:
-      {"spokenText":"string","points":[{"x":741,"y":213,"label":"gearshift","bubbleText":"gearshift","explanation":"the gearshift is down in the lower middle of the cabin.","screenNumber":1}]}
+      {"mode":"answer|point|walkthrough|tutorial","spokenText":"string","points":[{"x":741,"y":213,"label":"gearshift","bubbleText":"gearshift","explanation":"the gearshift is down in the lower middle of the cabin.","screenNumber":1}]}
     - this json object is only the transport envelope. spokenText is what clicky speaks aloud, so that field should stay natural, useful, and formatted for the ear.
+    - mode is optional. when present, it tells clicky whether this is a plain answer, one pointed item, a multi-point walkthrough, or a tutorial-style sequence.
     - points is an ordered array of things clicky should point at after or while speaking.
     - each point may include explanation. when present, clicky will speak that line while pointing at that specific target.
     - use an empty array for points when no pointing is needed.
@@ -53,9 +62,9 @@ enum ClickyAssistantResponseContract {
     - if the user asks for a walkthrough, tour, breakdown, or overview of multiple visible things, include multiple ordered point objects and include explanation for each point so clicky can narrate in sync with the pointer.
     - if the user asks where a visible control, button, icon, or area is on screen, include at least one point object with real coordinates.
     - example with one point:
-      {"spokenText":"here’s the gearshift.","points":[{"x":741,"y":213,"label":"gearshift","bubbleText":"gearshift","explanation":"the gearshift is down in the lower middle of the cabin, between the two front seats."}]}
+      {"mode":"point","spokenText":"here’s the gearshift.","points":[{"x":741,"y":213,"label":"gearshift","bubbleText":"gearshift","explanation":"the gearshift is down in the lower middle of the cabin, between the two front seats."}]}
     - example with multiple points:
-      {"spokenText":"here are the main interior highlights.","points":[{"x":793,"y":320,"label":"instrument cluster","bubbleText":"speedometer","explanation":"the speedometer is behind the wheel in the hooded driver display."},{"x":920,"y":360,"label":"center display","bubbleText":"maps and media","explanation":"the center display handles maps, media, and vehicle settings."},{"x":930,"y":500,"label":"climate controls","bubbleText":"climate","explanation":"the climate controls sit below the vents and handle ac, temperature, and defogging."}]}
+      {"mode":"walkthrough","spokenText":"here are the main interior highlights.","points":[{"x":793,"y":320,"label":"instrument cluster","bubbleText":"speedometer","explanation":"the speedometer is behind the wheel in the hooded driver display."},{"x":920,"y":360,"label":"center display","bubbleText":"maps and media","explanation":"the center display handles maps, media, and vehicle settings."},{"x":930,"y":500,"label":"climate controls","bubbleText":"climate","explanation":"the climate controls sit below the vents and handle ac, temperature, and defogging."}]}
     """
 
     static func parse(
@@ -112,6 +121,27 @@ enum ClickyAssistantResponseContract {
             issues.append("points array was empty even though the request required pointing")
         }
 
+        switch response.mode {
+        case .answer:
+            if !response.points.isEmpty {
+                issues.append("answer mode must not include points")
+            }
+        case .point:
+            if response.points.count != 1 {
+                issues.append("point mode must include exactly one point")
+            }
+        case .walkthrough:
+            if response.points.count < 2 {
+                issues.append("walkthrough mode must include at least two points")
+            }
+        case .tutorial:
+            if response.points.isEmpty {
+                issues.append("tutorial mode must include at least one point")
+            }
+        case .none:
+            break
+        }
+
         for (index, point) in response.points.enumerated() {
             if point.x < 0 || point.y < 0 {
                 issues.append("point \(index + 1) had negative coordinates")
@@ -126,6 +156,14 @@ enum ClickyAssistantResponseContract {
             }
         }
 
+        if let mode = response.mode, mode != .answer {
+            for (index, point) in response.points.enumerated() {
+                if (point.explanation?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty {
+                    issues.append("point \(index + 1) was missing an explanation")
+                }
+            }
+        }
+
         return issues
     }
 
@@ -133,6 +171,7 @@ enum ClickyAssistantResponseContract {
         _ response: ClickyAssistantStructuredResponse
     ) -> ClickyAssistantStructuredResponse {
         ClickyAssistantStructuredResponse(
+            mode: response.mode,
             spokenText: response.spokenText.trimmingCharacters(in: .whitespacesAndNewlines),
             points: response.points.map { point in
                 ClickyAssistantResponsePoint(

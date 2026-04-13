@@ -5,7 +5,8 @@
   "version": "0.1.0",
   "contracts": {
     "tools": [
-      "clicky_status"
+      "clicky_status",
+      "clicky_present"
     ]
   },
   "uiHints": {
