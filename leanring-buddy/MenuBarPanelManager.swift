@@ -12,6 +12,7 @@
 //
 
 import AppKit
+import Combine
 import OSLog
 import QuartzCore
 import SwiftUI
@@ -41,17 +42,31 @@ final class MenuBarPanelManager: NSObject {
     private var panelNeedsLayoutObserver: NSObjectProtocol?
     private var isPanelRelayoutScheduled = false
     private var scheduledPanelRelayoutIsAnimated = false
+    private var stateCancellables: Set<AnyCancellable> = []
+    private var iconAnimationTimer: Timer?
+    private var iconAnimationPhase: CGFloat = 0
+    private var currentIconState: ClickyMenuBarIconState = .idle
 
     private let companionManager: CompanionManager
+    private let preferences: ClickyPreferencesStore
+    private let surfaceController: ClickySurfaceController
+    private let launchAccessController: ClickyLaunchAccessController
+    private let backendRoutingController: ClickyBackendRoutingController
     private weak var studioWindowPresenter: CompanionAppDelegate?
     private let panelWidth: CGFloat = 360
     private let panelHeight: CGFloat = 380
 
     init(companionManager: CompanionManager, studioWindowPresenter: CompanionAppDelegate) {
         self.companionManager = companionManager
+        self.preferences = companionManager.preferences
+        self.surfaceController = companionManager.surfaceController
+        self.launchAccessController = companionManager.launchAccessController
+        self.backendRoutingController = companionManager.backendRoutingController
         self.studioWindowPresenter = studioWindowPresenter
         super.init()
         createStatusItem()
+        bindMenuBarIconState()
+        updateMenuBarIconState()
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
             forName: .clickyDismissPanel,
@@ -111,6 +126,7 @@ final class MenuBarPanelManager: NSObject {
         if let observer = panelNeedsLayoutObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        iconAnimationTimer?.invalidate()
     }
 
     // MARK: - Status Item
@@ -121,18 +137,19 @@ final class MenuBarPanelManager: NSObject {
 
         guard let button = statusItem?.button else { return }
 
-        button.image = makeClickyMenuBarIcon()
+        button.image = makeClickyMenuBarIcon(state: currentIconState, phase: iconAnimationPhase)
         button.image?.isTemplate = true
         button.imagePosition = .imageOnly
         button.title = ""
         button.toolTip = "Clicky"
         button.action = #selector(statusItemClicked)
         button.target = self
+        button.imageScaling = .scaleNone
     }
 
     /// Draws the clicky triangle as a menu bar icon. Uses the same shape
     /// and rotation as the in-app cursor so the menu bar icon matches.
-    private func makeClickyMenuBarIcon() -> NSImage {
+    private func makeClickyMenuBarIcon(state: ClickyMenuBarIconState, phase: CGFloat) -> NSImage {
         let iconSize: CGFloat = 18
         let image = NSImage(size: NSSize(width: iconSize, height: iconSize))
         image.lockFocus()
@@ -159,11 +176,204 @@ final class MenuBarPanelManager: NSObject {
         path.line(to: rotate(bottomRight))
         path.close()
 
-        NSColor.black.setFill()
+        let fillAlpha: CGFloat
+        switch state {
+        case .idle:
+            fillAlpha = 0.92
+        case .listening:
+            fillAlpha = 0.70 + (0.20 * listeningPulse(phase: phase))
+        case .thinking:
+            fillAlpha = 0.80
+        case .responding:
+            fillAlpha = 0.84
+        case .onboarding:
+            fillAlpha = 0.76
+        case .signInRequired:
+            fillAlpha = 0.82
+        case .locked:
+            fillAlpha = 0.66
+        case .backendIssue:
+            fillAlpha = 0.74
+        }
+
+        NSColor.black.withAlphaComponent(fillAlpha).setFill()
         path.fill()
+
+        switch state {
+        case .thinking, .responding:
+            drawSweepHighlight(in: path, iconSize: iconSize, phase: phase, intensity: state == .responding ? 0.22 : 0.16)
+        case .listening:
+            drawListeningHalo(around: path, phase: phase)
+        case .onboarding:
+            drawStatusBadge(iconSize: iconSize, style: .dot)
+        case .signInRequired:
+            drawStatusBadge(iconSize: iconSize, style: .ring)
+        case .locked:
+            drawStatusBadge(iconSize: iconSize, style: .bar)
+        case .backendIssue:
+            drawStatusBadge(iconSize: iconSize, style: .dot)
+        case .idle:
+            break
+        }
 
         image.unlockFocus()
         return image
+    }
+
+    private func bindMenuBarIconState() {
+        preferences.$selectedAgentBackend
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+        preferences.$hasCompletedOnboarding
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+        surfaceController.$voiceState
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+        surfaceController.$hasAccessibilityPermission
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+        surfaceController.$hasScreenRecordingPermission
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+        surfaceController.$hasMicrophonePermission
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+        surfaceController.$hasScreenContentPermission
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+        launchAccessController.$clickyLaunchAuthState
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+        launchAccessController.$clickyLaunchTrialState
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+        backendRoutingController.$openClawConnectionStatus
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+        backendRoutingController.$codexRuntimeStatus
+            .sink { [weak self] _ in self?.updateMenuBarIconState() }
+            .store(in: &stateCancellables)
+    }
+
+    private func updateMenuBarIconState() {
+        let input = ClickyMenuBarIconStateInput(
+            hasCompletedOnboarding: preferences.hasCompletedOnboarding,
+            hasAccessibilityPermission: surfaceController.hasAccessibilityPermission,
+            hasScreenRecordingPermission: surfaceController.hasScreenRecordingPermission,
+            hasMicrophonePermission: surfaceController.hasMicrophonePermission,
+            hasScreenContentPermission: surfaceController.hasScreenContentPermission,
+            voiceState: surfaceController.voiceState,
+            selectedBackend: preferences.selectedAgentBackend,
+            launchAuthState: launchAccessController.clickyLaunchAuthState,
+            launchTrialState: launchAccessController.clickyLaunchTrialState,
+            openClawConnectionStatus: backendRoutingController.openClawConnectionStatus,
+            codexRuntimeStatus: backendRoutingController.codexRuntimeStatus
+        )
+
+        let resolvedState = ClickyMenuBarIconStateResolver.resolve(input)
+        currentIconState = resolvedState
+        syncMenuBarIconAnimationDriver()
+        applyMenuBarIcon()
+    }
+
+    private func syncMenuBarIconAnimationDriver() {
+        if currentIconState.isAnimated {
+            guard iconAnimationTimer == nil else { return }
+            iconAnimationPhase = 0
+            iconAnimationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15.0, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.tickMenuBarIconAnimation()
+                }
+            }
+        } else {
+            iconAnimationTimer?.invalidate()
+            iconAnimationTimer = nil
+            iconAnimationPhase = 0
+        }
+    }
+
+    private func tickMenuBarIconAnimation() {
+        let phaseStep: CGFloat
+        switch currentIconState {
+        case .listening:
+            phaseStep = 0.06
+        case .thinking:
+            phaseStep = 0.08
+        case .responding:
+            phaseStep = 0.10
+        case .idle, .onboarding, .signInRequired, .locked, .backendIssue:
+            phaseStep = 0
+        }
+
+        iconAnimationPhase += phaseStep
+        applyMenuBarIcon()
+    }
+
+    private func applyMenuBarIcon() {
+        guard let button = statusItem?.button else { return }
+        button.image = makeClickyMenuBarIcon(state: currentIconState, phase: iconAnimationPhase)
+        button.image?.isTemplate = true
+    }
+
+    private func listeningPulse(phase: CGFloat) -> CGFloat {
+        (sin(phase * .pi * 2) + 1) / 2
+    }
+
+    private func drawListeningHalo(around path: NSBezierPath, phase: CGFloat) {
+        NSGraphicsContext.saveGraphicsState()
+        let haloPath = path.copy() as? NSBezierPath ?? path
+        haloPath.lineWidth = 1.8
+        NSColor.black.withAlphaComponent(0.10 + (0.10 * listeningPulse(phase: phase))).setStroke()
+        haloPath.stroke()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private func drawSweepHighlight(in path: NSBezierPath, iconSize: CGFloat, phase: CGFloat, intensity: CGFloat) {
+        NSGraphicsContext.saveGraphicsState()
+        path.addClip()
+
+        let normalizedPhase = phase.truncatingRemainder(dividingBy: 1)
+        let sweepWidth = iconSize * 0.42
+        let sweepTravel = iconSize * 1.6
+        let startX = -iconSize * 0.3
+        let currentX = startX + (sweepTravel * normalizedPhase)
+
+        let transform = NSAffineTransform()
+        transform.rotate(byRadians: -.pi / 6)
+        transform.concat()
+
+        NSColor.white.withAlphaComponent(intensity).setFill()
+        let sweepRect = NSRect(x: currentX, y: -iconSize * 0.2, width: sweepWidth, height: iconSize * 1.8)
+        NSBezierPath(rect: sweepRect).fill()
+
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private func drawStatusBadge(iconSize: CGFloat, style: MenuBarStatusBadgeStyle) {
+        let strokeColor = NSColor.black.withAlphaComponent(0.55)
+        let fillColor = NSColor.black.withAlphaComponent(0.35)
+
+        switch style {
+        case .dot:
+            let rect = NSRect(x: iconSize * 0.62, y: iconSize * 0.14, width: iconSize * 0.18, height: iconSize * 0.18)
+            let path = NSBezierPath(ovalIn: rect)
+            fillColor.setFill()
+            path.fill()
+        case .ring:
+            let rect = NSRect(x: iconSize * 0.60, y: iconSize * 0.12, width: iconSize * 0.22, height: iconSize * 0.22)
+            let path = NSBezierPath(ovalIn: rect)
+            path.lineWidth = 1.1
+            strokeColor.setStroke()
+            path.stroke()
+        case .bar:
+            let width = iconSize * 0.28
+            let height = iconSize * 0.08
+            let rect = NSRect(x: iconSize * 0.56, y: iconSize * 0.18, width: width, height: height)
+            let path = NSBezierPath(roundedRect: rect, xRadius: height / 2, yRadius: height / 2)
+            fillColor.setFill()
+            path.fill()
+        }
     }
 
     /// Opens the panel automatically on app launch so the user sees
@@ -441,4 +651,10 @@ final class MenuBarPanelManager: NSObject {
             clickOutsideMonitor = nil
         }
     }
+}
+
+private enum MenuBarStatusBadgeStyle {
+    case dot
+    case ring
+    case bar
 }

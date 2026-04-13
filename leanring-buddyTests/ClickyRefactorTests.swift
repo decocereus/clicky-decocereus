@@ -70,4 +70,80 @@ struct ClickyRefactorTests {
         manager.launchAccessController.clickyLaunchAuthState = .failed(message: "Oops")
         #expect(!manager.isClickyLaunchAuthPending)
     }
+
+    @Test
+    func menuBarIconStateResolverPrefersListeningDuringActiveVoiceSession() {
+        let input = ClickyMenuBarIconStateInput(
+            hasCompletedOnboarding: true,
+            hasAccessibilityPermission: true,
+            hasScreenRecordingPermission: true,
+            hasMicrophonePermission: true,
+            hasScreenContentPermission: true,
+            voiceState: .listening,
+            selectedBackend: .openClaw,
+            launchAuthState: .signedIn(email: "user@example.com"),
+            launchTrialState: .active(remainingCredits: 5),
+            openClawConnectionStatus: .connected(summary: "Connected"),
+            codexRuntimeStatus: .ready(summary: "Ready")
+        )
+
+        #expect(ClickyMenuBarIconStateResolver.resolve(input) == .listening)
+    }
+
+    @Test
+    func menuBarIconStateResolverShowsAttentionForSignedOutLaunchState() {
+        let input = ClickyMenuBarIconStateInput(
+            hasCompletedOnboarding: true,
+            hasAccessibilityPermission: true,
+            hasScreenRecordingPermission: true,
+            hasMicrophonePermission: true,
+            hasScreenContentPermission: true,
+            voiceState: .idle,
+            selectedBackend: .claude,
+            launchAuthState: .signedOut,
+            launchTrialState: .inactive,
+            openClawConnectionStatus: .idle,
+            codexRuntimeStatus: .idle
+        )
+
+        #expect(ClickyMenuBarIconStateResolver.resolve(input) == .signInRequired)
+    }
+
+    @Test
+    func menuBarIconStateResolverShowsAttentionForSelectedBackendFailure() {
+        let input = ClickyMenuBarIconStateInput(
+            hasCompletedOnboarding: true,
+            hasAccessibilityPermission: true,
+            hasScreenRecordingPermission: true,
+            hasMicrophonePermission: true,
+            hasScreenContentPermission: true,
+            voiceState: .idle,
+            selectedBackend: .codex,
+            launchAuthState: .signedIn(email: "user@example.com"),
+            launchTrialState: .active(remainingCredits: 3),
+            openClawConnectionStatus: .connected(summary: "Connected"),
+            codexRuntimeStatus: .failed(message: "Needs login")
+        )
+
+        #expect(ClickyMenuBarIconStateResolver.resolve(input) == .backendIssue)
+    }
+
+    @Test
+    func menuBarIconStateResolverUsesOnboardingStateBeforeActiveUsage() {
+        let input = ClickyMenuBarIconStateInput(
+            hasCompletedOnboarding: false,
+            hasAccessibilityPermission: true,
+            hasScreenRecordingPermission: true,
+            hasMicrophonePermission: true,
+            hasScreenContentPermission: true,
+            voiceState: .idle,
+            selectedBackend: .claude,
+            launchAuthState: .signedIn(email: "user@example.com"),
+            launchTrialState: .active(remainingCredits: 3),
+            openClawConnectionStatus: .idle,
+            codexRuntimeStatus: .idle
+        )
+
+        #expect(ClickyMenuBarIconStateResolver.resolve(input) == .onboarding)
+    }
 }
