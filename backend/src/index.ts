@@ -42,6 +42,7 @@ import {
   handleMarkTrialPaywalled,
   handleMarkTrialWelcomeDelivered,
 } from "./trial/routes"
+import { handleCreateAssemblyAIToken } from "./transcription/routes"
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -203,6 +204,7 @@ app.get("/v1", (c) => {
       "POST /v1/web-companion/sessions/:sessionId/messages",
       "POST /v1/web-companion/sessions/:sessionId/transcribe",
       "POST /v1/web-companion/sessions/:sessionId/end",
+      "POST /v1/transcription/assemblyai-token",
       "POST /v1/tutorials/extract",
       "GET /v1/tutorials/extract/:jobId",
       "GET /v1/tutorials/evidence/:videoId",
@@ -242,6 +244,7 @@ app.post("/v1/web-companion/sessions/:sessionId/events", handleRecordWebCompanio
 app.post("/v1/web-companion/sessions/:sessionId/messages", handleSendWebCompanionMessage)
 app.post("/v1/web-companion/sessions/:sessionId/transcribe", handleTranscribeWebCompanionAudio)
 app.post("/v1/web-companion/sessions/:sessionId/end", handleEndWebCompanionSession)
+app.post("/v1/transcription/assemblyai-token", handleCreateAssemblyAIToken)
 app.post("/v1/tutorials/extract", handleStartTutorialExtraction)
 app.get("/v1/tutorials/extract/:jobId", handleGetTutorialExtractionJob)
 app.get("/v1/tutorials/evidence/:videoId", handleGetTutorialEvidence)
