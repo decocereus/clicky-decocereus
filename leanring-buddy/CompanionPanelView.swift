@@ -2,23 +2,270 @@
 //  CompanionPanelView.swift
 //  leanring-buddy
 //
-//  The SwiftUI content hosted inside the menu bar panel. Shows the companion
-//  voice status, push-to-talk shortcut, and quick settings. Designed to feel
-//  like Loom's recording panel — dark, rounded, minimal, and special.
+//  The SwiftUI content hosted inside the menu bar panel. The outer shell stays
+//  native and glass-first, while the interior swaps between onboarding, ready,
+//  locked, and repair states from the Paper designs.
 //
 
 import AVFoundation
 import SwiftUI
 
 struct CompanionPanelView: View {
-    @ObservedObject var companionManager: CompanionManager
+    let companionManager: CompanionManager
+    @ObservedObject private var preferences: ClickyPreferencesStore
+    @ObservedObject private var surfaceController: ClickySurfaceController
+    @ObservedObject private var launchAccessController: ClickyLaunchAccessController
+    @ObservedObject private var tutorialController: ClickyTutorialController
+
+    @State private var onboardingStage: CompanionPanelOnboardingStage = .welcome
+    @State private var showsSignInWhyCopy = false
+    @State private var recentlyGrantedPermissions: Set<CompanionPermissionKind> = []
+    @State private var showsLockedStudioChip = false
+    @State private var isShowingTutorialFlow = false
+    @State private var showsTutorialEntryExplainer = false
+    @Namespace private var panelMotionNamespace
+
+    init(companionManager: CompanionManager) {
+        self.companionManager = companionManager
+        _preferences = ObservedObject(wrappedValue: companionManager.preferences)
+        _surfaceController = ObservedObject(wrappedValue: companionManager.surfaceController)
+        _launchAccessController = ObservedObject(wrappedValue: companionManager.launchAccessController)
+        _tutorialController = ObservedObject(wrappedValue: companionManager.tutorialController)
+    }
 
     private var theme: ClickyTheme {
-        companionManager.activeClickyTheme
+        preferences.clickyThemePreset.theme
     }
 
     private var contentTheme: ClickyTheme {
         theme.contentSurfaceTheme
+    }
+
+    private var allPermissionsGranted: Bool {
+        surfaceController.hasAccessibilityPermission
+            && surfaceController.hasScreenRecordingPermission
+            && surfaceController.hasMicrophonePermission
+            && surfaceController.hasScreenContentPermission
+    }
+
+    private var hasCompletedOnboarding: Bool {
+        preferences.hasCompletedOnboarding
+    }
+
+    private var clickyLaunchAuthState: ClickyLaunchAuthState {
+        launchAccessController.clickyLaunchAuthState
+    }
+
+    private var isClickyLaunchSignedIn: Bool {
+        if case .signedIn = clickyLaunchAuthState {
+            return true
+        }
+
+        return false
+    }
+
+    private var activeClickyPersonaLabel: String {
+        preferences.clickyPersonaPreset.definition.displayName
+    }
+
+    private var effectiveClickyVoicePreset: ClickyVoicePreset {
+        preferences.clickyVoicePreset
+    }
+
+    private var effectiveClickyCursorStyle: ClickyCursorStyle {
+        preferences.clickyCursorStyle
+    }
+
+    private var hasUnlimitedClickyLaunchAccess: Bool {
+        if case .unlocked = launchAccessController.clickyLaunchTrialState {
+            return true
+        }
+
+        return false
+    }
+
+    private var clickyLaunchTrialStatusLabel: String {
+        switch launchAccessController.clickyLaunchTrialState {
+        case .inactive:
+            return "Inactive"
+        case let .active(remainingCredits):
+            return "\(remainingCredits) credits left"
+        case .armed:
+            return "Paywall armed"
+        case .paywalled:
+            return "Paywall active"
+        case .unlocked:
+            return "Unlocked"
+        case let .failed(message):
+            return message
+        }
+    }
+
+    private var panelScreen: CompanionPanelScreen {
+        if companionManager.isClickyLaunchPaywallActive {
+            return .locked
+        }
+
+        if hasCompletedOnboarding {
+            if companionManager.isClickyLaunchAuthPending || companionManager.requiresLaunchSignInForCompanionUse {
+                return .signIn
+            }
+
+            if let tutorialPanelScreen {
+                return tutorialPanelScreen
+            }
+            return allPermissionsGranted ? .active : .repair
+        }
+
+        switch onboardingStage {
+        case .welcome:
+            return .welcome
+        case .signIn:
+            return .signIn
+        case .permissions:
+            return .permissions
+        case .ready:
+            return .ready
+        }
+    }
+
+    private var onboardingProgressLabel: String {
+        switch panelScreen {
+        case .welcome:
+            return "1 of 4"
+        case .signIn:
+            return "2 of 4"
+        case .permissions:
+            return "3 of 4"
+        case .ready:
+            return "4 of 4"
+        case .active, .locked, .repair, .tutorialEntry, .tutorialImportEntry, .tutorialImportMissingSetup, .tutorialExtracting, .tutorialCompiling, .tutorialReady, .tutorialPlayback, .tutorialFailed:
+            return ""
+        }
+    }
+
+    private var statusPrimaryText: String {
+        switch panelScreen {
+        case .welcome:
+            return "Welcome"
+        case .signIn:
+            return "Sign In"
+        case .permissions:
+            return "Permissions"
+        case .ready:
+            return "Ready"
+        case .active:
+            return statusText
+        case .locked:
+            return "Locked"
+        case .repair:
+            return "Repair"
+        case .tutorialEntry, .tutorialImportEntry, .tutorialImportMissingSetup, .tutorialExtracting, .tutorialCompiling, .tutorialReady, .tutorialPlayback, .tutorialFailed:
+            return "Learn"
+        }
+    }
+
+    private var statusSecondaryText: String {
+        switch panelScreen {
+        case .welcome, .signIn, .permissions, .ready:
+            return onboardingProgressLabel.uppercased()
+        case .active:
+            return preferences.selectedAgentBackend.displayName.uppercased()
+        case .locked:
+            return "CREDITS EXHAUSTED"
+        case .repair:
+            return "PERMISSIONS REVOKED"
+        case .tutorialEntry:
+            return preferences.selectedAgentBackend.displayName.uppercased()
+        case .tutorialImportEntry:
+            return "READY"
+        case .tutorialImportMissingSetup:
+            return "SETUP NEEDED"
+        case .tutorialExtracting:
+            return "EXTRACTING"
+        case .tutorialCompiling:
+            return "COMPILING"
+        case .tutorialReady:
+            return "READY"
+        case .tutorialPlayback:
+            if let session = tutorialController.tutorialSessionState {
+                return "STEP \(String(format: "%02d", session.currentStepIndex + 1))"
+            }
+            return "PLAYING"
+        case .tutorialFailed:
+            return "FAILED"
+        }
+    }
+
+    private var showsStudioButton: Bool {
+        switch panelScreen {
+        case .welcome, .signIn, .permissions:
+            return false
+        case .ready, .active, .locked, .repair, .tutorialEntry, .tutorialImportMissingSetup, .tutorialReady, .tutorialFailed:
+            return true
+        case .tutorialImportEntry, .tutorialExtracting, .tutorialCompiling, .tutorialPlayback:
+            return false
+        }
+    }
+
+    private var showsHeaderStatusRow: Bool {
+        switch panelScreen {
+        case .active:
+            return false
+        case .welcome, .signIn, .permissions, .ready, .locked, .repair, .tutorialEntry, .tutorialImportEntry, .tutorialImportMissingSetup, .tutorialExtracting, .tutorialCompiling, .tutorialReady, .tutorialPlayback, .tutorialFailed:
+            return true
+        }
+    }
+
+    private var tutorialPanelScreen: CompanionPanelScreen? {
+        let hasTutorialPlayback = tutorialController.tutorialPlaybackState?.isVisible == true
+
+        guard isShowingTutorialFlow || hasTutorialPlayback else {
+            return nil
+        }
+
+        if hasTutorialPlayback {
+            return .tutorialPlayback
+        }
+
+        if tutorialController.isTutorialImportRunning {
+            switch tutorialController.currentTutorialImportDraft?.status {
+            case .compiling:
+                return .tutorialCompiling
+            default:
+                return .tutorialExtracting
+            }
+        }
+
+        if let draft = tutorialController.currentTutorialImportDraft {
+            switch draft.status {
+            case .failed:
+                return .tutorialFailed
+            case .ready:
+                return .tutorialReady
+            case .compiling:
+                return .tutorialCompiling
+            case .extracting, .extracted:
+                return .tutorialExtracting
+            case .pending:
+                break
+            }
+        }
+
+        if !CompanionRuntimeConfiguration.isTutorialExtractorConfigured {
+            return .tutorialImportMissingSetup
+        }
+
+        return .tutorialImportEntry
+    }
+
+    private var isInTutorialPanelFlow: Bool {
+        switch panelScreen {
+        case .tutorialEntry, .tutorialImportEntry, .tutorialImportMissingSetup, .tutorialExtracting, .tutorialCompiling, .tutorialReady, .tutorialPlayback, .tutorialFailed:
+            return true
+        case .welcome, .signIn, .permissions, .ready, .active, .locked, .repair:
+            return false
+        }
     }
 
     var body: some View {
@@ -28,24 +275,85 @@ struct CompanionPanelView: View {
         }
         .clickyTheme(theme)
         .frame(width: 360)
+        .onAppear {
+            syncOnboardingStage()
+            requestPanelRelayout(animated: false)
+        }
+        .onChange(of: launchAccessController.clickyLaunchAuthState) { _, _ in
+            syncOnboardingStage()
+        }
+        .onChange(of: allPermissionsGranted) { _, _ in
+            syncOnboardingStage()
+        }
+        .onChange(of: panelScreenKey) { _, _ in
+            requestPanelRelayout(animated: false)
+        }
+        .onChange(of: permissionRows.count) { _, _ in
+            requestPanelRelayout(animated: false)
+        }
+        .onChange(of: showsSignInWhyCopy) { _, _ in
+            requestPanelRelayout(animated: false)
+        }
+        .onChange(of: surfaceController.hasAccessibilityPermission) { _, isGranted in
+            handlePermissionStateChange(.accessibility, isGranted: isGranted)
+        }
+        .onChange(of: surfaceController.hasMicrophonePermission) { _, isGranted in
+            handlePermissionStateChange(.microphone, isGranted: isGranted)
+        }
+        .onChange(of: surfaceController.hasScreenRecordingPermission) { _, isGranted in
+            handlePermissionStateChange(.screenRecording, isGranted: isGranted)
+        }
+        .onChange(of: surfaceController.hasScreenContentPermission) { _, isGranted in
+            handlePermissionStateChange(.screenContent, isGranted: isGranted)
+        }
+        .onChange(of: panelScreenKey) { _, newValue in
+            if newValue == "locked" {
+                showsLockedStudioChip = false
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(0.12))
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        showsLockedStudioChip = true
+                    }
+                }
+            } else {
+                showsLockedStudioChip = false
+            }
+        }
     }
 
-    // MARK: - Header
+    private var panelShell: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            panelHeader
+            panelHairline
+            panelBody
+            panelHairline
+            footerSection
+        }
+        .modifier(ClickyPanelShellStyle())
+    }
 
     private var panelHeader: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("clicky")
                     .font(ClickyTypography.brand(size: 30))
-                    .foregroundColor(theme.primary)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [theme.primary, theme.ring.opacity(0.85)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
 
-                HStack(spacing: 8) {
-                    panelStatusPill
+                if showsHeaderStatusRow {
+                    HStack(spacing: 8) {
+                        headerStatusPill
 
-                    if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                        Text(companionManager.selectedAgentBackend.displayName)
-                            .font(ClickyTypography.mono(size: 10, weight: .semibold))
-                            .foregroundColor(theme.textMuted)
+                        if !statusSecondaryText.isEmpty {
+                            Text(statusSecondaryText)
+                                .font(ClickyTypography.mono(size: 10, weight: .medium))
+                                .foregroundColor(theme.textMuted)
+                        }
                     }
                 }
             }
@@ -53,24 +361,22 @@ struct CompanionPanelView: View {
             Spacer()
 
             HStack(spacing: 8) {
-                Button(action: {
-                    openStudio()
-                }) {
-                    Image(systemName: "slider.horizontal.3")
+                if showsStudioButton {
+                    Button(action: openStudio) {
+                        Image(systemName: "slider.horizontal.3")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(theme.textSecondary)
+                        .foregroundColor(Color(hex: "#1A1A1A").opacity(0.88))
                         .frame(width: 30, height: 30)
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .modifier(ClickyTinyGlassCircleStyle())
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .modifier(ClickyTinyGlassCircleStyle())
 
-                Button(action: {
-                    NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
-                }) {
-                    Image(systemName: "xmark")
+                Button(action: handleTrailingHeaderAction) {
+                    Image(systemName: isInTutorialPanelFlow ? "chevron.left" : "xmark")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(theme.textSecondary)
+                        .foregroundColor(Color(hex: "#1A1A1A").opacity(0.88))
                         .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
@@ -81,354 +387,361 @@ struct CompanionPanelView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var mainPanelCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            permissionsCopySection
-
-            if !companionManager.allPermissionsGranted {
-                settingsSection
-            }
-
-            if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                startButton
-            }
-        }
-        .clickyGlassCard(cornerRadius: 28, padding: 18)
-    }
-
-    private var panelShell: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            panelHeader
-
-            panelHairline
-
-            panelBody
-
-            panelHairline
-
-            footerSection
-        }
-        .modifier(ClickyPanelShellStyle())
-    }
-
-    private var panelBody: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            permissionsCopySection
-                .modifier(ClickyPanelContentCardStyle(tone: .hero, padding: 16))
-
-            if !companionManager.allPermissionsGranted {
-                settingsSection
-                    .modifier(ClickyPanelContentCardStyle(padding: 16))
-            } else if !companionManager.hasCompletedOnboarding {
-                startButton
-            } else if companionManager.isClickyLaunchAuthPending {
-                authPendingSection
-                    .modifier(ClickyPanelContentCardStyle(tone: .hero, padding: 16))
-            } else if companionManager.isClickyLaunchPaywallActive {
-                paywallLockedSection
-                    .modifier(ClickyPanelContentCardStyle(tone: .hero, padding: 16))
-            } else if companionManager.requiresLaunchSignInForCompanionUse {
-                launchAccessPromptSection
-                    .modifier(ClickyPanelContentCardStyle(tone: .hero, padding: 16))
-            } else {
-                compactCompanionCard
-                tutorialImportCard
-
-                if companionManager.selectedAgentBackend == .claude {
-                    claudeModelCard
-                } else if companionManager.selectedAgentBackend == .codex {
-                    compactCodexCard
-                } else {
-                    compactOpenClawCard
-                }
-            }
-        }
-    }
-
-    private var panelStatusPill: some View {
-        Text(statusText.uppercased())
+    private var headerStatusPill: some View {
+        Text(statusPrimaryText.uppercased())
             .font(ClickyTypography.mono(size: 10, weight: .semibold))
-            .foregroundColor(theme.textPrimary)
+            .foregroundColor(headerPillForeground)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
                 Capsule(style: .continuous)
-                    .fill(theme.primary.opacity(0.12))
+                    .fill(headerPillBackground)
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .stroke(theme.strokeSoft, lineWidth: 0.8)
+                    .stroke(headerPillBorder, lineWidth: 0.8)
             )
     }
 
-    private var paywallLockedSection: some View {
+    private var panelBody: some View {
         VStack(alignment: .leading, spacing: 12) {
-            panelSectionEyebrow("Launch Access")
+            Group {
+                primaryContentCard
+                    .panelGlassMotionID("primary-card-\(panelScreenKey)", namespace: panelMotionNamespace)
+                    .transition(panelCardTransition)
 
-            Text("Clicky is locked")
-                .font(ClickyTypography.section(size: 26))
-                .foregroundColor(contentTheme.textPrimary)
-
-            Text("Your trial credits are exhausted. Unlock Clicky to keep using the companion experience.")
-                .font(ClickyTypography.body(size: 13))
-                .foregroundColor(contentTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button(action: {
-                companionManager.startClickyLaunchCheckout()
-            }) {
-                Text("Buy Launch Pass")
-                    .frame(maxWidth: .infinity)
+                secondaryContentCard
+                    .panelGlassMotionID("secondary-card-\(panelScreenKey)", namespace: panelMotionNamespace)
+                    .transition(panelCardTransition)
             }
-            .modifier(ClickyProminentActionStyle())
-            .pointerCursor()
+        }
+        .animation(panelCardAnimation, value: panelScreenKey)
+        .animation(panelCardAnimation, value: permissionRows.count)
+        .animation(panelCardAnimation, value: showsSignInWhyCopy)
+    }
+
+    @ViewBuilder
+    private var primaryContentCard: some View {
+        switch panelScreen {
+        case .welcome:
+            primaryCopyCard(
+                title: "A companion that sees what you see and helps while you work.",
+                body: "Hold Control+Option, ask naturally, and let Clicky understand your screen, answer in voice, and guide your attention when it matters."
+            )
+        case .signIn:
+            primaryCopyCard(
+                title: "Sign in so Clicky can stay with you.",
+                body: "You get a free taste first. Upgrade only after you've felt the value. Sign-in keeps your credits, restore access, and purchase state attached to you."
+            )
+        case .permissions:
+            primaryCopyCard(
+                title: "Give Clicky the access it needs to help in context.",
+                body: "These permissions let Clicky listen, understand what's on screen, and guide you where to look. Only show what still needs attention."
+            )
+        case .ready:
+            primaryCopyCard(
+                title: "Clicky is ready to join you in the work.",
+                body: "From here on, the product should teach itself through use. Hold Control+Option whenever you want help."
+            )
+        case .active:
+            activeHeroCard
+        case .locked:
+            primaryCopyCard(
+                title: "You've felt what Clicky can do.",
+                body: "Unlock it to keep this companion with you while you work.",
+                tone: .subtle
+            )
+        case .repair:
+            primaryCopyCard(
+                title: "Clicky lost some of the access it uses to help.",
+                body: "This is a quick repair moment. Restore what's missing and Clicky can keep guiding you in context."
+            )
+        case .tutorialEntry:
+            primaryCopyCard(
+                title: "Hold Control+Option whenever you want Clicky with you.",
+                body: "The everyday state stays quiet, but Clicky can also turn a YouTube tutorial into something you can follow step by step."
+            )
+        case .tutorialImportEntry, .tutorialImportMissingSetup:
+            primaryCopyCard(
+                title: "Learn from YouTube",
+                body: "Paste a tutorial URL and Clicky will turn it into a guided flow beside your cursor."
+            )
+        case .tutorialExtracting:
+            primaryCopyCard(
+                title: "Pulling out the useful parts of the tutorial.",
+                body: "Clicky is extracting transcript, timestamps, and visual evidence so it can guide you later instead of just dumping a video on you."
+            )
+        case .tutorialCompiling:
+            primaryCopyCard(
+                title: "Turning the tutorial into a guided lesson.",
+                body: "The selected backend is compiling the evidence bundle into clear steps that Clicky can teach through, not just quote back."
+            )
+        case .tutorialReady:
+            primaryCopyCard(
+                title: "Your guided lesson is ready.",
+                body: "Clicky has turned the tutorial into a step-by-step lesson you can follow beside your cursor."
+            )
+        case .tutorialPlayback:
+            primaryCopyCard(
+                title: tutorialPlaybackTitle,
+                body: "Clicky can explain this step, answer questions, or point you at the right part of the UI."
+            )
+        case .tutorialFailed:
+            primaryCopyCard(
+                title: "Clicky couldn't turn this tutorial into a lesson yet.",
+                body: "The import draft is still safe locally, so you can retry, switch sources, or inspect what failed in Studio.",
+                tone: .subtle
+            )
         }
     }
 
-    private var launchAccessPromptSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            panelSectionEyebrow("Launch Access")
+    @ViewBuilder
+    private var secondaryContentCard: some View {
+        switch panelScreen {
+        case .welcome:
+            onboardingWelcomeCard
+        case .signIn:
+            onboardingSignInCard
+        case .permissions:
+            permissionsCard(
+                primaryTitle: "Continue",
+                secondaryTitle: "Later",
+                secondaryAction: dismissPanel
+            )
+        case .ready:
+            onboardingReadyCard
+        case .active:
+            activeStateCard
+        case .locked:
+            lockedStateCard
+        case .repair:
+            permissionsCard(
+                primaryTitle: nil,
+                secondaryTitle: nil,
+                secondaryAction: nil
+            )
+        case .tutorialEntry:
+            tutorialEntryPointCard
+        case .tutorialImportEntry:
+            tutorialImportEntryCard
+        case .tutorialImportMissingSetup:
+            tutorialImportMissingSetupCard
+        case .tutorialExtracting:
+            tutorialExtractingCard
+        case .tutorialCompiling:
+            tutorialCompilingCard
+        case .tutorialReady:
+            tutorialReadyCard
+        case .tutorialPlayback:
+            tutorialPlaybackCard
+        case .tutorialFailed:
+            tutorialFailedCard
+        }
+    }
 
-            Text("Sign in to start your trial")
+    private func primaryCopyCard(title: String, body: String, tone: ClickyPanelContentTone = .hero) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
                 .font(ClickyTypography.section(size: 22))
                 .foregroundColor(contentTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
 
-            Text("Clicky now starts the launch trial only after you sign in, so credits and restore stay tied to your account.")
+            Text(body)
                 .font(ClickyTypography.body(size: 13))
                 .foregroundColor(contentTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        .modifier(ClickyPanelContentCardStyle(tone: tone, padding: 18))
+    }
+
+    private var activeHeroCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Hold")
+                    .font(ClickyTypography.section(size: 21))
+                    .foregroundColor(contentTheme.textPrimary)
+
+                shortcutKeycap("⌃")
+                shortcutKeycap("⌥")
+
+                Text("to talk.")
+                    .font(ClickyTypography.section(size: 21))
+                    .foregroundColor(contentTheme.textPrimary)
+            }
+
+            Text("Ask naturally and Clicky will guide your attention, answer in voice, and keep your place.")
+                .font(ClickyTypography.body(size: 12))
+                .foregroundColor(contentTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .modifier(ClickyPanelContentCardStyle(tone: .hero, padding: 18))
+    }
+
+    private func shortcutKeycap(_ label: String) -> some View {
+        Text(label)
+            .font(ClickyTypography.mono(size: 13, weight: .semibold))
+            .foregroundColor(contentTheme.textPrimary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(contentTheme.card.opacity(0.9))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(contentTheme.border.opacity(0.85), lineWidth: 0.9)
+            )
+    }
+
+    private var onboardingWelcomeCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                panelSectionEyebrow("What Clicky Does")
+
+                onboardingBullet("Understand the software in front of you.")
+                onboardingBullet("Teach you the next step in plain language.")
+                onboardingBullet("Point exactly where you should look or click.")
+            }
+
+            HStack(spacing: 10) {
+                Button(action: continueFromWelcome) {
+                    Text("Continue")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickyProminentActionStyle(attentionMode: .singlePulse))
+                .pointerCursor()
+
+                Button(action: openStudio) {
+                    Text("Open Studio")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+            }
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var onboardingSignInCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(signInSummaryCopy)
+                .font(ClickyTypography.body(size: 13))
+                .foregroundColor(contentTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if showsSignInWhyCopy {
+                Text("Clicky keeps credits, restore, and purchase state on your account so it stays with you across reinstalls and future upgrades.")
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(contentTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            HStack(spacing: 10) {
+                Button(action: handleSignInPrimaryAction) {
+                    Text(signInPrimaryButtonTitle)
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickyProminentActionStyle())
+                .pointerCursor(isEnabled: !companionManager.isClickyLaunchAuthPending)
+                .disabled(companionManager.isClickyLaunchAuthPending)
+
+                Button(action: {
+                    withAnimation(panelSpringAnimation) {
+                        showsSignInWhyCopy.toggle()
+                    }
+                }) {
+                    Text(showsSignInWhyCopy ? "Hide" : "Why?")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+            }
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var onboardingReadyCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                panelSectionEyebrow("You Can Now")
+
+                onboardingBullet("Ask what this software is doing.")
+                onboardingBullet("Learn the next step while staying in context.")
+                onboardingBullet("Follow the pointer when Clicky wants to show you where to look.")
+            }
 
             HStack(spacing: 10) {
                 Button(action: {
-                    companionManager.startClickyLaunchSignIn()
+                    companionManager.triggerOnboarding()
                 }) {
-                    Text("Sign In")
+                    Text("Start Using Clicky")
                         .frame(maxWidth: .infinity)
                 }
                 .modifier(ClickyProminentActionStyle())
                 .pointerCursor()
 
-                Button(action: {
-                    openStudio()
-                }) {
+                Button(action: openStudio) {
                     Text("Open Studio")
                         .frame(maxWidth: .infinity)
                 }
                 .modifier(ClickySecondaryGlassButtonStyle())
                 .pointerCursor()
-            }
-        }
-    }
-
-    private var authPendingSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            panelSectionEyebrow("Launch Access")
-
-            HStack(spacing: 10) {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(contentTheme.accent)
-
-                Text(authPendingTitle)
-                    .font(ClickyTypography.section(size: 20))
-                    .foregroundColor(contentTheme.textPrimary)
-            }
-
-            Text(authPendingMessage)
-                .font(ClickyTypography.body(size: 13))
-                .foregroundColor(contentTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 10) {
-                Button(action: {
-                    companionManager.startClickyLaunchSignIn()
-                }) {
-                    Text("Open Sign-In Again")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-
-                Button(action: {
-                    openStudio()
-                }) {
-                    Text("Open Studio")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-            }
-        }
-    }
-
-    private var backendCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            panelSectionEyebrow("Agent")
-            agentBackendPickerRow
-        }
-        .clickyGlassCard(cornerRadius: 28, padding: 18)
-    }
-
-    private var claudeCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            panelSectionEyebrow("Claude")
-            Text("Cloud voice guidance stays available here, while Studio handles deeper model and persona setup.")
-                .font(ClickyTypography.body(size: 13))
-                .foregroundColor(theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            modelPickerRow
-        }
-        .clickyGlassCard(cornerRadius: 28, padding: 18)
-    }
-
-    private var compactOpenClawCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            panelSectionEyebrow("OpenClaw")
-
-            HStack {
-                Text(companionManager.effectiveClickyPresentationName)
-                    .font(ClickyTypography.section(size: 20))
-                    .foregroundColor(contentTheme.textPrimary)
-
-                Spacer()
-
-                Circle()
-                    .fill(openClawStatusColor)
-                    .frame(width: 8, height: 8)
-            }
-
-            Text(openClawCompactSummary)
-                .font(ClickyTypography.body(size: 12, weight: .medium))
-                .foregroundColor(contentTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 10) {
-                Button(action: {
-                    openStudio()
-                }) {
-                    Text("Open Studio")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-
-                Button(action: {
-                    companionManager.testOpenClawConnection()
-                }) {
-                    Text("Test Gateway")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor(isEnabled: !isTestingOpenClawConnection)
-                .disabled(isTestingOpenClawConnection)
             }
         }
         .modifier(ClickyPanelContentCardStyle(padding: 16))
     }
 
-    private var compactCodexCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            panelSectionEyebrow("Codex")
+    private var activeStateCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            tutorialEntryPointCard
 
-            HStack {
-                Text("Codex on this Mac")
-                    .font(ClickyTypography.section(size: 20))
-                    .foregroundColor(contentTheme.textPrimary)
-
-                Spacer()
-
-                Circle()
-                    .fill(codexStatusColor)
-                    .frame(width: 8, height: 8)
-            }
-
-            Text(companionManager.codexRuntimeSummaryCopy)
-                .font(ClickyTypography.body(size: 12, weight: .medium))
-                .foregroundColor(contentTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 10) {
-                Button(action: {
-                    companionManager.refreshCodexRuntimeStatus()
-                }) {
-                    Text("Check Codex")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-
-                if case .failed = companionManager.codexRuntimeStatus {
-                    Button(action: {
-                        if companionManager.codexExecutablePath == nil {
-                            companionManager.openCodexInstallPage()
-                        } else {
-                            companionManager.startCodexLoginInTerminal()
-                        }
-                    }) {
-                        Text(companionManager.codexExecutablePath == nil ? "Install" : "Sign In")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .modifier(ClickySecondaryGlassButtonStyle())
-                    .pointerCursor()
-                }
-            }
+            currentFeelCard
         }
-        .modifier(ClickyPanelContentCardStyle(padding: 16))
     }
 
-    private var compactCompanionCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var currentFeelCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    panelSectionEyebrow("Persona")
-                    Text(companionManager.activeClickyPersonaLabel)
+                    panelSectionEyebrow("Current Feel")
+
+                    Text(activeClickyPersonaLabel)
                         .font(ClickyTypography.section(size: 20))
                         .foregroundColor(contentTheme.textPrimary)
-                    Text("\(companionManager.effectiveClickyVoicePreset.displayName) voice · \(companionManager.effectiveClickyCursorStyle.displayName) cursor")
+
+                    Text("\(effectiveClickyVoicePreset.displayName) voice  ·  \(effectiveClickyCursorStyle.displayName) cursor")
                         .font(ClickyTypography.mono(size: 10, weight: .medium))
                         .foregroundColor(contentTheme.textMuted)
                 }
 
                 Spacer()
 
-                Circle()
-                    .fill(theme.primary)
-                    .frame(width: 10, height: 10)
-                    .padding(.top, 4)
+                CompanionCreditsChip(
+                    label: launchCreditsLabel.uppercased(),
+                    tone: hasUnlimitedClickyLaunchAccess ? .success : .neutral
+                )
             }
 
-            Rectangle()
-                .fill(contentTheme.strokeSoft)
-                .frame(height: 1)
-                .frame(maxWidth: .infinity)
+            panelHairline
 
             VStack(alignment: .leading, spacing: 8) {
-                panelSectionEyebrow("Routing")
-                agentBackendPickerRow
+                panelSectionEyebrow("Companion")
+                companionBackendButtons
             }
         }
         .modifier(ClickyPanelContentCardStyle(padding: 16))
     }
 
-    private var claudeModelCard: some View {
+    private var tutorialEntryPointCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            panelSectionEyebrow("Claude")
-            modelPickerRow
-        }
-        .modifier(ClickyPanelContentCardStyle(padding: 16))
-    }
-
-    private var tutorialImportCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     panelSectionEyebrow("Learn")
-                    Text("Learn from YouTube")
+                    Text("Turn a tutorial into a guided flow")
                         .font(ClickyTypography.section(size: 20))
                         .foregroundColor(contentTheme.textPrimary)
-                    Text("Paste a tutorial URL and Clicky will turn it into a guided flow beside your cursor.")
+                    Text("Paste a YouTube URL and Clicky will teach it beside your cursor.")
                         .font(ClickyTypography.body(size: 12))
                         .foregroundColor(contentTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -436,349 +749,376 @@ struct CompanionPanelView: View {
 
                 Spacer()
 
-                panelInlineStatus(
-                    label: companionManager.isTutorialImportRunning ? "Importing" : "Ready",
-                    tone: companionManager.isTutorialImportRunning ? .info : .neutral
+                panelInlineStatus(label: "New", tone: .info)
+            }
+
+            if showsTutorialEntryExplainer {
+                Text("Clicky extracts the useful parts, compiles them into a lesson, then guides you step by step with inline video and voice help.")
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(contentTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            HStack(spacing: 10) {
+                Button(action: {
+                    withAnimation(panelCardAnimation) {
+                        isShowingTutorialFlow = true
+                        showsTutorialEntryExplainer = false
+                    }
+                }) {
+                    Text("Start Learning")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickyProminentActionStyle())
+                .pointerCursor()
+
+                Button(action: {
+                    withAnimation(panelCardAnimation) {
+                        showsTutorialEntryExplainer.toggle()
+                    }
+                }) {
+                    Text("How it works")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+                .frame(width: 148)
+            }
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var tutorialImportEntryCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("YouTube URL")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .foregroundColor(contentTheme.textPrimary)
+
+                CompanionPanelTutorialURLField(
+                    tutorialController: tutorialController,
+                    placeholder: "https://youtube.com/watch?v=...",
+                    theme: theme,
+                    contentTheme: contentTheme,
+                    onSubmit: companionManager.startTutorialImportFromPanel
                 )
             }
 
-            tutorialURLField(
-                text: Binding(
-                    get: { companionManager.tutorialImportURLDraft },
-                    set: { companionManager.tutorialImportURLDraft = $0 }
-                ),
-                placeholder: "https://youtu.be/..."
-            )
+            Text("Clicky will extract the useful parts, compile a lesson, and guide you through it on your own screen.")
+                .font(ClickyTypography.body(size: 12))
+                .foregroundColor(contentTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
 
-            if let statusMessage = companionManager.tutorialImportStatusMessage,
-               !statusMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(statusMessage)
-                    .font(ClickyTypography.body(size: 12, weight: .medium))
+            Button(action: {
+                companionManager.startTutorialImportFromPanel()
+            }) {
+                Text("Start Learning")
+                    .frame(maxWidth: .infinity)
+            }
+            .modifier(ClickyProminentActionStyle())
+            .pointerCursor()
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var tutorialImportMissingSetupCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("YouTube URL")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .foregroundColor(contentTheme.textPrimary)
+
+                CompanionPanelTutorialURLField(
+                    tutorialController: tutorialController,
+                    placeholder: "https://youtube.com/watch?v=dQw4w9WgXcQ",
+                    theme: theme,
+                    contentTheme: contentTheme,
+                    onSubmit: companionManager.startTutorialImportFromPanel
+                )
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("The tutorial extraction service API key is missing.")
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .foregroundColor(contentTheme.textPrimary)
+                Text("Add it in Studio first, then come back here to start learning from tutorials.")
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(contentTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(2)
+
+            Button(action: openStudio) {
+                Text("Open Studio")
+                    .frame(maxWidth: .infinity)
+            }
+            .modifier(ClickyProminentActionStyle())
+            .pointerCursor()
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var tutorialExtractingCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                panelSectionEyebrow("Current Step")
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(theme.success.opacity(0.75))
+                        .frame(width: 8, height: 8)
+                    Text("Extracting transcript")
+                        .font(ClickyTypography.body(size: 13, weight: .medium))
+                        .foregroundColor(contentTheme.textPrimary)
+                }
+
+                ProgressView(value: tutorialExtractionProgress)
+                    .tint(theme.success)
+
+                Text("Next: representative frames and structure.")
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(contentTheme.textSecondary)
+            }
+
+            HStack {
+                Button(action: {
+                    isShowingTutorialFlow = false
+                }) {
+                    Text("Cancel")
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+
+                Spacer()
+            }
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var tutorialCompilingCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                panelSectionEyebrow("Lesson Draft")
+                Text("Building step titles, instructions, and verification hints…")
+                    .font(ClickyTypography.body(size: 13))
+                    .foregroundColor(contentTheme.textPrimary)
+                HStack(spacing: 6) {
+                    Circle().fill(contentTheme.textMuted.opacity(0.6)).frame(width: 6, height: 6)
+                    Circle().fill(contentTheme.textMuted.opacity(0.85)).frame(width: 6, height: 6)
+                    Circle().fill(contentTheme.textMuted.opacity(0.45)).frame(width: 6, height: 6)
+                }
+            }
+
+            HStack {
+                Button(action: {
+                    isShowingTutorialFlow = false
+                }) {
+                    Text("Cancel")
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+
+                Spacer()
+            }
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var tutorialReadyCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                panelSectionEyebrow("Lesson Snapshot")
+                Text(tutorialLessonTitle)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .foregroundColor(contentTheme.textPrimary)
+                Text(tutorialLessonSummaryLine)
+                    .font(ClickyTypography.body(size: 12))
                     .foregroundColor(contentTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let draft = companionManager.currentTutorialImportDraft,
-               let title = draft.title,
-               !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(ClickyTypography.body(size: 13, weight: .semibold))
-                        .foregroundColor(contentTheme.textPrimary)
+            HStack(spacing: 10) {
+                Button(action: {
+                    companionManager.startTutorialLessonFromReadyState()
+                }) {
+                    Text("Start Lesson")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickyProminentActionStyle())
+                .pointerCursor()
 
-                    if let channelName = draft.channelName,
-                       !channelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(channelName)
-                            .font(ClickyTypography.mono(size: 10, weight: .medium))
-                            .foregroundColor(contentTheme.textMuted)
+                Button(action: openStudio) {
+                    Text("Open Studio")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+            }
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var tutorialPlaybackCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                panelSectionEyebrow("Video Context")
+                Text("Source clip available inline beside the cursor. Space to pause, arrows to seek, Escape to dismiss.")
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(contentTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 10) {
+                Button(action: {
+                    companionManager.repeatTutorialLessonStepFromPanel()
+                }) {
+                    Text("Repeat")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+
+                Button(action: {
+                    companionManager.rewindTutorialLessonFromPanel()
+                }) {
+                    Text("Back")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+
+                Button(action: {
+                    companionManager.advanceTutorialLessonFromPanel()
+                }) {
+                    Text("Next Step")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickyProminentActionStyle())
+                .pointerCursor()
+            }
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var tutorialFailedCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                panelSectionEyebrow("Failure Reason")
+                Text(tutorialFailureReason)
+                    .font(ClickyTypography.body(size: 13))
+                    .foregroundColor(contentTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Try again or inspect diagnostics in Studio.")
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(contentTheme.textSecondary)
+            }
+
+            HStack(spacing: 10) {
+                Button(action: {
+                    companionManager.retryTutorialImportFromPanel()
+                }) {
+                    Text("Try Again")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickyProminentActionStyle())
+                .pointerCursor()
+
+                Button(action: openStudio) {
+                    Text("Open Studio")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+            }
+        }
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
+    }
+
+    private var lockedStateCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top) {
+                        panelSectionEyebrow("Unlock Clicky")
+                        Spacer()
+                        Text("$49")
+                            .font(ClickyTypography.section(size: 20))
+                            .foregroundColor(contentTheme.textPrimary)
                     }
+
+                    Text("One payment to continue learning, asking, and getting guided help in context.")
+                        .font(ClickyTypography.body(size: 13))
+                        .foregroundColor(contentTheme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
             HStack(spacing: 10) {
                 Button(action: {
-                    companionManager.startTutorialImportFromPanel()
+                    companionManager.startClickyLaunchCheckout()
                 }) {
-                    Text(companionManager.isTutorialImportRunning ? "Importing…" : "Start Learning")
+                    Text("Pay Now")
                         .frame(maxWidth: .infinity)
                 }
-                .modifier(ClickyProminentActionStyle())
-                .pointerCursor(isEnabled: !companionManager.isTutorialImportRunning)
-                .disabled(companionManager.isTutorialImportRunning)
+                .modifier(ClickyProminentActionStyle(attentionMode: .loopingPulse))
+                .pointerCursor()
 
-                if companionManager.tutorialPlaybackState != nil {
-                    Button(action: {
-                        companionManager.handleTutorialPlaybackKeyboardCommand(.dismiss)
-                    }) {
-                        Text("Hide Player")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .modifier(ClickySecondaryGlassButtonStyle())
-                    .pointerCursor()
+                Button(action: {
+                    companionManager.signOutClickyLaunchSession()
+                }) {
+                    Text("Sign Out")
+                        .frame(maxWidth: .infinity)
                 }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
             }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    panelSectionEyebrow("Studio")
+                    Spacer()
+                    if showsLockedStudioChip {
+                        panelInlineStatus(label: "Locked", tone: .warning)
+                            .transition(.opacity)
+                    }
+                }
+
+                Text("Studio stays available for account repair and restore paths while companion use stays locked until upgrade.")
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(contentTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 4)
         }
         .modifier(ClickyPanelContentCardStyle(padding: 16))
     }
 
-    private var openClawSummaryCard: some View {
+    private func permissionsCard(
+        primaryTitle: String?,
+        secondaryTitle: String?,
+        secondaryAction: (() -> Void)?
+    ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                panelSectionEyebrow("OpenClaw")
-                Spacer()
-                Circle()
-                    .fill(openClawStatusColor)
-                    .frame(width: 8, height: 8)
-            }
-
-            Text(companionManager.effectiveClickyPresentationName)
-                .font(ClickyTypography.section(size: 28))
-                .foregroundColor(theme.textPrimary)
-
-            Text(openClawPanelSummary)
-                .font(ClickyTypography.body(size: 13))
-                .foregroundColor(theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button(action: {
-                openStudio()
-            }) {
-                Text("Open Studio for Connection Settings")
-                    .frame(maxWidth: .infinity)
-            }
-            .modifier(ClickyProminentActionStyle())
-            .pointerCursor()
-        }
-        .clickyGlassCard(cornerRadius: 28, padding: 18)
-    }
-
-    // MARK: - Permissions Copy
-
-    @ViewBuilder
-    private var permissionsCopySection: some View {
-        if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            Text("Hold Control+Option to talk.")
-                .font(ClickyTypography.body(size: 15, weight: .semibold))
-                .foregroundColor(contentTheme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else if companionManager.allPermissionsGranted {
-            Text("You're all set. Hit Start to meet Clicky.")
-                .font(ClickyTypography.body(size: 15, weight: .semibold))
-                .foregroundColor(contentTheme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else if companionManager.hasCompletedOnboarding {
-            // Permissions were revoked after onboarding — tell user to re-grant
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Permissions needed")
-                    .font(ClickyTypography.section(size: 22))
-                    .foregroundColor(contentTheme.textPrimary)
-
-                Text("Some permissions were revoked. Grant all four below to keep using Clicky.")
-                    .font(ClickyTypography.body(size: 13))
-                    .foregroundColor(contentTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Learn with an agent that stays right next to you.")
-                    .font(ClickyTypography.section(size: 24))
-                    .foregroundColor(contentTheme.textPrimary)
-
-                Text("Clicky only looks when you ask it to. Use the hotkey, speak naturally, and let the assistant guide you on top of your real screen.")
-                    .font(ClickyTypography.body(size: 13))
-                    .foregroundColor(contentTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    // MARK: - Start Button
-
-    @ViewBuilder
-    private var startButton: some View {
-        if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            Button(action: {
-                companionManager.triggerOnboarding()
-            }) {
-                Text("Start")
-                    .frame(maxWidth: .infinity)
-            }
-            .modifier(ClickyProminentActionStyle())
-            .pointerCursor()
-        }
-    }
-
-    // MARK: - Permissions
-
-    private var settingsSection: some View {
-        VStack(spacing: 4) {
-            Text("PERMISSIONS")
-                .font(ClickyTypography.mono(size: 10, weight: .semibold))
-                .foregroundColor(contentTheme.textMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 6)
-
-            microphonePermissionRow
-
-            accessibilityPermissionRow
-
-            screenRecordingPermissionRow
-
-            if companionManager.hasScreenRecordingPermission {
-                screenContentPermissionRow
-            }
-
-        }
-    }
-
-    private var accessibilityPermissionRow: some View {
-        let isGranted = companionManager.hasAccessibilityPermission
-        return panelPermissionRow(
-            label: "Accessibility",
-            systemImage: "hand.raised",
-            detail: "Needed so Clicky can act on the desktop when you ask it to.",
-            isGranted: isGranted,
-            primaryAction: {
-                WindowPositionManager.requestAccessibilityPermission()
-            },
-            primaryTitle: "Grant",
-            secondaryAction: {
-                WindowPositionManager.revealAppInFinder()
-                WindowPositionManager.openAccessibilitySettings()
-            },
-            secondaryTitle: "Find App"
-        )
-    }
-
-    private var screenRecordingPermissionRow: some View {
-        let isGranted = companionManager.hasScreenRecordingPermission
-        return panelPermissionRow(
-            label: "Screen Recording",
-            systemImage: "rectangle.dashed.badge.record",
-            detail: isGranted ? "Only takes a screenshot when you use the hotkey." : "macOS may require a quit and reopen after granting this.",
-            isGranted: isGranted,
-            primaryAction: {
-                WindowPositionManager.requestScreenRecordingPermission()
-            },
-            primaryTitle: "Grant"
-        )
-    }
-
-    private var screenContentPermissionRow: some View {
-        let isGranted = companionManager.hasScreenContentPermission
-        return panelPermissionRow(
-            label: "Screen Content",
-            systemImage: "eye",
-            detail: "Lets Clicky inspect screen text and context after recording is already allowed.",
-            isGranted: isGranted,
-            primaryAction: {
-                companionManager.requestScreenContentPermission()
-            },
-            primaryTitle: "Grant"
-        )
-    }
-
-    private var microphonePermissionRow: some View {
-        let isGranted = companionManager.hasMicrophonePermission
-        return panelPermissionRow(
-            label: "Microphone",
-            systemImage: "mic",
-            detail: "Needed for push-to-talk and voice capture.",
-            isGranted: isGranted,
-            primaryAction: {
-                let status = AVCaptureDevice.authorizationStatus(for: .audio)
-                if status == .notDetermined {
-                    AVCaptureDevice.requestAccess(for: .audio) { _ in }
-                } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-                    NSWorkspace.shared.open(url)
-                }
-            },
-            primaryTitle: "Grant"
-        )
-    }
-
-    private func permissionRow(
-        label: String,
-        iconName: String,
-        isGranted: Bool,
-        settingsURL: String
-    ) -> some View {
-        HStack {
-            HStack(spacing: 8) {
-                Image(systemName: iconName)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
-                    .frame(width: 16)
-
-                Text(label)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
-
-            Spacer()
-
-            if isGranted {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DS.Colors.success)
-                        .frame(width: 6, height: 6)
-                    Text("Granted")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
-                }
-            } else {
-                Button(action: {
-                    if let url = URL(string: settingsURL) {
-                        NSWorkspace.shared.open(url)
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(permissionRows) { row in
+                    panelPermissionRow(row)
+                        .transition(.opacity)
+                    if row.id != permissionRows.last?.id {
+                        panelHairline
                     }
-                }) {
-                    Text("Grant")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(DS.Colors.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
-        }
-        .padding(.vertical, 6)
-    }
-
-    private func panelPermissionRow(
-        label: String,
-        systemImage: String,
-        detail: String,
-        isGranted: Bool,
-        primaryAction: @escaping () -> Void,
-        primaryTitle: String,
-        secondaryAction: (() -> Void)? = nil,
-        secondaryTitle: String? = nil
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(isGranted ? contentTheme.textMuted : theme.warning)
-                    .frame(width: 16, height: 16)
-                    .padding(.top, 2)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(label)
-                        .font(ClickyTypography.body(size: 13, weight: .semibold))
-                        .foregroundColor(contentTheme.textPrimary)
-
-                    Text(detail)
-                        .font(ClickyTypography.body(size: 12))
-                        .foregroundColor(contentTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 12)
-
-                if isGranted {
-                    panelInlineStatus(label: "Granted", tone: .success)
-                } else {
-                    panelInlineStatus(label: "Needed", tone: .warning)
                 }
             }
 
-            if !isGranted {
+            if let primaryTitle {
                 HStack(spacing: 10) {
-                    Button(action: primaryAction) {
+                    Button(action: continueFromPermissions) {
                         Text(primaryTitle)
                             .frame(maxWidth: .infinity)
                     }
                     .modifier(ClickyProminentActionStyle())
                     .pointerCursor()
 
-                    if let secondaryAction, let secondaryTitle {
+                    if let secondaryTitle, let secondaryAction {
                         Button(action: secondaryAction) {
                             Text(secondaryTitle)
                                 .frame(maxWidth: .infinity)
@@ -789,243 +1129,195 @@ struct CompanionPanelView: View {
                 }
             }
         }
-        .padding(.vertical, 8)
+        .modifier(ClickyPanelContentCardStyle(padding: 16))
     }
 
-
-
-    // MARK: - Show Clicky Cursor Toggle
-
-    private var showClickyCursorToggleRow: some View {
-        HStack {
-            HStack(spacing: 8) {
-                Image(systemName: "cursorarrow")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 16)
-
-                Text("Show Clicky")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
-
-            Spacer()
-
-            Toggle("", isOn: Binding(
-                get: { companionManager.isClickyCursorEnabled },
-                set: { companionManager.setClickyCursorEnabled($0) }
-            ))
-            .toggleStyle(.switch)
-            .labelsHidden()
-            .tint(DS.Colors.accent)
-            .scaleEffect(0.8)
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var speechToTextProviderRow: some View {
-        HStack {
-            HStack(spacing: 8) {
-                Image(systemName: "mic.badge.waveform")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 16)
-
-                Text("Speech to Text")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
-
-            Spacer()
-
-            Text(companionManager.buddyDictationManager.transcriptionProviderDisplayName)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
-        }
-        .padding(.vertical, 4)
-    }
-
-    // MARK: - Model Picker
-
-    private var modelPickerRow: some View {
-        Picker("Model", selection: Binding(
-            get: { companionManager.selectedModel },
-            set: { companionManager.setSelectedModel($0) }
-        )) {
-            Text("Sonnet").tag("claude-sonnet-4-6")
-            Text("Opus").tag("claude-opus-4-6")
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.small)
-        .tint(theme.ring)
-    }
-
-    private var agentBackendPickerRow: some View {
-        Picker("Agent", selection: Binding(
-            get: { companionManager.selectedAgentBackend },
-            set: { companionManager.setSelectedAgentBackend($0) }
-        )) {
-            Text("Claude").tag(CompanionAgentBackend.claude)
-            Text("Codex").tag(CompanionAgentBackend.codex)
-            Text("OpenClaw").tag(CompanionAgentBackend.openClaw)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.small)
-        .tint(theme.ring)
-    }
-
-    private var codexStatusColor: Color {
-        switch companionManager.codexRuntimeStatus {
-        case .idle, .checking:
-            return theme.ring
-        case .ready:
-            return theme.success
-        case .failed:
-            return theme.warning
-        }
-    }
-
-    private var activePersonaSummary: some View {
+    private func panelPermissionRow(_ row: CompanionPanelPermissionRow) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                panelSectionEyebrow("Persona")
-                Text(companionManager.activeClickyPersonaLabel)
-                    .font(ClickyTypography.section(size: 22))
-                    .foregroundColor(theme.textPrimary)
-                Text("\(companionManager.effectiveClickyVoicePreset.displayName) voice · \(companionManager.effectiveClickyCursorStyle.displayName) cursor")
-                    .font(ClickyTypography.mono(size: 11, weight: .medium))
-                    .foregroundColor(theme.textMuted)
-            }
-
-            Spacer()
-
             Circle()
-                .fill(theme.primary)
+                .fill(row.state.dotColor(theme))
                 .frame(width: 10, height: 10)
-        }
-    }
+                .scaleEffect(row.state == .granted ? 1.12 : 1.0)
+                .padding(.top, 6)
+                .animation(.easeInOut(duration: 0.16), value: row.state)
 
-    private var openClawGatewaySettingsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("OpenClaw")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
-
-            openClawTextField(
-                title: "Gateway URL",
-                text: Binding(
-                    get: { companionManager.openClawGatewayURL },
-                    set: { companionManager.setOpenClawGatewayURL($0) }
-                ),
-                placeholder: "ws://127.0.0.1:18789"
-            )
-
-            openClawTextField(
-                title: "Agent ID",
-                text: Binding(
-                    get: { companionManager.openClawAgentIdentifier },
-                    set: { companionManager.setOpenClawAgentIdentifier($0) }
-                ),
-                placeholder: "Optional OpenClaw agent id"
-            )
-
-            openClawTextField(
-                title: "Session Key",
-                text: Binding(
-                    get: { companionManager.openClawSessionKey },
-                    set: { companionManager.setOpenClawSessionKey($0) }
-                ),
-                placeholder: "clicky-companion"
-            )
-
-            Text("The first pass auto-reads the local Gateway token from `~/.openclaw/openclaw.json`.")
-                .font(.system(size: 10))
-                .foregroundColor(DS.Colors.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func openClawTextField(title: String, text: Binding<String>, placeholder: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundColor(DS.Colors.textTertiary)
-
-            TextField(placeholder, text: text)
-                .textFieldStyle(.plain)
-                .font(ClickyTypography.body(size: 12))
-                .foregroundColor(theme.textPrimary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                        .fill(Color.white.opacity(0.025))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                        .stroke(theme.strokeSoft, lineWidth: 0.8)
-                )
-        }
-    }
-
-    private func tutorialURLField(text: Binding<String>, placeholder: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("YouTube URL")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundColor(DS.Colors.textTertiary)
-
-            TextField(placeholder, text: text)
-                .textFieldStyle(.plain)
-                .font(ClickyTypography.body(size: 12))
-                .foregroundColor(theme.textPrimary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                        .fill(Color.white.opacity(0.025))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                        .stroke(theme.strokeSoft, lineWidth: 0.8)
-                )
-                .submitLabel(.go)
-                .onSubmit {
-                    companionManager.startTutorialImportFromPanel()
-                }
-        }
-    }
-
-    // MARK: - DM Amartya Button
-
-    private var dmAmartyaButton: some View {
-        Button(action: {
-            if let url = URL(string: "https://x.com/decocereus") {
-                NSWorkspace.shared.open(url)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(row.title)
+                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                    .foregroundColor(contentTheme.textPrimary)
+ 
+                Text(row.detail)
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(contentTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-        }) {
+
+            Spacer(minLength: 8)
+
             HStack(spacing: 8) {
-                Image(systemName: "bubble.left.fill")
-                    .font(.system(size: 12, weight: .medium))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Got feedback? DM me")
-                        .font(ClickyTypography.body(size: 13, weight: .semibold))
-                    Text("Bugs, ideas, anything — I read every message.")
-                        .font(ClickyTypography.mono(size: 10, weight: .medium))
-                        .foregroundColor(theme.textMuted)
+                if row.state == .granted {
+                    panelInlineStatus(label: "Granted", tone: .success)
+                        .transition(.opacity)
+                } else {
+                    Button(action: row.primaryAction) {
+                        Text(row.primaryTitle)
+                    }
+                    .modifier(ClickyProminentActionStyle())
+                    .pointerCursor()
+                    if let secondaryTitle = row.secondaryTitle,
+                       let secondaryAction = row.secondaryAction {
+                        Button(action: secondaryAction) {
+                            Text(secondaryTitle)
+                        }
+                        .modifier(ClickySecondaryGlassButtonStyle())
+                        .pointerCursor()
+                    }
                 }
             }
-            .foregroundColor(theme.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize()
         }
-        .buttonStyle(.plain)
-        .pointerCursor()
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(row.state.backgroundColor(theme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(row.state.borderColor(theme), lineWidth: 0.8)
+        )
+        .animation(.easeInOut(duration: 0.22), value: row.state)
     }
 
-    // MARK: - Footer
+    private func onboardingBullet(_ text: String) -> some View {
+        Text(text)
+            .font(ClickyTypography.body(size: 13))
+            .foregroundColor(contentTheme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var permissionRows: [CompanionPanelPermissionRow] {
+        var rows: [CompanionPanelPermissionRow] = []
+
+        if !surfaceController.hasAccessibilityPermission {
+            rows.append(
+                CompanionPanelPermissionRow(
+                    kind: .accessibility,
+                    title: "Accessibility",
+                    detail: hasCompletedOnboarding
+                        ? "So Clicky can continue helping you act inside software."
+                        : "So Clicky can help you act inside software when you ask.",
+                    primaryTitle: "Grant",
+                    primaryAction: {
+                        WindowPositionManager.requestAccessibilityPermission()
+                    },
+                    secondaryTitle: "Find App",
+                    secondaryAction: {
+                        WindowPositionManager.revealAppInFinder()
+                        WindowPositionManager.openAccessibilitySettings()
+                    }
+                ).withState(rowState(for: .accessibility, isGranted: false))
+            )
+        } else if recentlyGrantedPermissions.contains(.accessibility) {
+            rows.append(
+                CompanionPanelPermissionRow(
+                    kind: .accessibility,
+                    title: "Accessibility",
+                    detail: "Resolved and quiet again.",
+                    primaryTitle: "Grant",
+                    primaryAction: {}
+                ).withState(.granted)
+            )
+        }
+
+        if !surfaceController.hasMicrophonePermission {
+            rows.append(
+                CompanionPanelPermissionRow(
+                    kind: .microphone,
+                    title: "Microphone",
+                    detail: "So Clicky can listen when you use push-to-talk.",
+                    primaryTitle: "Grant",
+                    primaryAction: requestMicrophonePermission
+                ).withState(rowState(for: .microphone, isGranted: false))
+            )
+        } else if recentlyGrantedPermissions.contains(.microphone) {
+            rows.append(
+                CompanionPanelPermissionRow(
+                    kind: .microphone,
+                    title: "Microphone",
+                    detail: "Resolved and quiet again.",
+                    primaryTitle: "Grant",
+                    primaryAction: {}
+                ).withState(.granted)
+            )
+        }
+
+        if !surfaceController.hasScreenRecordingPermission {
+            rows.append(
+                CompanionPanelPermissionRow(
+                    kind: .screenRecording,
+                    title: "Screen Recording",
+                    detail: hasCompletedOnboarding
+                        ? "So Clicky can continue understanding the software in front of you."
+                        : "So Clicky can understand the software in front of you.",
+                    primaryTitle: "Grant",
+                    primaryAction: {
+                        WindowPositionManager.requestScreenRecordingPermission()
+                    }
+                ).withState(rowState(for: .screenRecording, isGranted: false))
+            )
+        } else if recentlyGrantedPermissions.contains(.screenRecording) {
+            rows.append(
+                CompanionPanelPermissionRow(
+                    kind: .screenRecording,
+                    title: "Screen Recording",
+                    detail: "Resolved and quiet again.",
+                    primaryTitle: "Grant",
+                    primaryAction: {}
+                ).withState(.granted)
+            )
+        }
+
+        if surfaceController.hasScreenRecordingPermission && !surfaceController.hasScreenContentPermission {
+            rows.append(
+                CompanionPanelPermissionRow(
+                    kind: .screenContent,
+                    title: "Screen Content",
+                    detail: hasCompletedOnboarding
+                        ? "So Clicky can still understand the text and interfaces in front of you."
+                        : "So Clicky can still understand the text and interfaces in front of you.",
+                    primaryTitle: companionManager.isRequestingScreenContent ? "Waiting…" : "Grant",
+                    primaryAction: {
+                        companionManager.requestScreenContentPermission()
+                    }
+                ).withState(rowState(for: .screenContent, isGranted: false))
+            )
+        } else if surfaceController.hasScreenRecordingPermission && recentlyGrantedPermissions.contains(.screenContent) {
+            rows.append(
+                CompanionPanelPermissionRow(
+                    kind: .screenContent,
+                    title: "Screen Content",
+                    detail: "Resolved and quiet again.",
+                    primaryTitle: "Grant",
+                    primaryAction: {}
+                ).withState(.granted)
+            )
+        }
+
+        if rows.isEmpty {
+            rows.append(
+                CompanionPanelPermissionRow(
+                    kind: .accessibility,
+                    title: "All set",
+                    detail: "Everything Clicky needs is already available.",
+                    primaryTitle: "Continue",
+                    primaryAction: continueFromPermissions
+                ).withState(.granted)
+            )
+        }
+
+        return rows
+    }
 
     private var footerSection: some View {
         HStack(spacing: 18) {
@@ -1048,43 +1340,146 @@ struct CompanionPanelView: View {
         }
     }
 
-    // MARK: - Visual Helpers
-
-    private var statusDotColor: Color {
-        if !companionManager.isOverlayVisible {
-            return theme.textMuted
-        }
-        switch companionManager.voiceState {
-        case .idle:
-            return theme.success
-        case .listening:
-            return theme.accent
-        case .transcribing, .thinking, .responding:
-            return theme.accent
+    private var headerPillForeground: Color {
+        switch panelScreen {
+        case .locked:
+            return theme.warning
+        case .repair:
+            return theme.textPrimary
+        case .active, .welcome, .signIn, .permissions, .ready, .tutorialEntry, .tutorialImportEntry, .tutorialImportMissingSetup, .tutorialExtracting, .tutorialCompiling, .tutorialReady, .tutorialPlayback, .tutorialFailed:
+            return theme.textPrimary
         }
     }
 
+    private var headerPillBackground: Color {
+        switch panelScreen {
+        case .locked:
+            return theme.warning.opacity(0.14)
+        case .repair:
+            return theme.primary.opacity(0.10)
+        case .active, .welcome, .signIn, .permissions, .ready, .tutorialEntry, .tutorialImportEntry, .tutorialImportMissingSetup, .tutorialExtracting, .tutorialCompiling, .tutorialReady, .tutorialPlayback, .tutorialFailed:
+            return theme.primary.opacity(0.12)
+        }
+    }
+
+    private var headerPillBorder: Color {
+        switch panelScreen {
+        case .locked:
+            return theme.warning.opacity(0.32)
+        case .repair:
+            return theme.primary.opacity(0.20)
+        case .active, .welcome, .signIn, .permissions, .ready, .tutorialEntry, .tutorialImportEntry, .tutorialImportMissingSetup, .tutorialExtracting, .tutorialCompiling, .tutorialReady, .tutorialPlayback, .tutorialFailed:
+            return theme.strokeSoft
+        }
+    }
+
+    private var signInSummaryCopy: String {
+        switch clickyLaunchAuthState {
+        case .restoring:
+            return "Clicky is restoring your session right now. Stay here for a moment while it checks your account and access."
+        case .signingIn:
+            return "Finish sign-in in your browser. Once the callback completes, Clicky will move you to the next step automatically."
+        case .failed(let message):
+            return message
+        case .signedIn:
+            return "You're signed in. Continue and Clicky will guide you through the remaining setup."
+        case .signedOut:
+            return "Once you're in, Clicky is ready to help across your work until your included credits run out."
+        }
+    }
+
+    private var signInPrimaryButtonTitle: String {
+        switch clickyLaunchAuthState {
+        case .signingIn:
+            return "Waiting…"
+        case .restoring:
+            return "Restoring…"
+        case .signedOut, .failed:
+            return "Sign In"
+        case .signedIn:
+            return "Continue"
+        }
+    }
+
+    private var launchCreditsLabel: String {
+        if hasUnlimitedClickyLaunchAccess {
+            return "Unlocked"
+        }
+
+        return clickyLaunchTrialStatusLabel
+    }
+
+    private var tutorialExtractionProgress: Double {
+        guard let draft = tutorialController.currentTutorialImportDraft else { return 0.22 }
+
+        switch draft.status {
+        case .extracting:
+            return 0.48
+        case .extracted:
+            return 0.66
+        case .compiling:
+            return 0.84
+        case .ready:
+            return 1.0
+        case .failed:
+            return 0.18
+        case .pending:
+            return 0.08
+        }
+    }
+
+    private var tutorialLessonTitle: String {
+        tutorialController.currentTutorialImportDraft?.compiledLessonDraft?.title
+            ?? tutorialController.currentTutorialImportDraft?.title
+            ?? "Your guided lesson"
+    }
+
+    private var tutorialLessonSummaryLine: String {
+        if let lessonDraft = tutorialController.currentTutorialImportDraft?.compiledLessonDraft {
+            let stepCount = lessonDraft.steps.count
+            return "\(stepCount) steps · \(tutorialController.currentTutorialImportDraft?.channelName ?? "guided help") · answer questions as you go"
+        }
+
+        return "Guided help is ready beside your cursor."
+    }
+
+    private var tutorialPlaybackTitle: String {
+        if let session = tutorialController.tutorialSessionState,
+           session.lessonDraft.steps.indices.contains(session.currentStepIndex) {
+            return session.lessonDraft.steps[session.currentStepIndex].title
+        }
+
+        return "Continue the lesson."
+    }
+
+    private var tutorialFailureReason: String {
+        tutorialController.currentTutorialImportDraft?.extractionError
+            ?? tutorialController.currentTutorialImportDraft?.compileError
+            ?? tutorialController.tutorialImportStatusMessage
+            ?? "The extraction service returned an incomplete evidence bundle."
+    }
+
+    private var panelHairline: some View {
+        Rectangle()
+            .fill(theme.strokeSoft)
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
+    }
+
     private var statusText: String {
-        if !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted {
+        if !hasCompletedOnboarding || !allPermissionsGranted {
             return "Setup"
         }
-        if companionManager.isClickyLaunchAuthPending {
-            switch companionManager.clickyLaunchAuthState {
-            case .restoring:
-                return "Restoring"
-            case .signingIn:
-                return "Signing In"
-            case .signedOut, .signedIn, .failed:
-                break
-            }
-        }
+
         if companionManager.isClickyLaunchPaywallActive {
             return "Locked"
         }
-        if !companionManager.isOverlayVisible {
+
+        if !surfaceController.isOverlayVisible {
             return "Ready"
         }
-        switch companionManager.voiceState {
+
+        switch surfaceController.voiceState {
         case .idle:
             return "Active"
         case .listening:
@@ -1098,30 +1493,108 @@ struct CompanionPanelView: View {
         }
     }
 
-    private var authPendingTitle: String {
-        switch companionManager.clickyLaunchAuthState {
-        case .restoring:
-            return "Restoring access"
-        case .signingIn:
-            return "Waiting for browser sign-in"
-        case .signedOut, .signedIn, .failed:
-            return "Waiting for sign-in"
+    private func continueFromWelcome() {
+        withAnimation(panelSpringAnimation) {
+            if isClickyLaunchSignedIn {
+                onboardingStage = allPermissionsGranted ? .ready : .permissions
+            } else {
+                onboardingStage = .signIn
+            }
         }
     }
 
-    private var authPendingMessage: String {
-        switch companionManager.clickyLaunchAuthState {
-        case .restoring:
-            return "Clicky is checking your stored launch session and waiting for the backend to confirm your account and entitlement state."
-        case .signingIn:
-            return "Finish Google sign-in in your browser. Clicky will only switch into the signed-in state after the browser callback returns and the backend exchange succeeds."
-        case .signedOut, .signedIn, .failed:
-            return "Clicky is waiting for sign-in to finish."
+    private func continueFromPermissions() {
+        companionManager.refreshAllPermissions()
+
+        if allPermissionsGranted {
+            withAnimation(panelSpringAnimation) {
+                onboardingStage = .ready
+            }
+        }
+    }
+
+    private func requestMicrophonePermission() {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+
+        if status == .notDetermined {
+            AVCaptureDevice.requestAccess(for: .audio) { _ in }
+        } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func handleSignInPrimaryAction() {
+        switch clickyLaunchAuthState {
+        case .signedIn:
+            withAnimation(panelSpringAnimation) {
+                onboardingStage = allPermissionsGranted ? .ready : .permissions
+            }
+        case .restoring, .signingIn:
+            break
+        case .signedOut, .failed:
+            companionManager.startClickyLaunchSignIn()
+        }
+    }
+
+    private func syncOnboardingStage() {
+        guard !hasCompletedOnboarding else { return }
+
+        switch onboardingStage {
+        case .welcome:
+            break
+        case .signIn:
+            if isClickyLaunchSignedIn {
+                withAnimation(panelSpringAnimation) {
+                    onboardingStage = allPermissionsGranted ? .ready : .permissions
+                }
+            }
+        case .permissions:
+            if allPermissionsGranted {
+                withAnimation(panelSpringAnimation) {
+                    onboardingStage = .ready
+                }
+            }
+        case .ready:
+            if !allPermissionsGranted {
+                withAnimation(panelSpringAnimation) {
+                    onboardingStage = .permissions
+                }
+            }
+        }
+    }
+
+    private func dismissPanel() {
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+    }
+
+    private func handleTrailingHeaderAction() {
+        if isInTutorialPanelFlow {
+            exitTutorialFlow()
+        } else {
+            dismissPanel()
+        }
+    }
+
+    private func exitTutorialFlow() {
+        if tutorialController.tutorialPlaybackState?.isVisible == true {
+            companionManager.stopTutorialPlayback()
+        }
+
+        withAnimation(panelCardAnimation) {
+            isShowingTutorialFlow = false
+            showsTutorialEntryExplainer = false
         }
     }
 
     private func openStudio() {
         NotificationCenter.default.post(name: .clickyOpenStudio, object: nil)
+    }
+
+    private var companionBackendButtons: some View {
+        CompanionPanelBackendButtons(
+            selectedBackend: preferences.selectedAgentBackend,
+            setSelectedBackend: companionManager.setSelectedAgentBackend
+        )
     }
 
     private func panelSectionEyebrow(_ text: String) -> some View {
@@ -1186,53 +1659,170 @@ struct CompanionPanelView: View {
         }
     }
 
-    private var panelHairline: some View {
-        Rectangle()
-            .fill(theme.strokeSoft)
-            .frame(height: 1)
-            .frame(maxWidth: .infinity)
-    }
-
-    private var openClawPanelSummary: String {
-        let gatewayKind = companionManager.isOpenClawGatewayRemote ? "remote" : "local"
-        let currentAgent = companionManager.effectiveOpenClawAgentName
-        return "Connected to your \(gatewayKind) OpenClaw setup. Clicky is currently presenting \(currentAgent) inside the desktop shell."
-    }
-
-    private var openClawCompactSummary: String {
-        switch companionManager.openClawConnectionStatus {
-        case .connected:
-            return "Connected to your \(companionManager.isOpenClawGatewayRemote ? "remote" : "local") OpenClaw gateway."
-        case .testing:
-            return "Testing your OpenClaw gateway connection."
-        case .failed:
-            return "Gateway needs attention. Open Studio for details."
-        case .idle:
-            return "Gateway is configured but idle."
+    private var panelScreenKey: String {
+        switch panelScreen {
+        case .welcome:
+            return "welcome"
+        case .signIn:
+            return "sign-in"
+        case .permissions:
+            return "permissions"
+        case .ready:
+            return "ready"
+        case .active:
+            return "active"
+        case .locked:
+            return "locked"
+        case .repair:
+            return "repair"
+        case .tutorialEntry:
+            return "tutorial-entry"
+        case .tutorialImportEntry:
+            return "tutorial-import-entry"
+        case .tutorialImportMissingSetup:
+            return "tutorial-missing-setup"
+        case .tutorialExtracting:
+            return "tutorial-extracting"
+        case .tutorialCompiling:
+            return "tutorial-compiling"
+        case .tutorialReady:
+            return "tutorial-ready"
+        case .tutorialPlayback:
+            return "tutorial-playback"
+        case .tutorialFailed:
+            return "tutorial-failed"
         }
     }
 
-    private var openClawStatusColor: Color {
-        switch companionManager.openClawConnectionStatus {
-        case .connected:
-            return theme.success
-        case .failed:
-            return theme.warning
-        case .testing:
-            return theme.accent
-        case .idle:
-            return theme.textMuted
+    private var panelSpringAnimation: Animation {
+        .spring(response: 0.32, dampingFraction: 0.88)
+    }
+
+    private var panelCardAnimation: Animation {
+        .easeInOut(duration: 0.2)
+    }
+
+    private var panelCardTransition: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(
+                active: PanelCardTransitionModifier(opacity: 0, offsetY: 6),
+                identity: PanelCardTransitionModifier(opacity: 1, offsetY: 0)
+            ),
+            removal: .modifier(
+                active: PanelCardTransitionModifier(opacity: 0, offsetY: -6),
+                identity: PanelCardTransitionModifier(opacity: 1, offsetY: 0)
+            )
+        )
+    }
+
+    private func requestPanelRelayout(animated: Bool) {
+        NotificationCenter.default.post(name: .clickyPanelNeedsLayout, object: nil)
+    }
+
+    private func rowState(for kind: CompanionPermissionKind, isGranted: Bool) -> CompanionPermissionRowState {
+        if isGranted || recentlyGrantedPermissions.contains(kind) {
+            return .granted
+        }
+
+        return .missing
+    }
+
+    private func handlePermissionStateChange(_ kind: CompanionPermissionKind, isGranted: Bool) {
+        guard isGranted else { return }
+
+        withAnimation(.easeInOut(duration: 0.22)) {
+            _ = recentlyGrantedPermissions.insert(kind)
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.8))
+            withAnimation(.easeInOut(duration: 0.22)) {
+                _ = recentlyGrantedPermissions.remove(kind)
+            }
+        }
+    }
+}
+
+private enum CompanionPanelScreen {
+    case welcome
+    case signIn
+    case permissions
+    case ready
+    case active
+    case locked
+    case repair
+    case tutorialEntry
+    case tutorialImportEntry
+    case tutorialImportMissingSetup
+    case tutorialExtracting
+    case tutorialCompiling
+    case tutorialReady
+    case tutorialPlayback
+    case tutorialFailed
+}
+
+private enum CompanionPanelOnboardingStage: Int {
+    case welcome
+    case signIn
+    case permissions
+    case ready
+}
+
+private enum CompanionPermissionKind: Hashable {
+    case accessibility
+    case microphone
+    case screenRecording
+    case screenContent
+}
+
+private enum CompanionPermissionRowState: Equatable {
+    case missing
+    case granted
+
+    func dotColor(_ theme: ClickyTheme) -> Color {
+        switch self {
+        case .missing:
+            return theme.warning.opacity(0.7)
+        case .granted:
+            return theme.success.opacity(0.75)
         }
     }
 
-    private var isTestingOpenClawConnection: Bool {
-        if case .testing = companionManager.openClawConnectionStatus {
-            return true
+    func backgroundColor(_ theme: ClickyTheme) -> Color {
+        switch self {
+        case .missing:
+            return Color.clear
+        case .granted:
+            return theme.success.opacity(0.08)
         }
-
-        return false
     }
 
+    func borderColor(_ theme: ClickyTheme) -> Color {
+        switch self {
+        case .missing:
+            return Color.clear
+        case .granted:
+            return theme.success.opacity(0.22)
+        }
+    }
+}
+
+private struct CompanionPanelPermissionRow: Identifiable {
+    let id = UUID()
+    let kind: CompanionPermissionKind
+    let title: String
+    let detail: String
+    let primaryTitle: String
+    let primaryAction: () -> Void
+    var secondaryTitle: String? = nil
+    var secondaryAction: (() -> Void)? = nil
+    var state: CompanionPermissionRowState = .missing
+
+    func withState(_ state: CompanionPermissionRowState) -> Self {
+        var copy = self
+        copy.state = state
+        return copy
+    }
 }
 
 private enum PanelInlineStatusTone {
@@ -1264,6 +1854,7 @@ private struct ClickyPanelContentCardStyle: ViewModifier {
 
         content
             .clickyTheme(theme.contentSurfaceTheme)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(padding)
             .background(
                 shape
@@ -1323,55 +1914,155 @@ private struct ClickyPanelContentCardStyle: ViewModifier {
     }
 }
 
-private struct ClickyProminentActionStyle: ViewModifier {
+struct ClickyProminentActionStyle: ViewModifier {
+    @Environment(\.clickyTheme) private var theme
+    let attentionMode: ClickyPanelAttentionMode
+
+    init(attentionMode: ClickyPanelAttentionMode = .none) {
+        self.attentionMode = attentionMode
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .buttonStyle(ClickyPrimaryPanelButtonStyle(theme: theme, attentionMode: attentionMode))
+    }
+}
+
+struct ClickySecondaryGlassButtonStyle: ViewModifier {
     @Environment(\.clickyTheme) private var theme
 
     func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content
-                .font(ClickyTypography.body(size: 13, weight: .semibold))
-                .foregroundColor(theme.accentForeground)
-                .buttonStyle(.glassProminent)
-                .tint(theme.accent)
-        } else {
-            content
-                .font(ClickyTypography.body(size: 13, weight: .semibold))
-                .foregroundColor(theme.accentForeground)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(theme.accent)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 0.8)
-                )
-                .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
+        content
+            .buttonStyle(ClickySecondaryPanelButtonStyle(theme: theme))
+    }
+}
+
+enum ClickyPanelAttentionMode {
+    case none
+    case singlePulse
+    case loopingPulse
+}
+
+private struct ClickyPrimaryPanelButtonStyle: ButtonStyle {
+    let theme: ClickyTheme
+    let attentionMode: ClickyPanelAttentionMode
+
+    @State private var isHovered = false
+    @State private var pulseAmount: CGFloat = 0
+    @State private var triggeredSinglePulse = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(ClickyTypography.body(size: 13, weight: .semibold))
+            .foregroundColor(theme.accentForeground)
+            .lineLimit(1)
+            .minimumScaleFactor(0.86)
+            .multilineTextAlignment(.center)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 42)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(hex: "#1A1A1A"))
+                    .overlay(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isHovered ? 0.22 : 0.10),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .center
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(isHovered ? 0.18 : 0.10), lineWidth: 0.9)
+            )
+            .shadow(
+                color: theme.accent.opacity(attentionShadowOpacity),
+                radius: 10 + (pulseAmount * 8),
+                y: 4
+            )
+            .scaleEffect(configuration.isPressed ? 0.985 : (isHovered ? 1.01 : (1 + (pulseAmount * 0.015))))
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .onAppear {
+                startPulseIfNeeded()
+            }
+    }
+
+    private var attentionShadowOpacity: Double {
+        switch attentionMode {
+        case .none:
+            return isHovered ? 0.16 : 0.10
+        case .singlePulse, .loopingPulse:
+            return 0.16 + (0.18 * Double(pulseAmount))
+        }
+    }
+
+    private func startPulseIfNeeded() {
+        switch attentionMode {
+        case .none:
+            pulseAmount = 0
+        case .singlePulse:
+            guard !triggeredSinglePulse else { return }
+            triggeredSinglePulse = true
+            pulseAmount = 0
+            withAnimation(.easeInOut(duration: 1.2)) {
+                pulseAmount = 1
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.2))
+                withAnimation(.easeOut(duration: 0.4)) {
+                    pulseAmount = 0
+                }
+            }
+        case .loopingPulse:
+            pulseAmount = 0
+            withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
+                pulseAmount = 1
+            }
         }
     }
 }
 
-private struct ClickySecondaryGlassButtonStyle: ViewModifier {
-    @Environment(\.clickyTheme) private var theme
+private struct ClickySecondaryPanelButtonStyle: ButtonStyle {
+    let theme: ClickyTheme
 
-    func body(content: Content) -> some View {
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
         let contentTheme = theme.contentSurfaceTheme
 
-        content
+        return configuration.label
             .font(ClickyTypography.body(size: 12, weight: .semibold))
             .foregroundColor(contentTheme.textPrimary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.88)
+            .multilineTextAlignment(.center)
             .padding(.vertical, 10)
             .padding(.horizontal, 14)
+            .frame(minHeight: 42)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(contentTheme.secondary.opacity(0.96))
+                    .fill(contentTheme.card.opacity(isHovered ? 1.0 : 0.98))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(contentTheme.border.opacity(0.78), lineWidth: 0.9)
+                    .stroke(contentTheme.border.opacity(isHovered ? 0.98 : 0.86), lineWidth: 1.0)
             )
-            .shadow(color: Color.black.opacity(0.06), radius: 8, y: 3)
+            .scaleEffect(configuration.isPressed ? 0.985 : (isHovered ? 1.003 : 1.0))
+            .shadow(color: Color.black.opacity(isHovered ? 0.10 : 0.07), radius: 8, y: 3)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
     }
 }
 
@@ -1395,18 +2086,48 @@ private struct ClickyFooterActionStyle: ViewModifier {
 
 private struct ClickyTinyGlassCircleStyle: ViewModifier {
     @Environment(\.clickyTheme) private var theme
+    @State private var isHovered = false
 
     func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content
-                .glassEffect(.regular.interactive(), in: Circle())
-        } else {
-            content
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(0.04))
-                )
-        }
+        content
+            .background(
+                Circle()
+                    .fill(buttonFill)
+                    .overlay(
+                        Circle()
+                            .stroke(buttonStroke, lineWidth: 1)
+                    )
+                    .overlay(
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(isHovered ? 0.34 : 0.22),
+                                        Color.clear
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .center
+                                )
+                            )
+                            .padding(1)
+                            .clipShape(Circle())
+                    )
+            )
+            .shadow(color: Color.black.opacity(isHovered ? 0.10 : 0.06), radius: 8, y: 3)
+            .scaleEffect(isHovered ? 1.02 : 1.0)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+
+    private var buttonFill: Color {
+        let base = theme.contentSurfaceTheme.card
+        return base.opacity(isHovered ? 0.94 : 0.88)
+    }
+
+    private var buttonStroke: Color {
+        theme.contentSurfaceTheme.border.opacity(isHovered ? 0.95 : 0.82)
     }
 }
 
@@ -1439,6 +2160,114 @@ private struct ClickyPanelShellStyle: ViewModifier {
         } else {
             content
                 .clickyGlassCard(cornerRadius: 28, padding: 18)
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func panelGlassMotionID(_ identifier: String, namespace: Namespace.ID) -> some View {
+        if #available(macOS 26.0, *) {
+            self.glassEffectID(identifier, in: namespace)
+        } else {
+            self
+        }
+    }
+}
+
+private struct PanelCardTransitionModifier: ViewModifier {
+    let opacity: Double
+    let offsetY: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(opacity)
+            .offset(y: offsetY)
+    }
+}
+
+private struct CompanionCreditsChip: View {
+    let label: String
+    let tone: PanelInlineStatusTone
+
+    @State private var shimmerOffset: CGFloat = -1
+    @Environment(\.clickyTheme) private var theme
+
+    var body: some View {
+        Text(label)
+            .font(ClickyTypography.mono(size: 10, weight: .semibold))
+            .foregroundColor(foregroundColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(backgroundColor)
+                    .overlay {
+                        GeometryReader { geometry in
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0),
+                                    Color.white.opacity(0.18),
+                                    Color.white.opacity(0)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(width: geometry.size.width * 0.4)
+                            .offset(x: geometry.size.width * shimmerOffset)
+                            .blendMode(.screen)
+                        }
+                        .clipShape(Capsule(style: .continuous))
+                    }
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(borderColor, lineWidth: 0.8)
+            )
+            .onAppear {
+                shimmerOffset = -1
+                withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: false).delay(2.8)) {
+                    shimmerOffset = 1.6
+                }
+            }
+    }
+
+    private var foregroundColor: Color {
+        switch tone {
+        case .neutral:
+            return theme.textSecondary
+        case .success:
+            return theme.success
+        case .warning:
+            return theme.warning
+        case .info:
+            return theme.accentStrong
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch tone {
+        case .neutral:
+            return Color.white.opacity(0.02)
+        case .success:
+            return theme.success.opacity(0.12)
+        case .warning:
+            return theme.warning.opacity(0.12)
+        case .info:
+            return theme.primary.opacity(0.12)
+        }
+    }
+
+    private var borderColor: Color {
+        switch tone {
+        case .neutral:
+            return theme.strokeSoft
+        case .success:
+            return theme.success.opacity(0.3)
+        case .warning:
+            return theme.warning.opacity(0.3)
+        case .info:
+            return theme.primary.opacity(0.3)
         }
     }
 }

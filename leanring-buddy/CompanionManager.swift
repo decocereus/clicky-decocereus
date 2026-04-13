@@ -169,86 +169,19 @@ private enum ClickyLaunchEntitlementSyncMode {
 
 @MainActor
 final class CompanionManager: ObservableObject {
-    private static func resolvedInitialClickyBackendBaseURL() -> String {
-        let defaults = UserDefaults.standard
-        let defaultBackendBaseURL = CompanionRuntimeConfiguration.defaultBackendBaseURL
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let storedBackendBaseURL = defaults.string(forKey: "clickyBackendBaseURL")?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        guard !storedBackendBaseURL.isEmpty else {
-            defaults.set(defaultBackendBaseURL, forKey: "clickyBackendBaseURL")
-            return defaultBackendBaseURL
-        }
-
-        let legacyBackendBaseURLs: Set<String> = [
-            "https://api.clicky.app",
-        ]
-
-        if legacyBackendBaseURLs.contains(storedBackendBaseURL) {
-            defaults.set(defaultBackendBaseURL, forKey: "clickyBackendBaseURL")
-            return defaultBackendBaseURL
-        }
-
-        if let storedURL = URL(string: storedBackendBaseURL),
-           let host = storedURL.host?.lowercased(),
-           host == "localhost" || host == "127.0.0.1" || host == "127.1.1.0" {
-            #if DEBUG
-            return storedBackendBaseURL
-            #else
-            defaults.set(defaultBackendBaseURL, forKey: "clickyBackendBaseURL")
-            return defaultBackendBaseURL
-            #endif
-        }
-
-        return storedBackendBaseURL
-    }
-
-    @Published private(set) var voiceState: CompanionVoiceState = .idle
-    @Published private(set) var lastTranscript: String?
-    @Published private(set) var currentAudioPowerLevel: CGFloat = 0
-    @Published private(set) var hasAccessibilityPermission = false
-    @Published private(set) var hasScreenRecordingPermission = false
-    @Published private(set) var hasMicrophonePermission = false
-    @Published private(set) var hasScreenContentPermission = false
-
-    /// Screen location (global AppKit coords) of a detected UI element the
-    /// buddy should fly to and point at. Parsed from Claude's response;
-    /// observed by BlueCursorView to trigger the flight animation.
-    @Published var detectedElementScreenLocation: CGPoint?
-    /// The display frame (global AppKit coords) of the screen the detected
-    /// element is on, so BlueCursorView knows which screen overlay should animate.
-    @Published var detectedElementDisplayFrame: CGRect?
-    /// Custom speech bubble text for the pointing animation. When set,
-    /// BlueCursorView uses this instead of a random pointer phrase.
-    @Published var detectedElementBubbleText: String?
+    let surfaceController = ClickySurfaceController()
 
     // MARK: - Onboarding Video State (shared across all screen overlays)
 
-    @Published var onboardingVideoPlayer: AVPlayer?
-    @Published var showOnboardingVideo: Bool = false
-    @Published var onboardingVideoOpacity: Double = 0.0
     private var onboardingVideoEndObserver: NSObjectProtocol?
     private var onboardingDemoTimeObserver: Any?
 
     // MARK: - Onboarding Prompt Bubble
 
     /// Text streamed character-by-character on the cursor after the onboarding video ends.
-    @Published var onboardingPromptText: String = ""
-    @Published var onboardingPromptOpacity: Double = 0.0
-    @Published var showOnboardingPrompt: Bool = false
-
     // MARK: - Tutorial Playback State
 
-    @Published var tutorialPlaybackState: TutorialPlaybackBindingState?
-    @Published var tutorialPlaybackBubbleOpacity: Double = 0.0
-    @Published private(set) var tutorialPlaybackLastCommand: TutorialPlaybackCommand?
-    @Published private(set) var tutorialPlaybackCommandNonce: Int = 0
-    @Published var tutorialImportURLDraft: String = ""
-    @Published private(set) var currentTutorialImportDraft: TutorialImportDraft?
-    @Published private(set) var tutorialSessionState: TutorialSessionState?
-    @Published private(set) var isTutorialImportRunning: Bool = false
-    @Published private(set) var tutorialImportStatusMessage: String?
+    let tutorialController = ClickyTutorialController()
     private var tutorialImportTask: Task<Void, Never>?
 
     // MARK: - Onboarding Music
@@ -257,6 +190,10 @@ final class CompanionManager: ObservableObject {
     private var onboardingMusicFadeTimer: Timer?
     private var onboardingPromptTask: Task<Void, Never>?
 
+    let preferences = ClickyPreferencesStore()
+    let backendRoutingController = ClickyBackendRoutingController()
+    let launchAccessController = ClickyLaunchAccessController()
+    let speechProviderController = ClickySpeechProviderController()
     let buddyDictationManager = BuddyDictationManager()
     let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor()
     let overlayWindowManager = OverlayWindowManager()
@@ -355,6 +292,33 @@ final class CompanionManager: ObservableObject {
     private var transientHideTask: Task<Void, Never>?
     private var quietLaunchEntitlementRefreshTask: Task<Void, Never>?
     private var lastQuietLaunchEntitlementRefreshAt: Date?
+    private var preferencesObjectWillChangeCancellable: AnyCancellable?
+    private var backendRoutingObjectWillChangeCancellable: AnyCancellable?
+    private var launchAccessObjectWillChangeCancellable: AnyCancellable?
+    private var tutorialObjectWillChangeCancellable: AnyCancellable?
+    private var surfaceObjectWillChangeCancellable: AnyCancellable?
+    private var speechProviderObjectWillChangeCancellable: AnyCancellable?
+
+    init() {
+        preferencesObjectWillChangeCancellable = preferences.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        backendRoutingObjectWillChangeCancellable = backendRoutingController.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        launchAccessObjectWillChangeCancellable = launchAccessController.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        tutorialObjectWillChangeCancellable = tutorialController.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        surfaceObjectWillChangeCancellable = surfaceController.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        speechProviderObjectWillChangeCancellable = speechProviderController.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+    }
 
     /// True when all three required permissions (accessibility, screen recording,
     /// microphone) are granted. Used by the panel to show a single "all good" state.
@@ -362,184 +326,423 @@ final class CompanionManager: ObservableObject {
         hasAccessibilityPermission && hasScreenRecordingPermission && hasMicrophonePermission && hasScreenContentPermission
     }
 
+    var voiceState: CompanionVoiceState {
+        get { surfaceController.voiceState }
+        set { surfaceController.voiceState = newValue }
+    }
+
+    var lastTranscript: String? {
+        get { surfaceController.lastTranscript }
+        set { surfaceController.lastTranscript = newValue }
+    }
+
+    var currentAudioPowerLevel: CGFloat {
+        get { surfaceController.currentAudioPowerLevel }
+        set { surfaceController.currentAudioPowerLevel = newValue }
+    }
+
+    var hasAccessibilityPermission: Bool {
+        get { surfaceController.hasAccessibilityPermission }
+        set { surfaceController.hasAccessibilityPermission = newValue }
+    }
+
+    var hasScreenRecordingPermission: Bool {
+        get { surfaceController.hasScreenRecordingPermission }
+        set { surfaceController.hasScreenRecordingPermission = newValue }
+    }
+
+    var hasMicrophonePermission: Bool {
+        get { surfaceController.hasMicrophonePermission }
+        set { surfaceController.hasMicrophonePermission = newValue }
+    }
+
+    var hasScreenContentPermission: Bool {
+        get { surfaceController.hasScreenContentPermission }
+        set { surfaceController.hasScreenContentPermission = newValue }
+    }
+
+    /// Screen location (global AppKit coords) of a detected UI element the
+    /// buddy should fly to and point at. Parsed from Claude's response;
+    /// observed by BlueCursorView to trigger the flight animation.
+    var detectedElementScreenLocation: CGPoint? {
+        get { surfaceController.detectedElementScreenLocation }
+        set { surfaceController.detectedElementScreenLocation = newValue }
+    }
+
+    /// The display frame (global AppKit coords) of the screen the detected
+    /// element is on, so BlueCursorView knows which screen overlay should animate.
+    var detectedElementDisplayFrame: CGRect? {
+        get { surfaceController.detectedElementDisplayFrame }
+        set { surfaceController.detectedElementDisplayFrame = newValue }
+    }
+
+    /// Custom speech bubble text for the pointing animation. When set,
+    /// BlueCursorView uses this instead of a random pointer phrase.
+    var detectedElementBubbleText: String? {
+        get { surfaceController.detectedElementBubbleText }
+        set { surfaceController.detectedElementBubbleText = newValue }
+    }
+
+    var onboardingVideoPlayer: AVPlayer? {
+        get { surfaceController.onboardingVideoPlayer }
+        set { surfaceController.onboardingVideoPlayer = newValue }
+    }
+
+    var showOnboardingVideo: Bool {
+        get { surfaceController.showOnboardingVideo }
+        set { surfaceController.showOnboardingVideo = newValue }
+    }
+
+    var onboardingVideoOpacity: Double {
+        get { surfaceController.onboardingVideoOpacity }
+        set { surfaceController.onboardingVideoOpacity = newValue }
+    }
+
+    /// Text streamed character-by-character on the cursor after the onboarding video ends.
+    var onboardingPromptText: String {
+        get { surfaceController.onboardingPromptText }
+        set { surfaceController.onboardingPromptText = newValue }
+    }
+
+    var onboardingPromptOpacity: Double {
+        get { surfaceController.onboardingPromptOpacity }
+        set { surfaceController.onboardingPromptOpacity = newValue }
+    }
+
+    var showOnboardingPrompt: Bool {
+        get { surfaceController.showOnboardingPrompt }
+        set { surfaceController.showOnboardingPrompt = newValue }
+    }
+
     /// Whether the blue cursor overlay is currently visible on screen.
     /// Used by the panel to show accurate status text ("Active" vs "Ready").
-    @Published private(set) var isOverlayVisible: Bool = false
+    var isOverlayVisible: Bool {
+        get { surfaceController.isOverlayVisible }
+        set { surfaceController.isOverlayVisible = newValue }
+    }
+
+    var tutorialPlaybackState: TutorialPlaybackBindingState? {
+        get { tutorialController.tutorialPlaybackState }
+        set { tutorialController.tutorialPlaybackState = newValue }
+    }
+
+    var tutorialPlaybackBubbleOpacity: Double {
+        get { tutorialController.tutorialPlaybackBubbleOpacity }
+        set { tutorialController.tutorialPlaybackBubbleOpacity = newValue }
+    }
+
+    var tutorialPlaybackLastCommand: TutorialPlaybackCommand? {
+        get { tutorialController.tutorialPlaybackLastCommand }
+        set { tutorialController.tutorialPlaybackLastCommand = newValue }
+    }
+
+    var tutorialPlaybackCommandNonce: Int {
+        get { tutorialController.tutorialPlaybackCommandNonce }
+        set { tutorialController.tutorialPlaybackCommandNonce = newValue }
+    }
+
+    var tutorialImportURLDraft: String {
+        get { tutorialController.tutorialImportURLDraft }
+        set { tutorialController.tutorialImportURLDraft = newValue }
+    }
+
+    var currentTutorialImportDraft: TutorialImportDraft? {
+        get { tutorialController.currentTutorialImportDraft }
+        set { tutorialController.currentTutorialImportDraft = newValue }
+    }
+
+    var tutorialSessionState: TutorialSessionState? {
+        get { tutorialController.tutorialSessionState }
+        set { tutorialController.tutorialSessionState = newValue }
+    }
+
+    var isTutorialImportRunning: Bool {
+        get { tutorialController.isTutorialImportRunning }
+        set { tutorialController.isTutorialImportRunning = newValue }
+    }
+
+    var tutorialImportStatusMessage: String? {
+        get { tutorialController.tutorialImportStatusMessage }
+        set { tutorialController.tutorialImportStatusMessage = newValue }
+    }
 
     /// The Claude model used for voice responses. Persisted to UserDefaults.
-    @Published var selectedModel: String = UserDefaults.standard.string(forKey: "selectedClaudeModel") ?? "claude-sonnet-4-6"
+    var selectedModel: String {
+        get { preferences.selectedModel }
+        set { preferences.selectedModel = newValue }
+    }
 
     /// The active agent backend driving the companion response pipeline.
     /// Claude remains the default, but OpenClaw can be selected for local
     /// Gateway-backed agent runs.
-    @Published var selectedAgentBackend: CompanionAgentBackend = CompanionAgentBackend(
-        rawValue: UserDefaults.standard.string(forKey: "selectedCompanionAgentBackend") ?? ""
-    ) ?? (CompanionRuntimeConfiguration.isWorkerConfigured ? .claude : .openClaw) {
-        didSet {
-            UserDefaults.standard.set(selectedAgentBackend.rawValue, forKey: "selectedCompanionAgentBackend")
-        }
+    var selectedAgentBackend: CompanionAgentBackend {
+        get { preferences.selectedAgentBackend }
+        set { preferences.selectedAgentBackend = newValue }
     }
 
     /// Connection details for the OpenClaw Gateway backend. These are kept
     /// lightweight for the first integration pass so the app can target a
     /// local Gateway quickly while still allowing remote/tunneled setups.
-    @Published var openClawGatewayURL: String = UserDefaults.standard.string(forKey: "openClawGatewayURL") ?? "ws://127.0.0.1:18789" {
-        didSet {
-            UserDefaults.standard.set(openClawGatewayURL, forKey: "openClawGatewayURL")
-        }
+    var openClawGatewayURL: String {
+        get { preferences.openClawGatewayURL }
+        set { preferences.openClawGatewayURL = newValue }
     }
 
-    @Published var openClawAgentIdentifier: String = UserDefaults.standard.string(forKey: "openClawAgentIdentifier") ?? "" {
-        didSet {
-            UserDefaults.standard.set(openClawAgentIdentifier, forKey: "openClawAgentIdentifier")
-        }
+    var openClawAgentIdentifier: String {
+        get { preferences.openClawAgentIdentifier }
+        set { preferences.openClawAgentIdentifier = newValue }
     }
 
-    @Published var openClawAgentName: String = UserDefaults.standard.string(forKey: "openClawAgentName") ?? "" {
-        didSet {
-            UserDefaults.standard.set(openClawAgentName, forKey: "openClawAgentName")
-        }
+    var openClawAgentName: String {
+        get { preferences.openClawAgentName }
+        set { preferences.openClawAgentName = newValue }
     }
 
-    @Published var openClawGatewayAuthToken: String = UserDefaults.standard.string(forKey: "openClawGatewayAuthToken") ?? "" {
-        didSet {
-            UserDefaults.standard.set(openClawGatewayAuthToken, forKey: "openClawGatewayAuthToken")
-        }
+    var openClawGatewayAuthToken: String {
+        get { preferences.openClawGatewayAuthToken }
+        set { preferences.openClawGatewayAuthToken = newValue }
     }
 
-    @Published var openClawSessionKey: String = UserDefaults.standard.string(forKey: "openClawSessionKey") ?? "clicky-companion" {
-        didSet {
-            UserDefaults.standard.set(openClawSessionKey, forKey: "openClawSessionKey")
-        }
+    var openClawSessionKey: String {
+        get { preferences.openClawSessionKey }
+        set { preferences.openClawSessionKey = newValue }
     }
 
-    @Published private(set) var openClawConnectionStatus: OpenClawConnectionStatus = .idle
-    @Published private(set) var codexRuntimeStatus: CodexRuntimeStatus = .idle
-    @Published private(set) var clickyShellRegistrationStatus: ClickyShellRegistrationStatus = .idle
-    @Published private(set) var clickyShellServerFreshnessState: String?
-    @Published private(set) var clickyShellServerStatusSummary: String?
-    @Published private(set) var clickyShellServerSessionBindingState: String?
-    @Published private(set) var clickyShellServerSessionKey: String?
-    @Published private(set) var clickyShellServerTrustState: String?
-    @Published private(set) var inferredOpenClawAgentIdentityAvatar: String?
-    @Published private(set) var inferredOpenClawAgentIdentityName: String?
-    @Published private(set) var inferredOpenClawAgentIdentityEmoji: String?
-    @Published private(set) var inferredOpenClawAgentIdentifier: String?
-    @Published private(set) var codexConfiguredModelName: String?
-    @Published private(set) var codexExecutablePath: String?
-    @Published private(set) var codexAuthModeLabel: String?
+    var openClawConnectionStatus: OpenClawConnectionStatus {
+        get { backendRoutingController.openClawConnectionStatus }
+        set { backendRoutingController.openClawConnectionStatus = newValue }
+    }
 
-    @Published var clickyPersonaScopeMode: ClickyPersonaScopeMode = ClickyPersonaScopeMode(
-        rawValue: UserDefaults.standard.string(forKey: "clickyPersonaScopeMode") ?? ""
-    ) ?? .useOpenClawIdentity {
-        didSet {
-            UserDefaults.standard.set(clickyPersonaScopeMode.rawValue, forKey: "clickyPersonaScopeMode")
+    var codexRuntimeStatus: CodexRuntimeStatus {
+        get { backendRoutingController.codexRuntimeStatus }
+        set { backendRoutingController.codexRuntimeStatus = newValue }
+    }
+
+    var clickyShellRegistrationStatus: ClickyShellRegistrationStatus {
+        get { backendRoutingController.clickyShellRegistrationStatus }
+        set { backendRoutingController.clickyShellRegistrationStatus = newValue }
+    }
+
+    var clickyShellServerFreshnessState: String? {
+        get { backendRoutingController.clickyShellServerFreshnessState }
+        set { backendRoutingController.clickyShellServerFreshnessState = newValue }
+    }
+
+    var clickyShellServerStatusSummary: String? {
+        get { backendRoutingController.clickyShellServerStatusSummary }
+        set { backendRoutingController.clickyShellServerStatusSummary = newValue }
+    }
+
+    var clickyShellServerSessionBindingState: String? {
+        get { backendRoutingController.clickyShellServerSessionBindingState }
+        set { backendRoutingController.clickyShellServerSessionBindingState = newValue }
+    }
+
+    var clickyShellServerSessionKey: String? {
+        get { backendRoutingController.clickyShellServerSessionKey }
+        set { backendRoutingController.clickyShellServerSessionKey = newValue }
+    }
+
+    var clickyShellServerTrustState: String? {
+        get { backendRoutingController.clickyShellServerTrustState }
+        set { backendRoutingController.clickyShellServerTrustState = newValue }
+    }
+
+    var inferredOpenClawAgentIdentityAvatar: String? {
+        get { backendRoutingController.inferredOpenClawAgentIdentityAvatar }
+        set { backendRoutingController.inferredOpenClawAgentIdentityAvatar = newValue }
+    }
+
+    var inferredOpenClawAgentIdentityName: String? {
+        get { backendRoutingController.inferredOpenClawAgentIdentityName }
+        set { backendRoutingController.inferredOpenClawAgentIdentityName = newValue }
+    }
+
+    var inferredOpenClawAgentIdentityEmoji: String? {
+        get { backendRoutingController.inferredOpenClawAgentIdentityEmoji }
+        set { backendRoutingController.inferredOpenClawAgentIdentityEmoji = newValue }
+    }
+
+    var inferredOpenClawAgentIdentifier: String? {
+        get { backendRoutingController.inferredOpenClawAgentIdentifier }
+        set { backendRoutingController.inferredOpenClawAgentIdentifier = newValue }
+    }
+
+    var codexConfiguredModelName: String? {
+        get { backendRoutingController.codexConfiguredModelName }
+        set { backendRoutingController.codexConfiguredModelName = newValue }
+    }
+
+    var codexExecutablePath: String? {
+        get { backendRoutingController.codexExecutablePath }
+        set { backendRoutingController.codexExecutablePath = newValue }
+    }
+
+    var codexAuthModeLabel: String? {
+        get { backendRoutingController.codexAuthModeLabel }
+        set { backendRoutingController.codexAuthModeLabel = newValue }
+    }
+
+    var clickyPersonaScopeMode: ClickyPersonaScopeMode {
+        get { preferences.clickyPersonaScopeMode }
+        set {
+            guard preferences.clickyPersonaScopeMode != newValue else { return }
+            preferences.clickyPersonaScopeMode = newValue
             refreshClickyShellRegistrationLifecycle()
         }
     }
 
-    @Published var clickyPersonaOverrideName: String = UserDefaults.standard.string(forKey: "clickyPersonaOverrideName") ?? "" {
-        didSet {
-            UserDefaults.standard.set(clickyPersonaOverrideName, forKey: "clickyPersonaOverrideName")
+    var clickyPersonaOverrideName: String {
+        get { preferences.clickyPersonaOverrideName }
+        set {
+            guard preferences.clickyPersonaOverrideName != newValue else { return }
+            preferences.clickyPersonaOverrideName = newValue
             refreshClickyShellRegistrationLifecycle()
         }
     }
 
-    @Published var clickyPersonaOverrideInstructions: String = UserDefaults.standard.string(forKey: "clickyPersonaOverrideInstructions") ?? "" {
-        didSet {
-            UserDefaults.standard.set(clickyPersonaOverrideInstructions, forKey: "clickyPersonaOverrideInstructions")
+    var clickyPersonaOverrideInstructions: String {
+        get { preferences.clickyPersonaOverrideInstructions }
+        set {
+            guard preferences.clickyPersonaOverrideInstructions != newValue else { return }
+            preferences.clickyPersonaOverrideInstructions = newValue
             refreshClickyShellRegistrationLifecycle()
         }
     }
 
-    @Published var clickyPersonaPreset: ClickyPersonaPreset = ClickyPersonaPreset(
-        rawValue: UserDefaults.standard.string(forKey: "clickyPersonaPreset") ?? ""
-    ) ?? .guide {
-        didSet {
-            UserDefaults.standard.set(clickyPersonaPreset.rawValue, forKey: "clickyPersonaPreset")
+    var clickyPersonaPreset: ClickyPersonaPreset {
+        get { preferences.clickyPersonaPreset }
+        set {
+            guard preferences.clickyPersonaPreset != newValue else { return }
+            preferences.clickyPersonaPreset = newValue
             refreshClickyShellRegistrationLifecycle()
         }
     }
 
-    @Published var clickyPersonaToneInstructions: String = UserDefaults.standard.string(forKey: "clickyPersonaToneInstructions") ?? "" {
-        didSet {
-            UserDefaults.standard.set(clickyPersonaToneInstructions, forKey: "clickyPersonaToneInstructions")
+    var clickyPersonaToneInstructions: String {
+        get { preferences.clickyPersonaToneInstructions }
+        set {
+            guard preferences.clickyPersonaToneInstructions != newValue else { return }
+            preferences.clickyPersonaToneInstructions = newValue
             refreshClickyShellRegistrationLifecycle()
         }
     }
 
-    @Published var clickyVoicePreset: ClickyVoicePreset = ClickyVoicePreset(
-        rawValue: UserDefaults.standard.string(forKey: "clickyVoicePreset") ?? ""
-    ) ?? .balanced {
-        didSet {
-            UserDefaults.standard.set(clickyVoicePreset.rawValue, forKey: "clickyVoicePreset")
-        }
+    var clickyVoicePreset: ClickyVoicePreset {
+        get { preferences.clickyVoicePreset }
+        set { preferences.clickyVoicePreset = newValue }
     }
 
-    @Published var clickyCursorStyle: ClickyCursorStyle = ClickyCursorStyle(
-        rawValue: UserDefaults.standard.string(forKey: "clickyCursorStyle") ?? ""
-    ) ?? .classic {
-        didSet {
-            UserDefaults.standard.set(clickyCursorStyle.rawValue, forKey: "clickyCursorStyle")
-        }
+    var clickyCursorStyle: ClickyCursorStyle {
+        get { preferences.clickyCursorStyle }
+        set { preferences.clickyCursorStyle = newValue }
     }
 
-    @Published var clickySpeechProviderMode: ClickySpeechProviderMode = ClickySpeechProviderMode(
-        rawValue: UserDefaults.standard.string(forKey: "clickySpeechProviderMode") ?? ""
-    ) ?? .system {
-        didSet {
-            UserDefaults.standard.set(clickySpeechProviderMode.rawValue, forKey: "clickySpeechProviderMode")
+    var clickySpeechProviderMode: ClickySpeechProviderMode {
+        get { preferences.clickySpeechProviderMode }
+        set {
+            guard preferences.clickySpeechProviderMode != newValue else { return }
+            preferences.clickySpeechProviderMode = newValue
             ClickyLogger.notice(.audio, "Speech provider selected provider=\(clickySpeechProviderMode.displayName)")
         }
     }
 
-    @Published var elevenLabsAPIKeyDraft: String = ClickySecrets.load(account: "elevenlabs_api_key") ?? ""
-    @Published var elevenLabsImportVoiceIDDraft: String = ""
-    @Published private(set) var elevenLabsAvailableVoices: [ElevenLabsVoiceOption] = []
-    @Published private(set) var elevenLabsVoiceFetchStatus: ElevenLabsVoiceFetchStatus = .idle
-    @Published private(set) var elevenLabsVoiceImportStatus: ElevenLabsVoiceImportStatus = .idle
-    @Published private(set) var speechPreviewStatus: ClickySpeechPreviewStatus = .idle
-    @Published private(set) var lastSpeechFallbackMessage: String?
-    @Published private(set) var isElevenLabsCreditExhausted = false
-    @Published private(set) var isElevenLabsAPIKeyRejected = false
-    @Published private(set) var isElevenLabsBackendVoiceUnavailable = false
-    @Published private(set) var clickyLaunchAuthState: ClickyLaunchAuthState = .signedOut
-    @Published private(set) var clickyLaunchEntitlementStatusLabel: String = "Unknown"
-    @Published private(set) var clickyLaunchBillingState: ClickyLaunchBillingState = .idle
-    @Published private(set) var clickyLaunchTrialState: ClickyLaunchTrialState = .inactive
-    @Published private(set) var clickyLaunchProfileName: String = ""
-    @Published private(set) var clickyLaunchProfileImageURL: String = ""
-    @Published var clickyBackendBaseURL: String = CompanionManager.resolvedInitialClickyBackendBaseURL() {
-        didSet {
-            UserDefaults.standard.set(clickyBackendBaseURL, forKey: "clickyBackendBaseURL")
-        }
-    }
-    @Published var elevenLabsSelectedVoiceID: String = UserDefaults.standard.string(forKey: "elevenLabsSelectedVoiceID") ?? "" {
-        didSet {
-            UserDefaults.standard.set(elevenLabsSelectedVoiceID, forKey: "elevenLabsSelectedVoiceID")
-        }
-    }
-    @Published var elevenLabsSelectedVoiceName: String = UserDefaults.standard.string(forKey: "elevenLabsSelectedVoiceName") ?? "" {
-        didSet {
-            UserDefaults.standard.set(elevenLabsSelectedVoiceName, forKey: "elevenLabsSelectedVoiceName")
-        }
+    var elevenLabsAPIKeyDraft: String {
+        get { speechProviderController.elevenLabsAPIKeyDraft }
+        set { speechProviderController.elevenLabsAPIKeyDraft = newValue }
     }
 
-    @Published var clickyThemePreset: ClickyThemePreset = ClickyThemePreset(
-        rawValue: UserDefaults.standard.string(forKey: "clickyThemePreset") ?? ""
-    ) ?? .dark {
-        didSet {
-            UserDefaults.standard.set(clickyThemePreset.rawValue, forKey: "clickyThemePreset")
-        }
+    var elevenLabsImportVoiceIDDraft: String {
+        get { speechProviderController.elevenLabsImportVoiceIDDraft }
+        set { speechProviderController.elevenLabsImportVoiceIDDraft = newValue }
     }
 
-    var activeClickyTheme: ClickyTheme {
-        clickyThemePreset.theme
+    var elevenLabsAvailableVoices: [ElevenLabsVoiceOption] {
+        get { speechProviderController.elevenLabsAvailableVoices }
+        set { speechProviderController.elevenLabsAvailableVoices = newValue }
     }
 
-    var clickyBackendStatusLabel: String {
-        let trimmedURL = clickyBackendBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedURL.isEmpty ? "Not configured" : trimmedURL
+    var elevenLabsVoiceFetchStatus: ElevenLabsVoiceFetchStatus {
+        get { speechProviderController.elevenLabsVoiceFetchStatus }
+        set { speechProviderController.elevenLabsVoiceFetchStatus = newValue }
+    }
+
+    var elevenLabsVoiceImportStatus: ElevenLabsVoiceImportStatus {
+        get { speechProviderController.elevenLabsVoiceImportStatus }
+        set { speechProviderController.elevenLabsVoiceImportStatus = newValue }
+    }
+
+    var speechPreviewStatus: ClickySpeechPreviewStatus {
+        get { speechProviderController.speechPreviewStatus }
+        set { speechProviderController.speechPreviewStatus = newValue }
+    }
+
+    var lastSpeechFallbackMessage: String? {
+        get { speechProviderController.lastSpeechFallbackMessage }
+        set { speechProviderController.lastSpeechFallbackMessage = newValue }
+    }
+
+    var isElevenLabsCreditExhausted: Bool {
+        get { speechProviderController.isElevenLabsCreditExhausted }
+        set { speechProviderController.isElevenLabsCreditExhausted = newValue }
+    }
+
+    var isElevenLabsAPIKeyRejected: Bool {
+        get { speechProviderController.isElevenLabsAPIKeyRejected }
+        set { speechProviderController.isElevenLabsAPIKeyRejected = newValue }
+    }
+
+    var isElevenLabsBackendVoiceUnavailable: Bool {
+        get { speechProviderController.isElevenLabsBackendVoiceUnavailable }
+        set { speechProviderController.isElevenLabsBackendVoiceUnavailable = newValue }
+    }
+    var clickyLaunchAuthState: ClickyLaunchAuthState {
+        get { launchAccessController.clickyLaunchAuthState }
+        set { launchAccessController.clickyLaunchAuthState = newValue }
+    }
+
+    var clickyLaunchEntitlementStatusLabel: String {
+        get { launchAccessController.clickyLaunchEntitlementStatusLabel }
+        set { launchAccessController.clickyLaunchEntitlementStatusLabel = newValue }
+    }
+
+    var clickyLaunchBillingState: ClickyLaunchBillingState {
+        get { launchAccessController.clickyLaunchBillingState }
+        set { launchAccessController.clickyLaunchBillingState = newValue }
+    }
+
+    var clickyLaunchTrialState: ClickyLaunchTrialState {
+        get { launchAccessController.clickyLaunchTrialState }
+        set { launchAccessController.clickyLaunchTrialState = newValue }
+    }
+
+    var clickyLaunchProfileName: String {
+        get { launchAccessController.clickyLaunchProfileName }
+        set { launchAccessController.clickyLaunchProfileName = newValue }
+    }
+
+    var clickyLaunchProfileImageURL: String {
+        get { launchAccessController.clickyLaunchProfileImageURL }
+        set { launchAccessController.clickyLaunchProfileImageURL = newValue }
+    }
+    var clickyBackendBaseURL: String {
+        get { preferences.clickyBackendBaseURL }
+        set { preferences.clickyBackendBaseURL = newValue }
+    }
+
+    var elevenLabsSelectedVoiceID: String {
+        get { preferences.elevenLabsSelectedVoiceID }
+        set { preferences.elevenLabsSelectedVoiceID = newValue }
+    }
+
+    var elevenLabsSelectedVoiceName: String {
+        get { preferences.elevenLabsSelectedVoiceName }
+        set { preferences.elevenLabsSelectedVoiceName = newValue }
+    }
+
+    var clickyThemePreset: ClickyThemePreset {
+        get { preferences.clickyThemePreset }
+        set { preferences.clickyThemePreset = newValue }
     }
 
     var clickyLaunchAuthStatusLabel: String {
@@ -716,10 +919,6 @@ final class CompanionManager: ObservableObject {
 
     var activeClickyPersonaDefinition: ClickyPersonaDefinition {
         clickyPersonaPreset.definition
-    }
-
-    var activeClickyPersonaSummary: String {
-        activeClickyPersonaDefinition.summary
     }
 
     var effectiveClickyVoicePreset: ClickyVoicePreset {
@@ -2273,14 +2472,14 @@ final class CompanionManager: ObservableObject {
     /// User preference for whether the Clicky cursor should be shown.
     /// When toggled off, the overlay is hidden and push-to-talk is disabled.
     /// Persisted to UserDefaults so the choice survives app restarts.
-    @Published var isClickyCursorEnabled: Bool = UserDefaults.standard.object(forKey: "isClickyCursorEnabled") == nil
-        ? true
-        : UserDefaults.standard.bool(forKey: "isClickyCursorEnabled")
+    var isClickyCursorEnabled: Bool {
+        get { preferences.isClickyCursorEnabled }
+        set { preferences.isClickyCursorEnabled = newValue }
+    }
 
     func setClickyCursorEnabled(_ enabled: Bool) {
         guard isClickyCursorEnabled != enabled else { return }
         isClickyCursorEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: "isClickyCursorEnabled")
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.transientHideTask?.cancel()
@@ -2300,8 +2499,8 @@ final class CompanionManager: ObservableObject {
     /// Whether the user has completed onboarding at least once. Persisted
     /// to UserDefaults so the Start button only appears on first launch.
     var hasCompletedOnboarding: Bool {
-        get { UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") }
-        set { UserDefaults.standard.set(newValue, forKey: "hasCompletedOnboarding") }
+        get { preferences.hasCompletedOnboarding }
+        set { preferences.hasCompletedOnboarding = newValue }
     }
 
     func start() {
@@ -2542,24 +2741,11 @@ final class CompanionManager: ObservableObject {
                     lessonDraft: compiledLessonDraft,
                     evidenceBundle: evidenceBundle,
                     currentStepIndex: 0,
-                    isActive: true
+                    isActive: false
                 )
                 self.tutorialConversationHistory = []
                 self.isTutorialImportRunning = false
-                self.tutorialImportStatusMessage = "Tutorial ready. Guiding mode is starting."
-
-                let firstStep = compiledLessonDraft.steps.first
-
-                self.startTutorialPlayback(
-                    sourceURL: evidenceBundle.source.url,
-                    embedURL: evidenceBundle.source.embedURL,
-                    step: firstStep,
-                    bubbleText: firstStep.map { "\($0.title). \($0.instruction)" }
-                        ?? "Space play/pause  Left back 10s  Right forward 10s  Esc close",
-                    promptTimestampSeconds: firstStep?.sourceVideoPromptTimestamp
-                        ?? evidenceBundle.structureMarkers.first?.visualAnchorTimestamps.first,
-                    autoPlay: true
-                )
+                self.tutorialImportStatusMessage = "Tutorial ready."
             } catch {
                 draft.status = .failed
                 draft.extractionError = error.localizedDescription
@@ -2569,6 +2755,67 @@ final class CompanionManager: ObservableObject {
                 self.tutorialImportStatusMessage = error.localizedDescription
             }
         }
+    }
+
+    func startTutorialLessonFromReadyState() {
+        guard var tutorialSessionState else { return }
+        guard let lessonDraft = currentTutorialImportDraft?.compiledLessonDraft else { return }
+        guard lessonDraft.steps.indices.contains(tutorialSessionState.currentStepIndex) else { return }
+
+        tutorialSessionState.isActive = true
+        self.tutorialSessionState = tutorialSessionState
+
+        let currentStep = lessonDraft.steps[tutorialSessionState.currentStepIndex]
+        let promptTimestamp = currentStep.sourceVideoPromptTimestamp
+            ?? tutorialSessionState.evidenceBundle.structureMarkers.first?.visualAnchorTimestamps.first
+
+        startTutorialPlayback(
+            sourceURL: tutorialSessionState.evidenceBundle.source.url,
+            embedURL: tutorialSessionState.evidenceBundle.source.embedURL,
+            step: currentStep,
+            bubbleText: "\(currentStep.title). \(currentStep.instruction)",
+            promptTimestampSeconds: promptTimestamp,
+            autoPlay: true
+        )
+    }
+
+    func advanceTutorialLessonFromPanel() {
+        guard var tutorialSessionState else { return }
+        let lessonDraft = tutorialSessionState.lessonDraft
+        guard tutorialSessionState.currentStepIndex + 1 < lessonDraft.steps.count else { return }
+
+        tutorialSessionState.currentStepIndex += 1
+        tutorialSessionState.isActive = true
+        self.tutorialSessionState = tutorialSessionState
+
+        let nextStep = lessonDraft.steps[tutorialSessionState.currentStepIndex]
+        updateTutorialPlaybackState(step: nextStep, isPlaying: true)
+    }
+
+    func rewindTutorialLessonFromPanel() {
+        guard var tutorialSessionState else { return }
+        let lessonDraft = tutorialSessionState.lessonDraft
+        guard tutorialSessionState.currentStepIndex > 0 else { return }
+
+        tutorialSessionState.currentStepIndex -= 1
+        tutorialSessionState.isActive = true
+        self.tutorialSessionState = tutorialSessionState
+
+        let currentStep = lessonDraft.steps[tutorialSessionState.currentStepIndex]
+        updateTutorialPlaybackState(step: currentStep, isPlaying: true)
+    }
+
+    func repeatTutorialLessonStepFromPanel() {
+        guard let tutorialSessionState else { return }
+        let lessonDraft = tutorialSessionState.lessonDraft
+        guard lessonDraft.steps.indices.contains(tutorialSessionState.currentStepIndex) else { return }
+
+        let currentStep = lessonDraft.steps[tutorialSessionState.currentStepIndex]
+        updateTutorialPlaybackState(step: currentStep, isPlaying: true)
+    }
+
+    func retryTutorialImportFromPanel() {
+        startTutorialImportFromPanel()
     }
 
     private func pollTutorialExtractionJob(
@@ -2727,6 +2974,33 @@ final class CompanionManager: ObservableObject {
         )
         tutorialPlaybackBubbleOpacity = 1.0
         if autoPlay {
+            sendTutorialPlaybackCommand(.play)
+        }
+    }
+
+    private func updateTutorialPlaybackState(step: TutorialLessonStep, isPlaying: Bool) {
+        if tutorialPlaybackState == nil {
+            guard let tutorialSessionState else { return }
+            startTutorialPlayback(
+                sourceURL: tutorialSessionState.evidenceBundle.source.url,
+                embedURL: tutorialSessionState.evidenceBundle.source.embedURL,
+                step: step,
+                bubbleText: "\(step.title). \(step.instruction)",
+                promptTimestampSeconds: step.sourceVideoPromptTimestamp,
+                autoPlay: isPlaying
+            )
+            return
+        }
+
+        tutorialPlaybackState?.currentStepID = step.id
+        tutorialPlaybackState?.currentStepTitle = step.title
+        tutorialPlaybackState?.bubbleText = "\(step.title). \(step.instruction)"
+        tutorialPlaybackState?.surfaceMode = .inlineVideoWithBubble
+        tutorialPlaybackState?.lastPromptTimestampSeconds = step.sourceVideoPromptTimestamp
+        tutorialPlaybackState?.isPlaying = isPlaying
+        tutorialPlaybackBubbleOpacity = 1.0
+
+        if isPlaying {
             sendTutorialPlaybackCommand(.play)
         }
     }

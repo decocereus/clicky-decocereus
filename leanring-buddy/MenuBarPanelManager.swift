@@ -13,6 +13,7 @@
 
 import AppKit
 import OSLog
+import QuartzCore
 import SwiftUI
 
 extension Notification.Name {
@@ -20,6 +21,7 @@ extension Notification.Name {
     static let clickyOpenStudio = Notification.Name("clickyOpenStudio")
     static let clickyCheckForUpdates = Notification.Name("clickyCheckForUpdates")
     static let clickyShowPanel = Notification.Name("clickyShowPanel")
+    static let clickyPanelNeedsLayout = Notification.Name("clickyPanelNeedsLayout")
 }
 
 /// Custom NSPanel subclass that can become the key window even with
@@ -36,6 +38,9 @@ final class MenuBarPanelManager: NSObject {
     private var dismissPanelObserver: NSObjectProtocol?
     private var openStudioObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
+    private var panelNeedsLayoutObserver: NSObjectProtocol?
+    private var isPanelRelayoutScheduled = false
+    private var scheduledPanelRelayoutIsAnimated = false
 
     private let companionManager: CompanionManager
     private weak var studioWindowPresenter: CompanionAppDelegate?
@@ -78,6 +83,16 @@ final class MenuBarPanelManager: NSObject {
                 self?.showPanel(source: "notification")
             }
         }
+
+        panelNeedsLayoutObserver = NotificationCenter.default.addObserver(
+            forName: .clickyPanelNeedsLayout,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleVisiblePanelRelayout(animated: true)
+            }
+        }
     }
 
     deinit {
@@ -91,6 +106,9 @@ final class MenuBarPanelManager: NSObject {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = showPanelObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = panelNeedsLayoutObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }
@@ -193,11 +211,15 @@ final class MenuBarPanelManager: NSObject {
             createPanel()
         }
 
+        guard let panel else { return }
         NSApp.activate(ignoringOtherApps: true)
         positionPanelBelowStatusItem()
+        preparePanelForOpenAnimation(panel)
 
-        panel?.makeKeyAndOrderFront(nil)
-        panel?.orderFrontRegardless()
+        panel.makeKeyAndOrderFront(nil)
+        panel.orderFrontRegardless()
+        animatePanelOpen(panel)
+        relayoutVisiblePanel(animated: false)
         installClickOutsideMonitor()
         ClickyUnifiedTelemetry.windowing.info(
             "Companion panel presented source=\(source, privacy: .public)"
@@ -211,10 +233,11 @@ final class MenuBarPanelManager: NSObject {
         }
 
         let wasVisible = panel.isVisible
-        panel.orderOut(nil)
         removeClickOutsideMonitor()
 
         guard wasVisible else { return }
+
+        animatePanelClose(panel)
 
         ClickyUnifiedTelemetry.windowing.info(
             "Companion panel dismissed reason=\(reason, privacy: .public)"
@@ -253,7 +276,87 @@ final class MenuBarPanelManager: NSObject {
         panel = menuBarPanel
     }
 
+    private func preparePanelForOpenAnimation(_ panel: NSPanel) {
+        panel.alphaValue = 0
+        panel.contentView?.wantsLayer = true
+        panel.contentView?.layer?.transform = CATransform3DMakeScale(0.985, 0.985, 1)
+    }
+
+    private func animatePanelOpen(_ panel: NSPanel) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().alphaValue = 1
+        }
+
+        let scaleAnimation = CABasicAnimation(keyPath: "transform.scale")
+        scaleAnimation.fromValue = 0.985
+        scaleAnimation.toValue = 1.0
+        scaleAnimation.duration = 0.22
+        scaleAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        panel.contentView?.layer?.add(scaleAnimation, forKey: "clicky-panel-open-scale")
+        panel.contentView?.layer?.transform = CATransform3DIdentity
+    }
+
+    private func animatePanelClose(_ panel: NSPanel) {
+        panel.contentView?.wantsLayer = true
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.completionHandler = {
+                panel.orderOut(nil)
+                panel.alphaValue = 1
+                panel.contentView?.layer?.transform = CATransform3DIdentity
+            }
+
+            panel.animator().alphaValue = 0
+        }
+
+        let scaleAnimation = CABasicAnimation(keyPath: "transform.scale")
+        scaleAnimation.fromValue = 1.0
+        scaleAnimation.toValue = 0.992
+        scaleAnimation.duration = 0.16
+        scaleAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        panel.contentView?.layer?.add(scaleAnimation, forKey: "clicky-panel-close-scale")
+        panel.contentView?.layer?.transform = CATransform3DMakeScale(0.992, 0.992, 1)
+    }
+
+    private func relayoutVisiblePanel(animated: Bool) {
+        guard let panel, panel.isVisible else { return }
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.24
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                self.positionPanelBelowStatusItem(animated: true)
+            }
+        } else {
+            positionPanelBelowStatusItem(animated: false)
+        }
+    }
+
+    private func scheduleVisiblePanelRelayout(animated: Bool) {
+        scheduledPanelRelayoutIsAnimated = scheduledPanelRelayoutIsAnimated || animated
+
+        guard !isPanelRelayoutScheduled else { return }
+        isPanelRelayoutScheduled = true
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            let shouldAnimate = self.scheduledPanelRelayoutIsAnimated
+            self.isPanelRelayoutScheduled = false
+            self.scheduledPanelRelayoutIsAnimated = false
+            self.relayoutVisiblePanel(animated: shouldAnimate)
+        }
+    }
+
     private func positionPanelBelowStatusItem() {
+        positionPanelBelowStatusItem(animated: false)
+    }
+
+    private func positionPanelBelowStatusItem(animated: Bool) {
         guard let panel else { return }
         guard let buttonWindow = statusItem?.button?.window else { return }
 
@@ -286,10 +389,13 @@ final class MenuBarPanelManager: NSObject {
         let panelOriginX = min(max(unclampedPanelOriginX, minimumPanelOriginX), maximumPanelOriginX)
         let panelOriginY = min(max(unclampedPanelOriginY, minimumPanelOriginY), maximumPanelOriginY)
 
-        panel.setFrame(
-            NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight),
-            display: true
-        )
+        let targetFrame = NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight)
+
+        if animated {
+            panel.animator().setFrame(targetFrame, display: true)
+        } else {
+            panel.setFrame(targetFrame, display: true)
+        }
     }
 
     // MARK: - Click Outside Dismissal

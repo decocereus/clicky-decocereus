@@ -745,12 +745,12 @@ final class OpenClawGatewayCompanionAgent {
 
             return try await request(
                 method: "connect",
-                params: buildConnectParams(connectChallenge),
+                params: try buildConnectParams(connectChallenge),
                 timeoutSeconds: 15
             )
         }
 
-        private func buildConnectParams(_ challengeNonce: String) -> [String: Any] {
+        private func buildConnectParams(_ challengeNonce: String) throws -> [String: Any] {
             let signedAtMilliseconds = Int(Date().timeIntervalSince1970 * 1000)
             _ = challengeNonce
             let scopes = ["operator.admin", "operator.read", "operator.write"]
@@ -769,7 +769,7 @@ final class OpenClawGatewayCompanionAgent {
             ].joined(separator: "|")
 
             let deviceSignature = base64URLEncodedString(
-                data: try! deviceIdentity.privateKey.signature(for: Data(deviceAuthPayload.utf8))
+                data: try deviceIdentity.privateKey.signature(for: Data(deviceAuthPayload.utf8))
             )
 
             var connectParams: [String: Any] = [

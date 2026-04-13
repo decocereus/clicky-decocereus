@@ -117,7 +117,10 @@ enum BuddyNavigationMode: Equatable {
 struct BlueCursorView: View {
     let screenFrame: CGRect
     let isFirstAppearance: Bool
-    @ObservedObject var companionManager: CompanionManager
+    let companionManager: CompanionManager
+    @ObservedObject private var preferences: ClickyPreferencesStore
+    @ObservedObject private var surfaceController: ClickySurfaceController
+    @ObservedObject private var tutorialController: ClickyTutorialController
 
     @State private var cursorPosition: CGPoint
     @State private var isCursorOnThisScreen: Bool
@@ -126,6 +129,9 @@ struct BlueCursorView: View {
         self.screenFrame = screenFrame
         self.isFirstAppearance = isFirstAppearance
         self.companionManager = companionManager
+        _preferences = ObservedObject(wrappedValue: companionManager.preferences)
+        _surfaceController = ObservedObject(wrappedValue: companionManager.surfaceController)
+        _tutorialController = ObservedObject(wrappedValue: companionManager.tutorialController)
 
         // Seed the cursor position from the current mouse location so the
         // buddy doesn't flash at (0,0) before onAppear fires.
@@ -195,6 +201,14 @@ struct BlueCursorView: View {
         "found it!"
     ]
 
+    private var activeTheme: ClickyTheme {
+        preferences.clickyThemePreset.theme
+    }
+
+    private var effectiveClickyCursorStyle: ClickyCursorStyle {
+        preferences.clickyCursorStyle
+    }
+
     var body: some View {
         ZStack {
             // Nearly transparent background (helps with compositing)
@@ -231,24 +245,24 @@ struct BlueCursorView: View {
             // Onboarding video — always in the view tree so opacity animation works
             // reliably. When no player exists or opacity is 0, nothing is visible.
             // allowsHitTesting(false) prevents it from intercepting clicks.
-            OnboardingVideoPlayerView(player: companionManager.onboardingVideoPlayer)
+            OnboardingVideoPlayerView(player: surfaceController.onboardingVideoPlayer)
                 .frame(width: onboardingVideoPlayerWidth, height: onboardingVideoPlayerHeight)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .shadow(color: Color.black.opacity(0.4 * companionManager.onboardingVideoOpacity), radius: 12, x: 0, y: 6)
-                .opacity(isCursorOnThisScreen ? companionManager.onboardingVideoOpacity : 0)
+                .shadow(color: Color.black.opacity(0.4 * surfaceController.onboardingVideoOpacity), radius: 12, x: 0, y: 6)
+                .opacity(isCursorOnThisScreen ? surfaceController.onboardingVideoOpacity : 0)
                 .position(
                     x: cursorPosition.x + 10 + (onboardingVideoPlayerWidth / 2),
                     y: cursorPosition.y + 18 + (onboardingVideoPlayerHeight / 2)
                 )
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                .animation(.easeInOut(duration: 2.0), value: companionManager.onboardingVideoOpacity)
+                .animation(.easeInOut(duration: 2.0), value: surfaceController.onboardingVideoOpacity)
                 .allowsHitTesting(false)
 
             tutorialInlinePlayerSurface
 
             // Onboarding prompt — "press control + option and say hi" streamed after video ends
-            if isCursorOnThisScreen && companionManager.showOnboardingPrompt && !companionManager.onboardingPromptText.isEmpty {
-                Text(companionManager.onboardingPromptText)
+            if isCursorOnThisScreen && surfaceController.showOnboardingPrompt && !surfaceController.onboardingPromptText.isEmpty {
+                Text(surfaceController.onboardingPromptText)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white)
                     .padding(.horizontal, 8)
@@ -265,10 +279,10 @@ struct BlueCursorView: View {
                                 .preference(key: SizePreferenceKey.self, value: geo.size)
                         }
                     )
-                    .opacity(companionManager.onboardingPromptOpacity)
+                    .opacity(surfaceController.onboardingPromptOpacity)
                     .position(x: cursorPosition.x + 10 + (bubbleSize.width / 2), y: cursorPosition.y + 18)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                    .animation(.easeOut(duration: 0.4), value: companionManager.onboardingPromptOpacity)
+                    .animation(.easeOut(duration: 0.4), value: surfaceController.onboardingPromptOpacity)
                     .onPreferenceChange(SizePreferenceKey.self) { newSize in
                         bubbleSize = newSize
                     }
@@ -319,7 +333,7 @@ struct BlueCursorView: View {
             // During navigation: NO implicit animation — the frame-by-frame bezier
             // timer controls position directly at 60fps for a smooth arc flight.
             personaCursorIdleView
-                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .idle ? cursorOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen && surfaceController.voiceState == .idle ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(
                     buddyNavigationMode == .followingCursor
@@ -327,7 +341,7 @@ struct BlueCursorView: View {
                         : nil,
                     value: cursorPosition
                 )
-                .animation(.easeIn(duration: 0.25), value: companionManager.voiceState)
+                .animation(.easeIn(duration: 0.25), value: surfaceController.voiceState)
                 .animation(
                     buddyNavigationMode == .navigatingToTarget ? nil : .easeInOut(duration: 0.3),
                     value: triangleRotationDegrees
@@ -335,31 +349,31 @@ struct BlueCursorView: View {
 
             // Style-aware listening indicator
             listeningIndicatorView
-                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .listening ? cursorOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen && surfaceController.voiceState == .listening ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
+                .animation(.easeIn(duration: 0.15), value: surfaceController.voiceState)
 
             // Style-aware transcribing indicator
             transcribingIndicatorView
-                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .transcribing ? cursorOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen && surfaceController.voiceState == .transcribing ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
+                .animation(.easeIn(duration: 0.15), value: surfaceController.voiceState)
 
             // Style-aware thinking indicator
             thinkingIndicatorView
-                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .thinking ? cursorOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen && surfaceController.voiceState == .thinking ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
+                .animation(.easeIn(duration: 0.15), value: surfaceController.voiceState)
 
             // Style-aware responding indicator
             respondingIndicatorView
-                .opacity(buddyIsVisibleOnThisScreen && companionManager.voiceState == .responding ? cursorOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen && surfaceController.voiceState == .responding ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
+                .animation(.easeIn(duration: 0.15), value: surfaceController.voiceState)
 
         }
         .frame(width: screenFrame.width, height: screenFrame.height)
@@ -388,12 +402,12 @@ struct BlueCursorView: View {
                 self.cursorOpacity = 1.0
             }
 
-            if companionManager.effectiveClickyCursorStyle == .pulse {
+            if effectiveClickyCursorStyle == .pulse {
                 withAnimation(.easeOut(duration: 1.05).repeatForever(autoreverses: true)) {
                     pulseCursorIsExpanded = true
                 }
             }
-            if companionManager.effectiveClickyCursorStyle == .halo {
+            if effectiveClickyCursorStyle == .halo {
                 withAnimation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true)) {
                     haloLoadingExpanded = true
                 }
@@ -404,11 +418,11 @@ struct BlueCursorView: View {
             navigationAnimationTimer?.invalidate()
             companionManager.tearDownOnboardingVideo()
         }
-        .onChange(of: companionManager.detectedElementScreenLocation) { _, newLocation in
+        .onChange(of: surfaceController.detectedElementScreenLocation) { _, newLocation in
             // When a UI element location is detected, navigate the buddy to
             // that position so it points at the element.
             guard let screenLocation = newLocation,
-                  let displayFrame = companionManager.detectedElementDisplayFrame else {
+                  let displayFrame = surfaceController.detectedElementDisplayFrame else {
                 return
             }
 
@@ -425,13 +439,13 @@ struct BlueCursorView: View {
     @ViewBuilder
     private var tutorialInlinePlayerSurface: some View {
         if isCursorOnThisScreen,
-           let tutorialPlaybackState = companionManager.tutorialPlaybackState,
+           let tutorialPlaybackState = tutorialController.tutorialPlaybackState,
            tutorialPlaybackState.isVisible {
             TutorialInlineYouTubePlayerView(
                 embedURL: tutorialPlaybackState.embedURL,
                 isPlaying: tutorialPlaybackState.isPlaying,
-                commandNonce: companionManager.tutorialPlaybackCommandNonce,
-                lastCommand: companionManager.tutorialPlaybackLastCommand,
+                commandNonce: tutorialController.tutorialPlaybackCommandNonce,
+                lastCommand: tutorialController.tutorialPlaybackLastCommand,
                 startAtSeconds: tutorialPlaybackState.lastPromptTimestampSeconds
             )
             .frame(
@@ -468,13 +482,13 @@ struct BlueCursorView: View {
                                 .preference(key: SizePreferenceKey.self, value: geo.size)
                         }
                     )
-                    .opacity(companionManager.tutorialPlaybackBubbleOpacity)
+                    .opacity(tutorialController.tutorialPlaybackBubbleOpacity)
                     .position(
                         x: cursorPosition.x + 10 + (bubbleSize.width / 2),
                         y: cursorPosition.y + 18 - (bubbleSize.height / 2) - 12
                     )
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                    .animation(.easeOut(duration: 0.2), value: companionManager.tutorialPlaybackBubbleOpacity)
+                    .animation(.easeOut(duration: 0.2), value: tutorialController.tutorialPlaybackBubbleOpacity)
                     .onPreferenceChange(SizePreferenceKey.self) { newSize in
                         bubbleSize = newSize
                     }
@@ -483,23 +497,23 @@ struct BlueCursorView: View {
     }
 
     private var cursorAccentColor: Color {
-        companionManager.activeClickyTheme.primary
+        activeTheme.primary
     }
 
     private var cursorSecondaryColor: Color {
-        companionManager.activeClickyTheme.ring
+        activeTheme.ring
     }
 
     private var cursorSoftGlowColor: Color {
-        companionManager.activeClickyTheme.glowB
+        activeTheme.glowB
     }
 
     @ViewBuilder
     private var listeningIndicatorView: some View {
-        switch companionManager.effectiveClickyCursorStyle {
+        switch effectiveClickyCursorStyle {
         case .classic:
             BlueCursorWaveformView(
-                audioPowerLevel: companionManager.currentAudioPowerLevel,
+                audioPowerLevel: surfaceController.currentAudioPowerLevel,
                 accentColor: cursorAccentColor,
                 secondaryColor: cursorSecondaryColor
             )
@@ -507,14 +521,14 @@ struct BlueCursorView: View {
             HaloActivityIndicatorView(
                 accentColor: cursorAccentColor,
                 secondaryColor: cursorSecondaryColor,
-                activityLevel: companionManager.currentAudioPowerLevel,
+                activityLevel: surfaceController.currentAudioPowerLevel,
                 isExpanded: haloLoadingExpanded
             )
         case .pulse:
             PulsingOrbIndicatorView(
                 accentColor: cursorAccentColor,
                 secondaryColor: cursorSecondaryColor,
-                activityLevel: companionManager.currentAudioPowerLevel,
+                activityLevel: surfaceController.currentAudioPowerLevel,
                 mode: .listening
             )
         }
@@ -522,7 +536,7 @@ struct BlueCursorView: View {
 
     @ViewBuilder
     private var transcribingIndicatorView: some View {
-        switch companionManager.effectiveClickyCursorStyle {
+        switch effectiveClickyCursorStyle {
         case .classic:
             BlueCursorSpinnerView(accentColor: cursorAccentColor, secondaryColor: cursorSecondaryColor)
         case .halo:
@@ -543,7 +557,7 @@ struct BlueCursorView: View {
 
     @ViewBuilder
     private var thinkingIndicatorView: some View {
-        switch companionManager.effectiveClickyCursorStyle {
+        switch effectiveClickyCursorStyle {
         case .classic:
             BlueCursorThinkingView(accentColor: cursorAccentColor, secondaryColor: cursorSecondaryColor)
         case .halo:
@@ -564,7 +578,7 @@ struct BlueCursorView: View {
 
     @ViewBuilder
     private var respondingIndicatorView: some View {
-        switch companionManager.effectiveClickyCursorStyle {
+        switch effectiveClickyCursorStyle {
         case .classic:
             BlueCursorSpeakingWaveformView(accentColor: cursorAccentColor, secondaryColor: cursorSecondaryColor)
         case .halo:
@@ -585,7 +599,7 @@ struct BlueCursorView: View {
 
     @ViewBuilder
     private var personaCursorIdleView: some View {
-        switch companionManager.effectiveClickyCursorStyle {
+        switch effectiveClickyCursorStyle {
         case .classic:
             Triangle()
                 .fill(
@@ -665,7 +679,7 @@ struct BlueCursorView: View {
         case .followingCursor:
             // If another screen's BlueCursorView is navigating to an element,
             // hide the cursor on this screen to prevent a duplicate buddy
-            if companionManager.detectedElementScreenLocation != nil {
+            if surfaceController.detectedElementScreenLocation != nil {
                 return false
             }
             return isCursorOnThisScreen
@@ -854,7 +868,7 @@ struct BlueCursorView: View {
 
         // Use custom bubble text from the companion manager (e.g. onboarding demo)
         // if available, otherwise fall back to a random pointer phrase
-        let pointerPhrase = companionManager.detectedElementBubbleText
+        let pointerPhrase = surfaceController.detectedElementBubbleText
             ?? navigationPointerPhrases.randomElement()
             ?? "right here!"
 
