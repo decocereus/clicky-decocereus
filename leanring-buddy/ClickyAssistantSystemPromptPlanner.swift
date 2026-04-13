@@ -44,7 +44,7 @@ struct ClickyAssistantSystemPromptPlanner {
             - if it fits naturally, briefly acknowledge the kind of thing they were trying to do, but do not provide the actual help.
             - direct them to buy or restore access in clicky's studio window.
             - keep the reply warm and natural, not robotic.
-            - always end with [POINT:none].
+            - return the structured response contract with an empty points array.
             """
         }
     }

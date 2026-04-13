@@ -254,6 +254,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     }
 
     var needsInitialPermissionPrompt: Bool {
+        let transcriptionProvider = BuddyTranscriptionProviderFactory.makeDefaultProvider()
         if transcriptionProvider.requiresSpeechRecognitionPermission {
             return AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
                 || SFSpeechRecognizer.authorizationStatus() == .notDetermined
@@ -262,7 +263,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         return AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
     }
 
-    private let transcriptionProvider: any BuddyTranscriptionProvider
+    private var activeTranscriptionProvider: (any BuddyTranscriptionProvider)?
     private let audioEngine = AVAudioEngine()
     private var activeTranscriptionSession: (any BuddyStreamingTranscriptionSession)?
     private var activeStartSource: BuddyDictationStartSource?
@@ -282,7 +283,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
 
     override init() {
         let transcriptionProvider = BuddyTranscriptionProviderFactory.makeDefaultProvider()
-        self.transcriptionProvider = transcriptionProvider
+        self.activeTranscriptionProvider = transcriptionProvider
         self.transcriptionProviderDisplayName = transcriptionProvider.displayName
         super.init()
     }
@@ -366,7 +367,10 @@ final class BuddyDictationManager: NSObject, ObservableObject {
             // the app forward, we can safely continue into the permission check.
         }
 
-        let hasPermissions = await requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts()
+        let preferredTranscriptionProvider = BuddyTranscriptionProviderFactory.makeDefaultProvider()
+        let hasPermissions = await requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts(
+            for: preferredTranscriptionProvider
+        )
         isPreparingToRecord = false
 
         if hasPermissions {
@@ -405,7 +409,13 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         currentPermissionProblem = nil
         isPreparingToRecord = true
 
-        guard await requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts() else {
+        let preferredTranscriptionProvider = BuddyTranscriptionProviderFactory.makeDefaultProvider()
+        activeTranscriptionProvider = preferredTranscriptionProvider
+        transcriptionProviderDisplayName = preferredTranscriptionProvider.displayName
+
+        guard await requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts(
+            for: preferredTranscriptionProvider
+        ) else {
             print("🎙️ BuddyDictationManager: permissions missing or denied")
             ClickyLogger.error(.audio, "Push-to-talk permissions missing or denied")
             isPreparingToRecord = false
@@ -450,7 +460,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         }
 
         do {
-            try await startRecognitionSession()
+            try await startRecognitionSession(preferredProvider: preferredTranscriptionProvider)
             guard !Task.isCancelled else {
                 print("🎙️ BuddyDictationManager: start cancelled (shortcut released during session start)")
                 audioEngine.stop()
@@ -464,15 +474,15 @@ final class BuddyDictationManager: NSObject, ObservableObject {
             }
             isPreparingToRecord = false
             print("🎙️ BuddyDictationManager: recognition session started")
-            ClickyLogger.info(.audio, "Recognition session started provider=\(transcriptionProvider.displayName)")
+            ClickyLogger.info(.audio, "Recognition session started provider=\(transcriptionProviderDisplayName)")
         } catch {
             isPreparingToRecord = false
             lastErrorMessage = userFacingErrorMessage(
                 from: error,
                 fallback: "couldn't start voice input. try again."
             )
-            print("❌ BuddyDictationManager: failed to start recognition session (\(transcriptionProvider.displayName)): \(error)")
-            ClickyLogger.error(.audio, "Recognition session failed provider=\(transcriptionProvider.displayName) error=\(error.localizedDescription)")
+            print("❌ BuddyDictationManager: failed to start recognition session (\(transcriptionProviderDisplayName)): \(error)")
+            ClickyLogger.error(.audio, "Recognition session failed provider=\(transcriptionProviderDisplayName) error=\(error.localizedDescription)")
             resetSessionState()
         }
     }
@@ -516,38 +526,86 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         )
     }
 
-    private func startRecognitionSession() async throws {
+    private func startRecognitionSession(
+        preferredProvider: any BuddyTranscriptionProvider
+    ) async throws {
         activeTranscriptionSession?.cancel()
         activeTranscriptionSession = nil
 
-        print("🎙️ BuddyDictationManager: opening transcription provider \(transcriptionProvider.displayName)")
+        var sessionProvider: any BuddyTranscriptionProvider
+        let activeTranscriptionSession: any BuddyStreamingTranscriptionSession
 
-        let activeTranscriptionSession = try await transcriptionProvider.startStreamingSession(
-            keyterms: buildTranscriptionKeyterms(),
-            onTranscriptUpdate: { [weak self] transcriptText in
-                Task { @MainActor in
-                    self?.latestRecognizedText = transcriptText
-                }
-            },
-            onFinalTranscriptReady: { [weak self] transcriptText in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.latestRecognizedText = transcriptText
+        do {
+            sessionProvider = preferredProvider
+            transcriptionProviderDisplayName = sessionProvider.displayName
+            print("🎙️ BuddyDictationManager: opening transcription provider \(sessionProvider.displayName)")
+            activeTranscriptionSession = try await sessionProvider.startStreamingSession(
+                keyterms: buildTranscriptionKeyterms(),
+                onTranscriptUpdate: { [weak self] transcriptText in
+                    Task { @MainActor in
+                        self?.latestRecognizedText = transcriptText
+                    }
+                },
+                onFinalTranscriptReady: { [weak self] transcriptText in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.latestRecognizedText = transcriptText
 
-                    if self.isFinalizingTranscript {
-                        self.finishCurrentDictationSessionIfNeeded(
-                            shouldSubmitFinalDraft: self.shouldAutomaticallySubmitFinalDraft
-                        )
+                        if self.isFinalizingTranscript {
+                            self.finishCurrentDictationSessionIfNeeded(
+                                shouldSubmitFinalDraft: self.shouldAutomaticallySubmitFinalDraft
+                            )
+                        }
+                    }
+                },
+                onError: { [weak self] error in
+                    Task { @MainActor in
+                        self?.handleRecognitionError(error)
                     }
                 }
-            },
-            onError: { [weak self] error in
-                Task { @MainActor in
-                    self?.handleRecognitionError(error)
-                }
+            )
+        } catch {
+            let fallbackProvider = AppleSpeechTranscriptionProvider()
+            guard preferredProvider.displayName != fallbackProvider.displayName else {
+                throw error
             }
-        )
+            guard await requestSpeechRecognitionPermissionIfNeeded() else {
+                throw error
+            }
 
+            ClickyLogger.error(.audio, "Preferred transcription provider failed provider=\(preferredProvider.displayName) error=\(error.localizedDescription) fallback=Apple Speech")
+            transcriptionProviderDisplayName = fallbackProvider.displayName
+            print("🎙️ BuddyDictationManager: falling back to transcription provider \(fallbackProvider.displayName)")
+
+            sessionProvider = fallbackProvider
+            activeTranscriptionSession = try await sessionProvider.startStreamingSession(
+                keyterms: buildTranscriptionKeyterms(),
+                onTranscriptUpdate: { [weak self] transcriptText in
+                    Task { @MainActor in
+                        self?.latestRecognizedText = transcriptText
+                    }
+                },
+                onFinalTranscriptReady: { [weak self] transcriptText in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.latestRecognizedText = transcriptText
+
+                        if self.isFinalizingTranscript {
+                            self.finishCurrentDictationSessionIfNeeded(
+                                shouldSubmitFinalDraft: self.shouldAutomaticallySubmitFinalDraft
+                            )
+                        }
+                    }
+                },
+                onError: { [weak self] error in
+                    Task { @MainActor in
+                        self?.handleRecognitionError(error)
+                    }
+                }
+            )
+        }
+
+        activeTranscriptionProvider = sessionProvider
         self.activeTranscriptionSession = activeTranscriptionSession
         print("🎙️ BuddyDictationManager: provider ready, starting audio engine")
 
@@ -574,7 +632,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                 shouldSubmitFinalDraft: shouldAutomaticallySubmitFinalDraft
             )
         } else {
-            print("❌ Buddy dictation error (\(transcriptionProvider.displayName)): \(error)")
+            print("❌ Buddy dictation error (\(transcriptionProviderDisplayName)): \(error)")
             lastErrorMessage = userFacingErrorMessage(
                 from: error,
                 fallback: "couldn't transcribe that. try again."
@@ -738,14 +796,16 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         recordedAudioPowerHistory = updatedRecordedAudioPowerHistory
     }
 
-    private func requestMicrophoneAndSpeechPermissionsIfNeeded() async -> Bool {
+    private func requestMicrophoneAndSpeechPermissionsIfNeeded(
+        for provider: any BuddyTranscriptionProvider
+    ) async -> Bool {
         let hasMicrophonePermission = await requestMicrophonePermissionIfNeeded()
         guard hasMicrophonePermission else {
             lastErrorMessage = "microphone permission is required for push to talk."
             return false
         }
 
-        guard transcriptionProvider.requiresSpeechRecognitionPermission else {
+        guard provider.requiresSpeechRecognitionPermission else {
             return true
         }
 
@@ -765,7 +825,9 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     /// After the task completes, we skip re-requesting for a short cooldown period
     /// so macOS has time to update its authorization cache. This prevents the
     /// permission dialog from popping up again on rapid follow-up presses.
-    private func requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts() async -> Bool {
+    private func requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts(
+        for provider: any BuddyTranscriptionProvider
+    ) async -> Bool {
         // If a permission request is already in-flight, reuse it.
         if let activePermissionRequestTask {
             return await activePermissionRequestTask.value
@@ -781,7 +843,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         }
 
         let permissionRequestTask = Task { @MainActor in
-            await self.requestMicrophoneAndSpeechPermissionsIfNeeded()
+            await self.requestMicrophoneAndSpeechPermissionsIfNeeded(for: provider)
         }
 
         activePermissionRequestTask = permissionRequestTask

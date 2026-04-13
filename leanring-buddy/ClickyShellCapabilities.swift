@@ -16,10 +16,10 @@ enum ClickyShellCapabilities {
         "screen_capture",
         "cursor_overlay",
         "local_tts",
-        "point_tag_v1",
+        "structured_response_v1",
     ]
 
-    static let cursorPointingProtocol = "point-tag-v1"
+    static let cursorPointingProtocol = "structured-response-v1"
     static let screenContextTransport = "attached-images"
     static let speechOutputMode = "clicky-local-tts"
     static let supportsInlineTextBubble = false

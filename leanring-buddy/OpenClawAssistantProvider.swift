@@ -12,6 +12,7 @@ struct OpenClawAssistantProviderConfiguration {
     let gatewayAuthToken: String?
     let agentIdentifier: String
     let sessionKey: String
+    let shellIdentifier: String
 }
 
 final class OpenClawAssistantProvider: ClickyAssistantProvider {
@@ -37,11 +38,26 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
             configurationProvider()
         }
         let userPrompt = appendFocusContext(to: request.userPrompt, focusContext: request.focusContext)
+
+        ClickyAgentTurnDiagnostics.logProviderRequest(
+            backendLabel: backend.displayName,
+            systemPrompt: request.systemPrompt,
+            userPrompt: userPrompt,
+            conversationHistoryCount: request.conversationHistory.count,
+            imageLabels: request.imageAttachments.map(\.label),
+            extraContext: """
+            sessionKey=\(configuration.sessionKey)
+            shellIdentifier=\(configuration.shellIdentifier)
+            agentIdentifier=\(configuration.agentIdentifier)
+            """
+        )
+
         let response = try await gatewayAgent.analyzeImageStreaming(
             gatewayURLString: configuration.gatewayURLString,
             explicitGatewayAuthToken: configuration.gatewayAuthToken,
             configuredAgentIdentifier: configuration.agentIdentifier,
             configuredSessionKey: configuration.sessionKey,
+            shellIdentifier: configuration.shellIdentifier,
             images: request.imageAttachments.map { attachment in
                 OpenClawGatewayImageAttachment(
                     imageData: attachment.data,

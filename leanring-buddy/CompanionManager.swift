@@ -155,6 +155,10 @@ private struct ClickySpeechPlaybackOutcome {
     let encounteredElevenLabsFailure: Bool
 }
 
+private struct ManagedPointNarrationStep {
+    let spokenText: String
+}
+
 private struct LaunchAssistantTurnAuthorization {
     let session: ClickyAuthSessionSnapshot?
     let shouldUseWelcomeTurn: Bool
@@ -220,7 +224,8 @@ final class CompanionManager: ObservableObject {
                         gatewayURLString: "",
                         gatewayAuthToken: nil,
                         agentIdentifier: "",
-                        sessionKey: ""
+                        sessionKey: "",
+                        shellIdentifier: ""
                     )
                 }
 
@@ -228,7 +233,8 @@ final class CompanionManager: ObservableObject {
                     gatewayURLString: self.openClawGatewayURL,
                     gatewayAuthToken: self.openClawGatewayAuthToken,
                     agentIdentifier: self.openClawAgentIdentifier,
-                    sessionKey: self.openClawSessionKey
+                    sessionKey: self.openClawSessionKey,
+                    shellIdentifier: self.clickyShellIdentifier
                 )
             }
         )
@@ -275,6 +281,10 @@ final class CompanionManager: ObservableObject {
     /// Each entry is the user's transcript and Claude's response.
     private var conversationHistory: [(userTranscript: String, assistantResponse: String)] = []
     private var tutorialConversationHistory: [(userTranscript: String, assistantResponse: String)] = []
+    private var pendingDetectedElementTargets: [QueuedPointingTarget] = []
+    private var pendingManagedPointNarrationSteps: [ManagedPointNarrationStep] = []
+    private var pointTargetArrivalContinuation: CheckedContinuation<Void, Never>?
+    private var isManagedPointSequenceActive = false
 
     /// The currently running AI response task, if any. Cancelled when the user
     /// speaks again so a new response can begin immediately.
@@ -381,6 +391,11 @@ final class CompanionManager: ObservableObject {
     var detectedElementBubbleText: String? {
         get { surfaceController.detectedElementBubbleText }
         set { surfaceController.detectedElementBubbleText = newValue }
+    }
+
+    var managedPointSequenceReturnToken: Int {
+        get { surfaceController.managedPointSequenceReturnToken }
+        set { surfaceController.managedPointSequenceReturnToken = newValue }
     }
 
     var onboardingVideoPlayer: AVPlayer? {
@@ -977,6 +992,11 @@ final class CompanionManager: ObservableObject {
             elevenLabsVoiceFetchStatus = .failed(message: "Could not save API key")
             ClickyLogger.error(.audio, "Failed to save ElevenLabs API key locally error=\(error.localizedDescription)")
         }
+    }
+
+    func deleteElevenLabsAPIKey() {
+        elevenLabsAPIKeyDraft = ""
+        saveElevenLabsAPIKey()
     }
 
     func refreshElevenLabsVoices() {
@@ -1815,15 +1835,22 @@ final class CompanionManager: ObservableObject {
             authorization: authorization
         )
 
+        let request = makeAssistantTurnRequest(
+            systemPrompt: systemPrompt,
+            transcript: transcript,
+            labeledImages: labeledImages,
+            focusContext: focusContext
+        )
+
+        ClickyAgentTurnDiagnostics.logCanonicalRequest(
+            backend: backend,
+            request: request
+        )
+
         return ClickyAssistantTurnPlan(
             backend: backend,
             systemPrompt: systemPrompt,
-            request: makeAssistantTurnRequest(
-                systemPrompt: systemPrompt,
-                transcript: transcript,
-                labeledImages: labeledImages,
-                focusContext: focusContext
-            )
+            request: request
         )
     }
 
@@ -2654,9 +2681,393 @@ final class CompanionManager: ObservableObject {
     }
 
     func clearDetectedElementLocation() {
+        pendingDetectedElementTargets.removeAll()
+        pendingManagedPointNarrationSteps.removeAll()
+        pointTargetArrivalContinuation?.resume()
+        pointTargetArrivalContinuation = nil
+        isManagedPointSequenceActive = false
         detectedElementScreenLocation = nil
         detectedElementDisplayFrame = nil
         detectedElementBubbleText = nil
+    }
+
+    func advanceDetectedElementLocation() {
+        guard !pendingDetectedElementTargets.isEmpty else {
+            clearDetectedElementLocation()
+            return
+        }
+
+        let nextTarget = pendingDetectedElementTargets.removeFirst()
+        detectedElementBubbleText = nextTarget.bubbleText
+        detectedElementDisplayFrame = nextTarget.displayFrame
+        detectedElementScreenLocation = nextTarget.screenLocation
+        ClickyAnalytics.trackElementPointed(elementLabel: nextTarget.elementLabel)
+    }
+
+    private func queueDetectedElementTargets(_ targets: [QueuedPointingTarget]) {
+        pendingDetectedElementTargets = Array(targets.dropFirst())
+
+        guard let firstTarget = targets.first else {
+            clearDetectedElementLocation()
+            return
+        }
+
+        detectedElementBubbleText = firstTarget.bubbleText
+        detectedElementDisplayFrame = firstTarget.displayFrame
+        detectedElementScreenLocation = firstTarget.screenLocation
+        ClickyAnalytics.trackElementPointed(elementLabel: firstTarget.elementLabel)
+    }
+
+    var hasPendingDetectedElementTargets: Bool {
+        !pendingDetectedElementTargets.isEmpty
+    }
+
+    var isManagingPointSequence: Bool {
+        isManagedPointSequenceActive
+    }
+
+    func notifyManagedPointTargetArrived() {
+        pointTargetArrivalContinuation?.resume()
+        pointTargetArrivalContinuation = nil
+    }
+
+    private func waitForManagedPointTargetArrival() async {
+        await withCheckedContinuation { continuation in
+            pointTargetArrivalContinuation = continuation
+        }
+    }
+
+    private func requestManagedPointSequenceReturn() {
+        isManagedPointSequenceActive = false
+        managedPointSequenceReturnToken += 1
+    }
+
+    private func bubbleTextForPoint(_ point: ClickyAssistantResponsePoint) -> String {
+        let trimmedLabel = point.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedBubbleText = point.bubbleText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let genericBubbleTexts = Set([
+            "screen",
+            "display",
+            "controls",
+            "control",
+            "wheel",
+            "panel",
+            "seat",
+            "seats",
+            "light",
+        ])
+
+        if trimmedBubbleText.isEmpty {
+            return trimmedLabel
+        }
+
+        if genericBubbleTexts.contains(trimmedBubbleText.lowercased()),
+           !trimmedLabel.isEmpty {
+            return friendlyBubbleDisplayText(from: trimmedLabel)
+        }
+
+        if trimmedBubbleText.isEmpty {
+            return friendlyBubbleDisplayText(from: trimmedLabel)
+        }
+
+        return friendlyBubbleDisplayText(from: trimmedBubbleText)
+    }
+
+    private func transcriptWantsNarratedWalkthrough(_ transcript: String) -> Bool {
+        let normalizedTranscript = transcript.lowercased()
+        let walkthroughSignals = [
+            "walk me through",
+            "walk-through",
+            "walkthrough",
+            "walk through",
+            "give me a walkthrough",
+            "give me a walk-through",
+            "talk about a few features",
+            "point them out",
+            "few features",
+            "tour",
+            "breakdown",
+            "overview",
+            "what do they do",
+            "how to use them",
+            "how to use",
+            "how climate controls work",
+            "what are these buttons",
+            "interior",
+        ]
+
+        return walkthroughSignals.contains { normalizedTranscript.contains($0) }
+    }
+
+    private func resolvedPointingTargets(
+        from parsedTargets: [ParsedPointingTarget],
+        screenCaptures: [CompanionScreenCapture]
+    ) -> [QueuedPointingTarget] {
+        parsedTargets.compactMap { parsedTarget in
+            guard let targetScreenCapture = targetScreenCapture(
+                for: parsedTarget.screenNumber,
+                screenCaptures: screenCaptures
+            ) else {
+                return nil
+            }
+
+            let globalLocation = globalLocation(
+                for: parsedTarget.coordinate,
+                in: targetScreenCapture
+            )
+
+            return QueuedPointingTarget(
+                screenLocation: globalLocation,
+                displayFrame: targetScreenCapture.displayFrame,
+                elementLabel: parsedTarget.elementLabel,
+                bubbleText: parsedTarget.bubbleText
+            )
+        }
+    }
+
+    private func parsedPointingTargets(
+        from responsePoints: [ClickyAssistantResponsePoint]
+    ) -> [ParsedPointingTarget] {
+        responsePoints.map { responsePoint in
+            ParsedPointingTarget(
+                coordinate: CGPoint(x: responsePoint.x, y: responsePoint.y),
+                elementLabel: responsePoint.label,
+                screenNumber: responsePoint.screenNumber,
+                bubbleText: bubbleTextForPoint(responsePoint)
+            )
+        }
+    }
+
+    private func managedPointNarrationSteps(
+        from responsePoints: [ClickyAssistantResponsePoint]
+    ) -> [ManagedPointNarrationStep] {
+        let explicitSteps: [ManagedPointNarrationStep] = responsePoints.compactMap { responsePoint -> ManagedPointNarrationStep? in
+            let trimmedExplanation = responsePoint.explanation?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmedExplanation.isEmpty else { return nil }
+            return ManagedPointNarrationStep(spokenText: trimmedExplanation)
+        }
+
+        if explicitSteps.count == responsePoints.count {
+            return explicitSteps
+        }
+
+        return responsePoints.map { responsePoint in
+            ManagedPointNarrationStep(
+                spokenText: fallbackNarrationText(for: responsePoint)
+            )
+        }
+    }
+
+    private func waitForSpeechPlaybackToFinishIfNeeded() async {
+        await elevenLabsTTSClient.waitUntilPlaybackFinishes()
+    }
+
+    private func playManagedPointSequence(
+        introText: String,
+        responsePoints: [ClickyAssistantResponsePoint],
+        resolvedTargets: [QueuedPointingTarget]
+    ) async {
+        let narrationSteps = managedPointNarrationSteps(from: responsePoints)
+        guard !narrationSteps.isEmpty, narrationSteps.count == resolvedTargets.count else {
+            return
+        }
+
+        let hasExplicitPerPointNarration = responsePoints.allSatisfy { responsePoint in
+            let trimmedExplanation = responsePoint.explanation?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return !trimmedExplanation.isEmpty
+        }
+
+        if hasExplicitPerPointNarration,
+           !introText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let playbackOutcome = await playSpeechText(
+                introText,
+                purpose: .assistantResponse
+            )
+            if playbackOutcome.finalProviderDisplayName == "Unavailable" {
+                return
+            }
+            await waitForSpeechPlaybackToFinishIfNeeded()
+        }
+
+        isManagedPointSequenceActive = true
+        pendingManagedPointNarrationSteps = Array(narrationSteps.dropFirst())
+        queueDetectedElementTargets(resolvedTargets)
+
+        for (index, narrationStep) in narrationSteps.enumerated() {
+            await waitForManagedPointTargetArrival()
+
+            let playbackOutcome = await playSpeechText(
+                narrationStep.spokenText,
+                purpose: .assistantResponse
+            )
+            if playbackOutcome.finalProviderDisplayName == "Unavailable" {
+                requestManagedPointSequenceReturn()
+                return
+            }
+            await waitForSpeechPlaybackToFinishIfNeeded()
+
+            if index < narrationSteps.count - 1 {
+                advanceDetectedElementLocation()
+            } else {
+                requestManagedPointSequenceReturn()
+            }
+        }
+    }
+
+    private func fallbackNarrationText(for point: ClickyAssistantResponsePoint) -> String {
+        let label = point.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        switch label {
+        case let value where value.contains("climate control"):
+            return "this whole panel is the climate control section."
+        case let value where value.contains("driver temperature"):
+            return "this adjusts the driver temperature."
+        case let value where value.contains("passenger temperature"):
+            return "this adjusts the passenger temperature."
+        case let value where value.contains("fan speed"):
+            return "these controls change the fan speed."
+        case let value where value.contains("hazard"):
+            return "this is the hazard light button."
+        case let value where value.contains("front defogger"):
+            return "this clears the front windshield."
+        case let value where value.contains("rear defogger"):
+            return "this clears the rear window."
+        case let value where value.contains("air recirculation"):
+            return "this recirculates the air inside the cabin."
+        case let value where value.contains("airflow"):
+            return "this changes where the air blows."
+        case let value where value == "sync":
+            return "this syncs both sides together."
+        case let value where value == "ac":
+            return "this turns the cooling on or off."
+        case let value where value.contains("auto mode"):
+            return "this lets the car manage the climate automatically."
+        case let value where value.contains("panoramic sunroof"):
+            return "this is the panoramic sunroof."
+        case let value where value.contains("infotainment screen"):
+            return "this is the infotainment screen."
+        case let value where value.contains("center air vents"):
+            return "these are the center air vents."
+        case let value where value.contains("steering wheel"):
+            return "this is the steering wheel."
+        case let value where value.contains("driver display"):
+            return "this is the driver display."
+        case let value where value.contains("horn"):
+            return "this center pad is the horn."
+        case let value where value.contains("phone button"):
+            return "this button handles calls."
+        case let value where value.contains("voice assistant button"):
+            return "this button triggers the voice assistant."
+        case let value where value.contains("left steering buttons"):
+            return "this cluster handles media and phone controls."
+        case let value where value.contains("call and voice controls"):
+            return "these buttons handle calls and voice assistant."
+        case let value where value.contains("volume and track controls"):
+            return "these buttons adjust volume and tracks."
+        case let value where value.contains("mode button"):
+            return "this usually switches mode or source."
+        case let value where value.contains("back or hangup"):
+            return "this is usually back or hang up."
+        case let value where value.contains("right steering buttons"):
+            return "this cluster handles driving and display controls."
+        case let value where value.contains("cruise control"):
+            return "these are the cruise control buttons."
+        case let value where value.contains("speed set resume"):
+            return "this is usually for set and resume."
+        case let value where value.contains("display navigation"):
+            return "this moves through the driver display."
+        case let value where value.contains("driver instrument display"):
+            return "this is the driver instrument display."
+        case let value where value.contains("gearshift"):
+            return "this is the gearshift."
+        case let value where value.contains("ambient lighting"):
+            return "this is the ambient lighting strip."
+        case let value where value.contains("front seats"):
+            return "these are the front seats."
+        default:
+            return "this is the \(label)."
+        }
+    }
+
+    private func friendlyBubbleDisplayText(from sourceText: String) -> String {
+        let trimmedSourceText = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSourceText.isEmpty else { return sourceText }
+
+        let replacements: [String: String] = [
+            "ac": "A/C",
+            "recirc": "Recirculation",
+            "driver temp": "Driver Temp",
+            "passenger temp": "Passenger Temp",
+            "auto": "Auto Mode",
+            "climate": "Climate Panel",
+            "fan": "Fan Speed",
+            "screen": "Center Screen",
+            "wheel": "Steering Wheel",
+            "light": "Ambient Light",
+            "voice": "Voice Assist",
+            "calls": "Call Control",
+            "display": "Driver Display",
+            "cruise": "Cruise Control",
+            "back": "Back / End",
+            "mode": "Source Mode",
+            "media": "Media Control",
+            "set resume": "Set / Resume",
+            "hazard": "Hazard Lights",
+            "front defog": "Front Defog",
+            "rear defog": "Rear Defog",
+            "airflow": "Airflow Mode",
+        ]
+
+        let loweredSourceText = trimmedSourceText.lowercased()
+        if let replacement = replacements[loweredSourceText] {
+            return replacement
+        }
+
+        return trimmedSourceText
+            .split(separator: " ")
+            .map { word in
+                let loweredWord = word.lowercased()
+                if loweredWord == "ac" {
+                    return "A/C"
+                }
+                return loweredWord.prefix(1).uppercased() + loweredWord.dropFirst()
+            }
+            .joined(separator: " ")
+    }
+
+    private func targetScreenCapture(
+        for screenNumber: Int?,
+        screenCaptures: [CompanionScreenCapture]
+    ) -> CompanionScreenCapture? {
+        if let screenNumber,
+           screenNumber >= 1 && screenNumber <= screenCaptures.count {
+            return screenCaptures[screenNumber - 1]
+        }
+
+        return screenCaptures.first(where: { $0.isCursorScreen })
+    }
+
+    private func globalLocation(
+        for pointCoordinate: CGPoint,
+        in screenCapture: CompanionScreenCapture
+    ) -> CGPoint {
+        let screenshotWidth = CGFloat(screenCapture.screenshotWidthInPixels)
+        let screenshotHeight = CGFloat(screenCapture.screenshotHeightInPixels)
+        let displayWidth = CGFloat(screenCapture.displayWidthInPoints)
+        let displayHeight = CGFloat(screenCapture.displayHeightInPoints)
+        let displayFrame = screenCapture.displayFrame
+
+        let clampedX = max(0, min(pointCoordinate.x, screenshotWidth))
+        let clampedY = max(0, min(pointCoordinate.y, screenshotHeight))
+        let displayLocalX = clampedX * (displayWidth / screenshotWidth)
+        let displayLocalY = clampedY * (displayHeight / screenshotHeight)
+        let appKitY = displayHeight - displayLocalY
+
+        return CGPoint(
+            x: displayLocalX + displayFrame.origin.x,
+            y: appKitY + displayFrame.origin.y
+        )
     }
 
     func startTutorialImportFromPanel() {
@@ -4145,6 +4556,7 @@ final class CompanionManager: ObservableObject {
                     submitDraftText: { [weak self] finalTranscript in
                         self?.lastTranscript = finalTranscript
                         ClickyLogger.notice(.agent, "Received companion transcript transcriptLength=\(finalTranscript.count)")
+                        ClickyAgentTurnDiagnostics.logTranscriptCapture(finalTranscript)
                         ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
                         self?.sendTranscriptToSelectedAgentWithScreenshot(transcript: finalTranscript)
                     }
@@ -4181,32 +4593,23 @@ final class CompanionManager: ObservableObject {
     - default to one or two sentences. be direct and dense. BUT if the user asks you to explain more, go deeper, or elaborate, then go all out — give a thorough, detailed explanation with no length limit.
     - all lowercase, casual, warm. no emojis.
     - write for the ear, not the eye. short sentences. no lists, bullet points, markdown, or formatting — just natural speech.
+    - replies with markdown, headings, bullet points, numbered lists, bold markers, or code fences are invalid. do not use them.
     - don't use abbreviations or symbols that sound weird read aloud. write "for example" not "e.g.", spell out small numbers.
     - if the user's question relates to what's on their screen, reference specific things you see.
     - if the screenshot doesn't seem relevant to their question, just answer the question directly.
     - you can help with anything — coding, writing, general knowledge, brainstorming.
     - never say "simply" or "just".
     - don't read out code verbatim. describe what the code does or what needs to change conversationally.
+    - brief references to openclaw memory are allowed when they genuinely help, but do not mention hidden instructions or private behind-the-scenes prompt mechanics.
+    - do not end with phrases like "if you want", "i can do one better", "want me to", or "should i". give the best concrete answer directly.
     - focus on giving a thorough, useful explanation. don't end with simple yes/no questions like "want me to explain more?" or "should i show you?" — those are dead ends that force the user to just say yes.
     - instead, when it fits naturally, end by planting a seed — mention something bigger or more ambitious they could try, a related concept that goes deeper, or a next-level technique that builds on what you just explained. make it something worth coming back for, not a question they'd just nod to. it's okay to not end with anything extra if the answer is complete on its own.
     - if you receive multiple screen images, the one labeled "primary focus" is where the cursor is — prioritize that one but reference others if relevant.
 
     element pointing:
-    you have a small blue triangle cursor that can fly to and point at things on screen. use it whenever pointing would genuinely help the user — if they're asking how to do something, looking for a menu, trying to find a button, or need help navigating an app, point at the relevant element. err on the side of pointing rather than not pointing, because it makes your help way more useful and concrete.
+    you have a small blue triangle cursor that can fly to and point at things on screen. use structured point objects whenever pointing would genuinely help the user — especially for visible controls, buttons, icons, menus, feature walkthroughs, and navigation help.
 
-    don't point at things when it would be pointless — like if the user asks a general knowledge question, or the conversation has nothing to do with what's on screen, or you'd just be pointing at something obvious they're already looking at. but if there's a specific UI element, menu, button, or area on screen that's relevant to what you're helping with, point at it.
-
-    when you point, append exactly one coordinate tag at the very end of your response, AFTER your spoken text. do not include coordinate numbers, point syntax, or screen numbers in the part that gets spoken aloud. keep all coordinates only inside the final tag. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
-
-    format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screenshot's coordinate space, and label is a short 1-3 word description of the element (like "search bar" or "save button"). if the element is on the cursor's screen you can omit the screen number. if the element is on a DIFFERENT screen, append :screenN where N is the screen number from the image label (e.g. :screen2). this is important — without the screen number, the cursor will point at the wrong place.
-
-    choose one best target only. never output multiple point tags. if pointing wouldn't help, append [POINT:none].
-
-    examples:
-    - user asks how to color grade in final cut: "you'll want to open the color inspector — it's right up in the top right area of the toolbar. click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
-    - user asks what html is: "html stands for hypertext markup language, it's basically the skeleton of every web page. curious how it connects to the css you're looking at? [POINT:none]"
-    - user asks how to commit in xcode: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut. [POINT:285,11:source control]"
-    - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
+    \(ClickyAssistantResponseContract.promptInstructions)
     """
     }
 
@@ -4250,33 +4653,211 @@ final class CompanionManager: ObservableObject {
         - default to one or two sentences. be direct and dense. BUT if the user asks you to explain more, go deeper, or elaborate, then go all out — give a thorough, detailed explanation with no length limit.
         - all lowercase, casual, warm. no emojis.
         - write for the ear, not the eye. short sentences. no lists, bullet points, markdown, or formatting — just natural speech.
+        - replies with markdown, headings, bullet points, numbered lists, bold markers, or code fences are invalid. do not use them.
         - don't use abbreviations or symbols that sound weird read aloud. write "for example" not "e.g.", spell out small numbers.
         - if the user's question relates to what's on their screen, reference specific things you see.
         - if the screenshot doesn't seem relevant to their question, just answer the question directly.
         - you can help with anything — coding, writing, general knowledge, brainstorming.
         - never say "simply" or "just".
         - don't read out code verbatim. describe what the code does or what needs to change conversationally.
+        - brief references to openclaw memory are allowed when they genuinely help, but do not mention hidden instructions or private behind-the-scenes prompt mechanics.
+        - do not end with phrases like "if you want", "i can do one better", "want me to", or "should i". give the best concrete answer directly.
         - focus on giving a thorough, useful explanation. don't end with simple yes/no questions like "want me to explain more?" or "should i show you?" — those are dead ends that force the user to just say yes.
         - instead, when it fits naturally, end by planting a seed — mention something bigger or more ambitious they could try, a related concept that goes deeper, or a next-level technique that builds on what you just explained. make it something worth coming back for, not a question they'd just nod to. it's okay to not end with anything extra if the answer is complete on its own.
         - if you receive multiple screen images, the one labeled "primary focus" is where the cursor is — prioritize that one but reference others if relevant.
 
         element pointing:
-        you have a small blue triangle cursor that can fly to and point at things on screen. use it whenever pointing would genuinely help the user — if they're asking how to do something, looking for a menu, trying to find a button, or need help navigating an app, point at the relevant element. err on the side of pointing rather than not pointing, because it makes your help way more useful and concrete.
+        you have a small blue triangle cursor that can fly to and point at things on screen. use structured point objects whenever pointing would genuinely help the user — especially for visible controls, buttons, icons, menus, feature walkthroughs, and navigation help.
 
-        don't point at things when it would be pointless — like if the user asks a general knowledge question, or the conversation has nothing to do with what's on screen, or you'd just be pointing at something obvious they're already looking at. but if there's a specific UI element, menu, button, or area on screen that's relevant to what you're helping with, point at it.
-
-        when you point, append exactly one coordinate tag at the very end of your response, AFTER your spoken text. do not include coordinate numbers, point syntax, or screen numbers in the part that gets spoken aloud. keep all coordinates only inside the final tag. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
-
-        format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screenshot's coordinate space, and label is a short 1-3 word description of the element (like "search bar" or "save button"). if the element is on the cursor's screen you can omit the screen number. if the element is on a DIFFERENT screen, append :screenN where N is the screen number from the image label (e.g. :screen2). this is important — without the screen number, the cursor will point at the wrong place.
-
-        choose one best target only. never output multiple point tags. if pointing wouldn't help, append [POINT:none].
-
-        examples:
-        - user asks how to color grade in final cut: "you'll want to open the color inspector — it's right up in the top right area of the toolbar. click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
-        - user asks what html is: "html stands for hypertext markup language, it's basically the skeleton of every web page. curious how it connects to the css you're looking at? [POINT:none]"
-        - user asks how to commit in xcode: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut. [POINT:285,11:source control]"
-        - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
+        \(ClickyAssistantResponseContract.promptInstructions)
         """
+    }
+
+    private struct AssistantResponseAudit {
+        let issues: [String]
+
+        var needsRepair: Bool {
+            !issues.isEmpty
+        }
+    }
+
+    private func auditAssistantResponse(
+        _ responseText: String,
+        transcript: String
+    ) -> AssistantResponseAudit {
+        do {
+            let structuredResponse = try ClickyAssistantResponseContract.parse(
+                rawResponse: responseText,
+                requiresPoints: transcriptRequiresVisiblePointing(transcript)
+            )
+            var issues: [String] = []
+            if transcriptWantsNarratedWalkthrough(transcript),
+               structuredResponse.points.count > 1,
+               structuredResponse.points.contains(where: {
+                   ($0.explanation?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+               }) {
+                issues.append("response omitted per-point explanation for a narrated walkthrough")
+            }
+            return AssistantResponseAudit(issues: issues)
+        } catch let ClickyAssistantResponseContractError.invalidResponse(issues, _) {
+            return AssistantResponseAudit(issues: issues)
+        } catch {
+            return AssistantResponseAudit(issues: [error.localizedDescription])
+        }
+    }
+
+    private func transcriptRequiresVisiblePointing(_ transcript: String) -> Bool {
+        let normalizedTranscript = transcript.lowercased()
+        let requiredPointingSignals = [
+            "point",
+            "point out",
+            "show me",
+            "walk me through",
+            "walkthrough",
+            "walk through",
+            "tour",
+            "breakdown",
+            "overview",
+            "where is",
+            "which button",
+            "which buttons",
+            "which control",
+            "which controls",
+            "button",
+            "buttons",
+            "control",
+            "controls",
+            "climate",
+            "dashboard",
+            "interior",
+            "screen",
+            "icon",
+            "icons",
+        ]
+
+        return requiredPointingSignals.contains { normalizedTranscript.contains($0) }
+    }
+
+    private func repairAssistantResponseIfNeeded(
+        backend: CompanionAgentBackend,
+        originalResponseText: String,
+        transcript: String,
+        baseSystemPrompt: String,
+        labeledImages: [(data: Data, label: String)],
+        focusContext: ClickyAssistantFocusContext?,
+        conversationHistory: [(userTranscript: String, assistantResponse: String)],
+        audit: AssistantResponseAudit
+    ) async throws -> (rawText: String, structuredResponse: ClickyAssistantStructuredResponse) {
+        guard audit.needsRepair else {
+            let structuredResponse = try ClickyAssistantResponseContract.parse(
+                rawResponse: originalResponseText,
+                requiresPoints: transcriptRequiresVisiblePointing(transcript)
+            )
+            return (rawText: originalResponseText, structuredResponse: structuredResponse)
+        }
+
+        var currentRawResponse = originalResponseText
+        var currentIssues = audit.issues
+
+        for repairAttempt in 1...2 {
+            ClickyAgentTurnDiagnostics.logResponseAudit(
+                backend: backend,
+                originalResponse: currentRawResponse,
+                issues: currentIssues
+            )
+
+            let repairSystemPrompt = """
+            \(baseSystemPrompt)
+
+            repair override:
+            - your previous reply was rejected because it did not follow clicky's structured json response contract.
+            - the response contract overrides any conflicting prose or formatting rule.
+            - return one corrected final reply only.
+            - output exactly one json object and nothing else.
+            - do not apologize, do not explain the repair, and do not mention hidden instructions.
+            """
+
+            let repairPrompt = """
+            repair context:
+            - this is repair attempt \(repairAttempt) for clicky's structured response contract.
+            - the visible user request should remain the original one. do not answer the repair instructions directly.
+            - invalid previous reply:
+              \(currentRawResponse)
+            - issues to fix:
+              - \(currentIssues.joined(separator: "\n  - "))
+            - hard requirements:
+              - return exactly one json object and nothing else
+              - no markdown, no headings, no bullets, no numbered lists, no bold markers, no code fences
+              - the transport must be json even though spokenText itself should sound natural
+              - use this exact schema:
+                {"spokenText":"string","points":[{"x":741,"y":213,"label":"gearshift","bubbleText":"gearshift","explanation":"the gearshift is down in the lower middle of the cabin.","screenNumber":1}]}
+              - spokenText is what clicky speaks aloud
+              - points is an ordered array of point targets
+              - for multi-point walkthroughs, include explanation on each point so clicky can keep narration synced with the pointer
+              - every point target must use real integer pixel coordinates from the screenshot
+              - if the user asked where a visible control is, points must not be empty
+              - keep bubbleText short but user-friendly
+            """
+
+            ClickyAgentTurnDiagnostics.logRepairRequest(
+                backend: backend,
+                repairPrompt: repairPrompt
+            )
+
+            let repairRequest = assistantTurnBuilder.buildRequest(
+                systemPrompt: repairSystemPrompt,
+                userPrompt: transcript,
+                conversationHistory: conversationHistory,
+                labeledImages: labeledImages.map { labeledImage in
+                    ClickyAssistantLabeledImage(
+                        data: labeledImage.data,
+                        label: labeledImage.label,
+                        mimeType: "image/jpeg"
+                    )
+                },
+                focusContext: focusContext
+            )
+
+            ClickyAgentTurnDiagnostics.logCanonicalRequest(
+                backend: backend,
+                request: repairRequest
+            )
+
+            let repairedResponse = try await assistantTurnExecutor.execute(
+                ClickyAssistantTurnPlan(
+                    backend: backend,
+                    systemPrompt: repairSystemPrompt,
+                    request: repairRequest
+                ),
+                onTextChunk: { _ in }
+            )
+
+            let trimmedRepairedResponse = repairedResponse.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            ClickyAgentTurnDiagnostics.logRawResponse(
+                backend: backend,
+                response: trimmedRepairedResponse
+            )
+
+            do {
+                let structuredResponse = try ClickyAssistantResponseContract.parse(
+                    rawResponse: trimmedRepairedResponse,
+                    requiresPoints: transcriptRequiresVisiblePointing(transcript)
+                )
+
+                return (
+                    rawText: trimmedRepairedResponse,
+                    structuredResponse: structuredResponse
+                )
+            } catch let ClickyAssistantResponseContractError.invalidResponse(issues, rawResponse) {
+                currentRawResponse = rawResponse
+                currentIssues = issues
+            }
+        }
+
+        throw ClickyAssistantResponseContractError.invalidResponse(
+            issues: currentIssues,
+            rawResponse: currentRawResponse
+        )
     }
 
     // MARK: - AI Response Pipeline
@@ -4284,8 +4865,8 @@ final class CompanionManager: ObservableObject {
     /// Captures a screenshot, sends it along with the transcript to Claude,
     /// and plays the response aloud via ElevenLabs TTS. The cursor stays in
     /// the spinner/processing state until TTS audio begins playing.
-    /// Claude's response may include a [POINT:x,y:label] tag which triggers
-    /// the buddy to fly to that element on screen.
+    /// The assistant response should be a structured object with spoken text
+    /// plus ordered point targets for the cursor overlay.
     private func sendTranscriptToSelectedAgentWithScreenshot(transcript: String) {
         currentResponseTask?.cancel()
         openClawGatewayCompanionAgent.cancelActiveRequest()
@@ -4376,67 +4957,81 @@ final class CompanionManager: ObservableObject {
                         // No streaming text display — spinner stays until TTS plays
                     }
                 )
-                let fullResponseText = response.text
+                var fullResponseText = response.text
 
                 guard !Task.isCancelled else { return }
 
-                // Parse the [POINT:...] tag from Claude's response
-                let parseResult = Self.parsePointingCoordinates(from: fullResponseText)
-                let spokenText = parseResult.spokenText
+                ClickyAgentTurnDiagnostics.logRawResponse(
+                    backend: selectedAgentBackend,
+                    response: fullResponseText
+                )
 
-                // Handle element pointing if Claude returned coordinates.
+                let initialAudit = auditAssistantResponse(
+                    fullResponseText,
+                    transcript: transcript
+                )
+
+                let structuredResponse: ClickyAssistantStructuredResponse
+
+                if initialAudit.needsRepair {
+                    let repairedResponse = try await repairAssistantResponseIfNeeded(
+                        backend: selectedAgentBackend,
+                        originalResponseText: fullResponseText,
+                        transcript: transcript,
+                        baseSystemPrompt: plan.systemPrompt,
+                        labeledImages: labeledImages,
+                        focusContext: focusContext,
+                        conversationHistory: conversationHistory,
+                        audit: initialAudit
+                    )
+
+                    fullResponseText = repairedResponse.rawText
+                    structuredResponse = repairedResponse.structuredResponse
+
+                    ClickyAgentTurnDiagnostics.logRawResponse(
+                        backend: selectedAgentBackend,
+                        response: fullResponseText
+                    )
+                } else {
+                    structuredResponse = try ClickyAssistantResponseContract.parse(
+                        rawResponse: fullResponseText,
+                        requiresPoints: transcriptRequiresVisiblePointing(transcript)
+                    )
+                }
+
+                let spokenText = structuredResponse.spokenText
+                ClickyAgentTurnDiagnostics.logParsedResponse(
+                    backend: selectedAgentBackend,
+                    spokenResponse: spokenText,
+                    points: structuredResponse.points
+                )
+                let resolvedTargets = resolvedPointingTargets(
+                    from: parsedPointingTargets(from: structuredResponse.points),
+                    screenCaptures: screenCaptures
+                )
+                let managedNarrationSteps = managedPointNarrationSteps(from: structuredResponse.points)
+
+                // Handle element pointing if the assistant returned coordinates.
                 // Switch to idle BEFORE setting the location so the triangle
                 // becomes visible and can fly to the target. Without this, the
                 // spinner hides the triangle and the flight animation is invisible.
-                let hasPointCoordinate = parseResult.coordinate != nil
-                if hasPointCoordinate {
+                if !resolvedTargets.isEmpty {
                     voiceState = .idle
                 }
 
-                // Pick the screen capture matching Claude's screen number,
-                // falling back to the cursor screen if not specified.
-                let targetScreenCapture: CompanionScreenCapture? = {
-                    if let screenNumber = parseResult.screenNumber,
-                       screenNumber >= 1 && screenNumber <= screenCaptures.count {
-                        return screenCaptures[screenNumber - 1]
-                    }
-                    return screenCaptures.first(where: { $0.isCursorScreen })
-                }()
-
-                if let pointCoordinate = parseResult.coordinate,
-                   let targetScreenCapture {
-                    // Claude's coordinates are in the screenshot's pixel space
-                    // (top-left origin, e.g. 1280x831). Scale to the display's
-                    // point space (e.g. 1512x982), then convert to AppKit global coords.
-                    let screenshotWidth = CGFloat(targetScreenCapture.screenshotWidthInPixels)
-                    let screenshotHeight = CGFloat(targetScreenCapture.screenshotHeightInPixels)
-                    let displayWidth = CGFloat(targetScreenCapture.displayWidthInPoints)
-                    let displayHeight = CGFloat(targetScreenCapture.displayHeightInPoints)
-                    let displayFrame = targetScreenCapture.displayFrame
-
-                    // Clamp to screenshot coordinate space
-                    let clampedX = max(0, min(pointCoordinate.x, screenshotWidth))
-                    let clampedY = max(0, min(pointCoordinate.y, screenshotHeight))
-
-                    // Scale from screenshot pixels to display points
-                    let displayLocalX = clampedX * (displayWidth / screenshotWidth)
-                    let displayLocalY = clampedY * (displayHeight / screenshotHeight)
-
-                    // Convert from top-left origin (screenshot) to bottom-left origin (AppKit)
-                    let appKitY = displayHeight - displayLocalY
-
-                    // Convert display-local coords to global screen coords
-                    let globalLocation = CGPoint(
-                        x: displayLocalX + displayFrame.origin.x,
-                        y: appKitY + displayFrame.origin.y
-                    )
-
-                    detectedElementScreenLocation = globalLocation
-                    detectedElementDisplayFrame = displayFrame
-                    ClickyAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
-                    print("🎯 Element pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
+                if !resolvedTargets.isEmpty && managedNarrationSteps.isEmpty {
+                    queueDetectedElementTargets(resolvedTargets)
+                    let labels = resolvedTargets
+                        .compactMap { $0.elementLabel }
+                        .joined(separator: ", ")
+                    print("🎯 Element pointing: queued \(resolvedTargets.count) target(s) \(labels)")
+                } else if !resolvedTargets.isEmpty {
+                    let labels = resolvedTargets
+                        .compactMap { $0.elementLabel }
+                        .joined(separator: ", ")
+                    print("🎯 Element pointing: prepared managed sequence \(resolvedTargets.count) target(s) \(labels)")
                 } else {
-                    print("🎯 Element pointing: \(parseResult.elementLabel ?? "no element")")
+                    print("🎯 Element pointing: no element")
                 }
 
                 // Save this exchange to conversation history (with the point tag
@@ -4497,7 +5092,14 @@ final class CompanionManager: ObservableObject {
 
                 // Play the response via TTS. Keep the thinking treatment until
                 // audio actually starts playing, then switch to responding.
-                if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !managedNarrationSteps.isEmpty && managedNarrationSteps.count == resolvedTargets.count {
+                    voiceState = .responding
+                    await playManagedPointSequence(
+                        introText: spokenText,
+                        responsePoints: structuredResponse.points,
+                        resolvedTargets: resolvedTargets
+                    )
+                } else if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     let playbackOutcome = await playSpeechText(
                         spokenText,
                         purpose: .assistantResponse
@@ -4677,8 +5279,46 @@ final class CompanionManager: ObservableObject {
                 onTextChunk: { _ in }
             )
 
-            let parseResult = Self.parsePointingCoordinates(from: response.text)
-            let spokenText = parseResult.spokenText
+            ClickyAgentTurnDiagnostics.logRawResponse(
+                backend: selectedAgentBackend,
+                response: response.text
+            )
+
+            let audit = auditAssistantResponse(
+                response.text,
+                transcript: transcript
+            )
+            let structuredResponse: ClickyAssistantStructuredResponse
+
+            if audit.needsRepair {
+                let repairedResponse = try await repairAssistantResponseIfNeeded(
+                    backend: selectedAgentBackend,
+                    originalResponseText: response.text,
+                    transcript: transcript,
+                    baseSystemPrompt: systemPrompt,
+                    labeledImages: labeledImages,
+                    focusContext: focusContext,
+                    conversationHistory: tutorialConversationHistory,
+                    audit: audit
+                )
+                structuredResponse = repairedResponse.structuredResponse
+                ClickyAgentTurnDiagnostics.logRawResponse(
+                    backend: selectedAgentBackend,
+                    response: repairedResponse.rawText
+                )
+            } else {
+                structuredResponse = try ClickyAssistantResponseContract.parse(
+                    rawResponse: response.text,
+                    requiresPoints: transcriptRequiresVisiblePointing(transcript)
+                )
+            }
+
+            let spokenText = structuredResponse.spokenText
+            ClickyAgentTurnDiagnostics.logParsedResponse(
+                backend: selectedAgentBackend,
+                spokenResponse: spokenText,
+                points: structuredResponse.points
+            )
 
             tutorialConversationHistory.append((
                 userTranscript: transcript,
@@ -4690,7 +5330,7 @@ final class CompanionManager: ObservableObject {
 
             updateTutorialPlaybackBubble(spokenText)
 
-            if let pointCoordinate = parseResult.coordinate {
+            if !structuredResponse.points.isEmpty {
                 let initialFocusContext = assistantFocusContextProvider.captureCurrentFocusContext()
                 let freshCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG(
                     cursorLocationOverride: CGPoint(
@@ -4698,27 +5338,12 @@ final class CompanionManager: ObservableObject {
                         y: initialFocusContext.cursorY
                     )
                 )
-                let targetScreenCapture = freshCaptures.first(where: { $0.isCursorScreen })
-                if let targetScreenCapture {
-                    let screenshotWidth = CGFloat(targetScreenCapture.screenshotWidthInPixels)
-                    let screenshotHeight = CGFloat(targetScreenCapture.screenshotHeightInPixels)
-                    let displayWidth = CGFloat(targetScreenCapture.displayWidthInPoints)
-                    let displayHeight = CGFloat(targetScreenCapture.displayHeightInPoints)
-                    let displayFrame = targetScreenCapture.displayFrame
-
-                    let clampedX = max(0, min(pointCoordinate.x, screenshotWidth))
-                    let clampedY = max(0, min(pointCoordinate.y, screenshotHeight))
-
-                    let displayLocalX = clampedX * (displayWidth / screenshotWidth)
-                    let displayLocalY = clampedY * (displayHeight / screenshotHeight)
-                    let appKitY = displayHeight - displayLocalY
-                    let globalLocation = CGPoint(
-                        x: displayLocalX + displayFrame.origin.x,
-                        y: appKitY + displayFrame.origin.y
-                    )
-
-                    detectedElementScreenLocation = globalLocation
-                    detectedElementDisplayFrame = displayFrame
+                let resolvedTargets = resolvedPointingTargets(
+                    from: parsedPointingTargets(from: structuredResponse.points),
+                    screenCaptures: freshCaptures
+                )
+                if !resolvedTargets.isEmpty {
+                    queueDetectedElementTargets(resolvedTargets)
                 }
             }
 
@@ -4743,10 +5368,12 @@ final class CompanionManager: ObservableObject {
         - answer the user in the context of completing this tutorial
         - use the associated YouTube video only as a reference, not the main product surface
         - prefer helping the user complete the current step before jumping elsewhere
-        - when helpful, point at the relevant UI element using the normal Clicky pointing tag
+        - when helpful, point at the relevant UI element using the shared Clicky response contract
         - if the user sounds stuck, explain clearly and practically
         - if the user asks what the tutorial is doing, summarize it using the lesson and evidence
         - if the user asks unrelated questions, answer briefly but remain in tutorial mode unless they explicitly end the tutorial
+
+        \(ClickyAssistantResponseContract.promptInstructions)
         """
     }
 
@@ -4869,10 +5496,8 @@ final class CompanionManager: ObservableObject {
         transientHideTask?.cancel()
         transientHideTask = Task {
             // Wait for TTS audio to finish playing
-            while elevenLabsTTSClient.isPlaying {
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                guard !Task.isCancelled else { return }
-            }
+            await elevenLabsTTSClient.waitUntilPlaybackFinishes()
+            guard !Task.isCancelled else { return }
 
             // Wait for pointing animation to finish (location is cleared
             // when the buddy flies back to the cursor)
@@ -4891,38 +5516,50 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Point Tag Parsing
 
-    /// Result of parsing a [POINT:...] tag from Claude's response.
-    struct PointingParseResult {
-        /// The response text with the [POINT:...] tag removed — this is what gets spoken.
-        let spokenText: String
-        /// The parsed pixel coordinate, or nil if Claude said "none" or no tag was found.
-        let coordinate: CGPoint?
-        /// Short label describing the element (e.g. "run button"), or "none".
+    /// A parsed pointing tag before it is converted into a screen location.
+    struct ParsedPointingTarget {
+        let coordinate: CGPoint
         let elementLabel: String?
-        /// Which screen the coordinate refers to (1-based), or nil to default to cursor screen.
         let screenNumber: Int?
+        let bubbleText: String?
     }
 
-    /// Parses a [POINT:x,y:label:screenN] or [POINT:none] tag from the end of Claude's response.
-    /// Returns the spoken text (tag removed) and the optional coordinate + label + screen number.
+    /// A resolved pointing target ready for the cursor overlay queue.
+    private struct QueuedPointingTarget {
+        let screenLocation: CGPoint
+        let displayFrame: CGRect
+        let elementLabel: String?
+        let bubbleText: String?
+    }
+
+    /// Legacy result for parsing one or more [POINT:...] tags from assistant text.
+    /// This path is retained for the onboarding/demo flow and other compatibility
+    /// cases, not for the normal structured-response assistant path.
+    struct PointingParseResult {
+        /// The response text with the [POINT:...] tag removed.
+        let spokenText: String
+        /// Parsed pointing targets in the order the assistant requested them.
+        let targets: [ParsedPointingTarget]
+    }
+
+    /// Parses one or more legacy [POINT:...] tags from assistant text. Tags may
+    /// optionally include a short bubble text after a "|" separator, for example:
+    /// [POINT:793,320:instrument cluster|speedometer]
+    ///
+    /// The normal assistant flow should prefer `ClickyAssistantStructuredResponse`
+    /// instead of this text-tag parser.
     static func parsePointingCoordinates(from responseText: String) -> PointingParseResult {
-        // Match [POINT:none] or [POINT:123,456:label] or [POINT:123,456:label:screen2]
-        // anywhere in the response so stray or duplicated tags never leak into
-        // spoken output.
-        let pattern = #"\[POINT:(?:none|(\d+)\s*,\s*(\d+)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?)\]"#
+        let pattern = #"\[POINT:[^\]]+\]"#
 
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return PointingParseResult(spokenText: responseText, coordinate: nil, elementLabel: nil, screenNumber: nil)
+            return PointingParseResult(spokenText: responseText, targets: [])
         }
 
         let matches = regex.matches(in: responseText, range: NSRange(responseText.startIndex..., in: responseText))
-        guard let match = matches.first else {
-            // No tag found at all
-            return PointingParseResult(spokenText: responseText, coordinate: nil, elementLabel: nil, screenNumber: nil)
+        guard !matches.isEmpty else {
+            return PointingParseResult(spokenText: responseText, targets: [])
         }
 
-        // Remove every point tag from the spoken text so malformed multi-tag
-        // replies do not read coordinates aloud.
         let strippedText = regex.stringByReplacingMatches(
             in: responseText,
             range: NSRange(responseText.startIndex..., in: responseText),
@@ -4932,30 +5569,71 @@ final class CompanionManager: ObservableObject {
             .replacingOccurrences(of: "  ", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Check if it's [POINT:none]
-        guard match.numberOfRanges >= 3,
-              let xRange = Range(match.range(at: 1), in: responseText),
-              let yRange = Range(match.range(at: 2), in: responseText),
-              let x = Double(responseText[xRange]),
-              let y = Double(responseText[yRange]) else {
-            return PointingParseResult(spokenText: spokenText, coordinate: nil, elementLabel: "none", screenNumber: nil)
-        }
+        let parsedTargets = matches.compactMap { match -> ParsedPointingTarget? in
+            guard let matchRange = Range(match.range, in: responseText) else {
+                return nil
+            }
 
-        var elementLabel: String? = nil
-        if match.numberOfRanges >= 4, let labelRange = Range(match.range(at: 3), in: responseText) {
-            elementLabel = String(responseText[labelRange]).trimmingCharacters(in: .whitespaces)
-        }
+            let fullTag = String(responseText[matchRange])
+            let body = fullTag
+                .replacingOccurrences(of: "[POINT:", with: "")
+                .replacingOccurrences(of: "]", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        var screenNumber: Int? = nil
-        if match.numberOfRanges >= 5, let screenRange = Range(match.range(at: 4), in: responseText) {
-            screenNumber = Int(responseText[screenRange])
+            guard body.lowercased() != "none" else {
+                return nil
+            }
+
+            return parsePointingTargetBody(body)
         }
 
         return PointingParseResult(
             spokenText: spokenText,
+            targets: parsedTargets
+        )
+    }
+
+    private static func parsePointingTargetBody(_ body: String) -> ParsedPointingTarget? {
+        let parts = body.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        let coordinateAndMetadata = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitBubbleText = parts.count > 1
+            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+
+        let coordinateSegments = coordinateAndMetadata.split(separator: ":", omittingEmptySubsequences: false)
+        guard let coordinateSegment = coordinateSegments.first else { return nil }
+
+        let coordinateParts = coordinateSegment.split(separator: ",", omittingEmptySubsequences: false)
+        guard coordinateParts.count == 2,
+              let x = Double(String(coordinateParts[0]).trimmingCharacters(in: .whitespacesAndNewlines)),
+              let y = Double(String(coordinateParts[1]).trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return nil
+        }
+
+        var screenNumber: Int?
+        var labelComponents: [String] = []
+
+        for segment in coordinateSegments.dropFirst() {
+            let trimmedSegment = String(segment).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedSegment.isEmpty else { continue }
+
+            if trimmedSegment.lowercased().hasPrefix("screen"),
+               let parsedScreenNumber = Int(trimmedSegment.dropFirst("screen".count)),
+               parsedScreenNumber >= 1 {
+                screenNumber = parsedScreenNumber
+            } else {
+                labelComponents.append(String(trimmedSegment))
+            }
+        }
+
+        let elementLabel = labelComponents.isEmpty ? nil : labelComponents.joined(separator: ":")
+        let bubbleText = explicitBubbleText.isEmpty ? elementLabel : explicitBubbleText
+
+        return ParsedPointingTarget(
             coordinate: CGPoint(x: x, y: y),
             elementLabel: elementLabel,
-            screenNumber: screenNumber
+            screenNumber: screenNumber,
+            bubbleText: bubbleText
         )
     }
 
@@ -5093,7 +5771,7 @@ final class CompanionManager: ObservableObject {
 
     respond with ONLY your short comment followed by the coordinate tag. nothing else. all lowercase.
 
-    format: your comment [POINT:x,y:label]
+    format: your comment [POINT:x,y:label|same short comment]
 
     the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. origin (0,0) is top-left. x increases rightward, y increases downward.
     """
@@ -5128,33 +5806,27 @@ final class CompanionManager: ObservableObject {
 
                 let parseResult = Self.parsePointingCoordinates(from: fullResponseText)
 
-                guard let pointCoordinate = parseResult.coordinate else {
+                let resolvedTargets = resolvedPointingTargets(
+                    from: parseResult.targets,
+                    screenCaptures: [cursorScreenCapture]
+                )
+
+                guard let firstTarget = resolvedTargets.first else {
                     print("🎯 Onboarding demo: no element to point at")
                     return
                 }
 
-                let screenshotWidth = CGFloat(cursorScreenCapture.screenshotWidthInPixels)
-                let screenshotHeight = CGFloat(cursorScreenCapture.screenshotHeightInPixels)
-                let displayWidth = CGFloat(cursorScreenCapture.displayWidthInPoints)
-                let displayHeight = CGFloat(cursorScreenCapture.displayHeightInPoints)
-                let displayFrame = cursorScreenCapture.displayFrame
-
-                let clampedX = max(0, min(pointCoordinate.x, screenshotWidth))
-                let clampedY = max(0, min(pointCoordinate.y, screenshotHeight))
-                let displayLocalX = clampedX * (displayWidth / screenshotWidth)
-                let displayLocalY = clampedY * (displayHeight / screenshotHeight)
-                let appKitY = displayHeight - displayLocalY
-                let globalLocation = CGPoint(
-                    x: displayLocalX + displayFrame.origin.x,
-                    y: appKitY + displayFrame.origin.y
-                )
-
                 // Set custom bubble text so the pointing animation uses Claude's
                 // comment instead of a random phrase
-                detectedElementBubbleText = parseResult.spokenText
-                detectedElementScreenLocation = globalLocation
-                detectedElementDisplayFrame = displayFrame
-                print("🎯 Onboarding demo: pointing at \"\(parseResult.elementLabel ?? "element")\" — \"\(parseResult.spokenText)\"")
+                queueDetectedElementTargets([
+                    QueuedPointingTarget(
+                        screenLocation: firstTarget.screenLocation,
+                        displayFrame: firstTarget.displayFrame,
+                        elementLabel: firstTarget.elementLabel,
+                        bubbleText: parseResult.spokenText
+                    )
+                ])
+                print("🎯 Onboarding demo: pointing at \"\(firstTarget.elementLabel ?? "element")\" — \"\(parseResult.spokenText)\"")
             } catch {
                 print("⚠️ Onboarding demo error: \(error)")
             }

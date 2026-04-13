@@ -67,7 +67,7 @@ Role:
 - menu bar companion shell
 - push-to-talk capture
 - screen capture and focus context capture
-- cursor overlay and pointing
+- cursor overlay and sequential pointing driven by a structured assistant response contract with short per-target bubble text
 - local speech playback
 - Studio configuration UI
 - tutorial import and tutorial-mode playback

@@ -219,6 +219,7 @@ final class OpenClawGatewayCompanionAgent {
         explicitGatewayAuthToken: String? = nil,
         configuredAgentIdentifier: String,
         configuredSessionKey: String,
+        shellIdentifier: String?,
         images: [OpenClawGatewayImageAttachment],
         systemPrompt: String,
         userPrompt: String,
@@ -236,6 +237,7 @@ final class OpenClawGatewayCompanionAgent {
             sessionKey: configuredSessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? Self.defaultSessionKey
                 : configuredSessionKey.trimmingCharacters(in: .whitespacesAndNewlines),
+            shellIdentifier: shellIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
             images: images,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
@@ -264,6 +266,7 @@ final class OpenClawGatewayCompanionAgent {
             gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
             configuredAgentIdentifier: "",
             sessionKey: Self.defaultSessionKey,
+            shellIdentifier: nil,
             images: [],
             systemPrompt: "",
             userPrompt: "",
@@ -286,6 +289,7 @@ final class OpenClawGatewayCompanionAgent {
             gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
             configuredAgentIdentifier: "",
             sessionKey: Self.defaultSessionKey,
+            shellIdentifier: nil,
             images: [],
             systemPrompt: "",
             userPrompt: "",
@@ -308,6 +312,7 @@ final class OpenClawGatewayCompanionAgent {
             gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
             configuredAgentIdentifier: "",
             sessionKey: Self.defaultSessionKey,
+            shellIdentifier: nil,
             images: [],
             systemPrompt: "",
             userPrompt: "",
@@ -330,6 +335,7 @@ final class OpenClawGatewayCompanionAgent {
             gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
             configuredAgentIdentifier: "",
             sessionKey: Self.defaultSessionKey,
+            shellIdentifier: nil,
             images: [],
             systemPrompt: "",
             userPrompt: "",
@@ -353,6 +359,7 @@ final class OpenClawGatewayCompanionAgent {
             gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
             configuredAgentIdentifier: "",
             sessionKey: Self.defaultSessionKey,
+            shellIdentifier: nil,
             images: [],
             systemPrompt: "",
             userPrompt: "",
@@ -379,6 +386,7 @@ final class OpenClawGatewayCompanionAgent {
             gatewayAuthToken: Self.resolvedGatewayAuthToken(forExplicitGatewayAuthToken: explicitGatewayAuthToken),
             configuredAgentIdentifier: "",
             sessionKey: Self.defaultSessionKey,
+            shellIdentifier: nil,
             images: [],
             systemPrompt: "",
             userPrompt: "",
@@ -444,6 +452,7 @@ final class OpenClawGatewayCompanionAgent {
         private let gatewayAuthToken: String?
         private let configuredAgentIdentifier: String
         private let sessionKey: String
+        private let shellIdentifier: String?
         private let images: [OpenClawGatewayImageAttachment]
         private let systemPrompt: String
         private let userPrompt: String
@@ -460,6 +469,7 @@ final class OpenClawGatewayCompanionAgent {
             gatewayAuthToken: String?,
             configuredAgentIdentifier: String,
             sessionKey: String,
+            shellIdentifier: String?,
             images: [OpenClawGatewayImageAttachment],
             systemPrompt: String,
             userPrompt: String,
@@ -477,6 +487,7 @@ final class OpenClawGatewayCompanionAgent {
             self.gatewayAuthToken = gatewayAuthToken
             self.configuredAgentIdentifier = configuredAgentIdentifier
             self.sessionKey = sessionKey
+            self.shellIdentifier = shellIdentifier
             self.images = images
             self.systemPrompt = systemPrompt
             self.userPrompt = userPrompt
@@ -516,10 +527,25 @@ final class OpenClawGatewayCompanionAgent {
                 // but a failure here should not block the assistant reply.
             }
 
+            let trimmedSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            try await syncShellPromptContext(promptContext: trimmedSystemPrompt)
+
+            let gatewayMessageBody = buildGatewayMessageBody()
+            ClickyAgentTurnDiagnostics.logOpenClawGatewayDispatch(
+                sessionKey: sessionKey,
+                shellIdentifier: shellIdentifier,
+                agentIdentifier: configuredAgentIdentifier.isEmpty ? nil : configuredAgentIdentifier,
+                promptContext: trimmedSystemPrompt,
+                messageBody: gatewayMessageBody
+            )
+
             let agentRequestIdentifier = UUID().uuidString
             let acceptedPayload = try await request(
                 method: "agent",
-                params: buildAgentParams(idempotencyKey: agentRequestIdentifier),
+                params: buildAgentParams(
+                    idempotencyKey: agentRequestIdentifier,
+                    messageBody: gatewayMessageBody
+                ),
                 timeoutSeconds: 15
             )
 
@@ -803,9 +829,12 @@ final class OpenClawGatewayCompanionAgent {
             return connectParams
         }
 
-        private func buildAgentParams(idempotencyKey: String) -> [String: Any] {
+        private func buildAgentParams(
+            idempotencyKey: String,
+            messageBody: String
+        ) -> [String: Any] {
             var agentParams: [String: Any] = [
-                "message": buildGatewayMessageBody(),
+                "message": messageBody,
                 "sessionKey": sessionKey,
                 "idempotencyKey": idempotencyKey,
                 "timeout": 120_000,
@@ -833,14 +862,43 @@ final class OpenClawGatewayCompanionAgent {
             }.joined(separator: "\n")
 
             var messageSections: [String] = []
-            messageSections.append("Runtime instructions for this reply:\n\(systemPrompt)")
-
             if !imageLabels.isEmpty {
                 messageSections.append("Attached screen captures:\n\(imageLabels)\nUse the attached images as the current screen context.")
             }
 
-            messageSections.append("User request:\n\(userPrompt)")
+            let trimmedUserPrompt = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedUserPrompt.isEmpty {
+                messageSections.append(trimmedUserPrompt)
+            }
             return messageSections.joined(separator: "\n\n")
+        }
+
+        private func syncShellPromptContext(promptContext: String) async throws {
+            let trimmedShellIdentifier = shellIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            guard !trimmedShellIdentifier.isEmpty, !promptContext.isEmpty else {
+                return
+            }
+
+            do {
+                _ = try await request(
+                    method: "clicky.shell.set_prompt_context",
+                    params: [
+                        "shellId": trimmedShellIdentifier,
+                        "sessionKey": sessionKey,
+                        "promptContext": promptContext,
+                    ],
+                    timeoutSeconds: 10
+                )
+            } catch {
+                throw NSError(
+                    domain: "OpenClawGatewayCompanionAgent",
+                    code: -9,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "Failed to sync Clicky shell prompt context with OpenClaw. Make sure the clicky-shell plugin is installed, enabled, and registered for this session."
+                    ]
+                )
+            }
         }
 
         private func request(

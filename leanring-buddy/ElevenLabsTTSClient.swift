@@ -19,6 +19,7 @@ final class ElevenLabsTTSClient {
     /// The audio player for the current TTS playback. Kept alive so the
     /// audio finishes playing even if the caller doesn't hold a reference.
     private var audioPlayer: AVAudioPlayer?
+    private var audioPlaybackDelegate: AudioPlaybackDelegate?
     private let systemSpeechSynthesizer = AVSpeechSynthesizer()
     private var systemSpeechDelegate: SystemSpeechDelegate?
 
@@ -93,7 +94,10 @@ final class ElevenLabsTTSClient {
         try Task.checkCancellation()
 
         let player = try AVAudioPlayer(data: data)
+        let playbackDelegate = AudioPlaybackDelegate()
         self.audioPlayer = player
+        self.audioPlaybackDelegate = playbackDelegate
+        player.delegate = playbackDelegate
         player.play()
         ClickyLogger.debug(.audio, "ElevenLabs direct audio prepared sizeKB=\(data.count / 1024)")
     }
@@ -137,7 +141,10 @@ final class ElevenLabsTTSClient {
         try Task.checkCancellation()
 
         let player = try AVAudioPlayer(data: data)
+        let playbackDelegate = AudioPlaybackDelegate()
         self.audioPlayer = player
+        self.audioPlaybackDelegate = playbackDelegate
+        player.delegate = playbackDelegate
         player.play()
         ClickyLogger.debug(.audio, "ElevenLabs proxy audio prepared sizeKB=\(data.count / 1024)")
     }
@@ -170,10 +177,27 @@ final class ElevenLabsTTSClient {
         (audioPlayer?.isPlaying ?? false) || systemSpeechSynthesizer.isSpeaking
     }
 
+    func waitUntilPlaybackFinishes() async {
+        if let audioPlayer, audioPlayer.isPlaying, let audioPlaybackDelegate {
+            await audioPlaybackDelegate.waitUntilFinishedPlayback()
+            if self.audioPlaybackDelegate === audioPlaybackDelegate {
+                self.audioPlayer?.delegate = nil
+                self.audioPlaybackDelegate = nil
+            }
+            return
+        }
+
+        if systemSpeechSynthesizer.isSpeaking, let systemSpeechDelegate {
+            await systemSpeechDelegate.waitUntilFinishedSpeaking()
+        }
+    }
+
     /// Stops any in-progress playback immediately.
     func stopPlayback() {
         audioPlayer?.stop()
         audioPlayer = nil
+        audioPlaybackDelegate?.cancel()
+        audioPlaybackDelegate = nil
         systemSpeechSynthesizer.stopSpeaking(at: .immediate)
         systemSpeechDelegate?.cancel()
         systemSpeechSynthesizer.delegate = nil
@@ -233,6 +257,32 @@ private final class SystemSpeechDelegate: NSObject, @preconcurrency AVSpeechSynt
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         finishedSpeakingContinuation?.resume()
         finishedSpeakingContinuation = nil
+    }
+}
+
+@MainActor
+private final class AudioPlaybackDelegate: NSObject, @preconcurrency AVAudioPlayerDelegate {
+    private var finishedPlaybackContinuation: CheckedContinuation<Void, Never>?
+
+    func waitUntilFinishedPlayback() async {
+        await withCheckedContinuation { continuation in
+            finishedPlaybackContinuation = continuation
+        }
+    }
+
+    func cancel() {
+        finishedPlaybackContinuation?.resume()
+        finishedPlaybackContinuation = nil
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        finishedPlaybackContinuation?.resume()
+        finishedPlaybackContinuation = nil
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        finishedPlaybackContinuation?.resume()
+        finishedPlaybackContinuation = nil
     }
 }
 

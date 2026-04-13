@@ -2409,23 +2409,36 @@ private struct CompanionStudioProviderPopover: View {
                         )
                     }
 
-                    if !hasStoredElevenLabsAPIKey {
-                        Text("Add your ElevenLabs API key to unlock extra voices.")
-                            .font(ClickyTypography.body(size: 13, weight: .semibold))
-                            .foregroundColor(palette.cardPrimaryText)
+                    Text(hasStoredElevenLabsAPIKey ? "Update or remove your ElevenLabs API key." : "Add your ElevenLabs API key to unlock extra voices.")
+                        .font(ClickyTypography.body(size: 13, weight: .semibold))
+                        .foregroundColor(palette.cardPrimaryText)
 
-                        CompanionStudioElevenLabsAPIKeyField(companionManager: companionManager)
-                            .textFieldStyle(.roundedBorder)
+                    CompanionStudioElevenLabsAPIKeyField(companionManager: companionManager)
+                        .textFieldStyle(.roundedBorder)
 
+                    HStack(spacing: 10) {
                         Button {
                             companionManager.saveElevenLabsAPIKey()
                         } label: {
-                            Label("Save API Key", systemImage: "key.horizontal")
+                            Label(hasStoredElevenLabsAPIKey ? "Update API Key" : "Save API Key", systemImage: "key.horizontal")
                                 .font(ClickyTypography.body(size: 13, weight: .semibold))
                         }
                         .modifier(CompanionStudioPrimaryButtonModifier())
                         .pointerCursor()
-                    } else {
+
+                        if hasStoredElevenLabsAPIKey {
+                            Button {
+                                companionManager.deleteElevenLabsAPIKey()
+                            } label: {
+                                Label("Delete API Key", systemImage: "trash")
+                                    .font(ClickyTypography.body(size: 13, weight: .semibold))
+                            }
+                            .modifier(CompanionStudioSecondaryButtonModifier())
+                            .pointerCursor()
+                        }
+                    }
+
+                    if hasStoredElevenLabsAPIKey {
                         Text("Loaded voices")
                             .font(ClickyTypography.mono(size: 10, weight: .semibold))
                             .foregroundColor(palette.cardSecondaryText)

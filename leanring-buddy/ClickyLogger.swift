@@ -13,6 +13,7 @@ enum ClickyLogCategory: String {
     case app
     case audio
     case agent
+    case turns
     case gateway
     case plugin
     case ui

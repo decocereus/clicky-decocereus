@@ -12,7 +12,8 @@ Native OpenClaw plugin scaffold for connecting OpenClaw to the Clicky desktop sh
 - accepts real shell registrations
 - tracks shell heartbeat freshness in memory
 - reports shell status and session binding state
-- injects prompt context for fresh, bound Clicky shells during prompt build
+- syncs per-turn Clicky prompt context through plugin-owned gateway methods
+- appends prompt context for fresh, bound Clicky shells during prompt build without exposing it in raw user message payloads
 
 ## What it will do next
 

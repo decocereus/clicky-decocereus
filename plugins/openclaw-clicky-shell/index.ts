@@ -19,10 +19,26 @@ type ClickyShellRegistration = {
   shellTransportScope: "local-gateway" | "remote-gateway";
   speechOutputMode: string | null;
   supportsInlineTextBubble: boolean;
+  promptContext: string | null;
 };
 
 type ClickyShellFreshnessState = "fresh" | "stale";
 type ClickyShellTrustState = "trusted-local" | "trusted-remote";
+const activeClickyNormalizationSessionKeys = new Set<string>();
+
+type ClickyStructuredPoint = {
+  x: number;
+  y: number;
+  label: string;
+  bubbleText?: string;
+  explanation?: string;
+  screenNumber?: number;
+};
+
+type ClickyStructuredReply = {
+  spokenText: string;
+  points: ClickyStructuredPoint[];
+};
 
 function freshnessStateForRegistration(
   registration: ClickyShellRegistration,
@@ -60,6 +76,15 @@ function findFreshShellRegistrationForSessionKey(
 function buildClickyShellPromptContext(
   registration: ClickyShellRegistration
 ) {
+  const promptContext =
+    typeof registration.promptContext === "string" && registration.promptContext.trim()
+      ? registration.promptContext.trim()
+      : null;
+
+  if (promptContext) {
+    return promptContext;
+  }
+
   return [
     "clicky shell is active for this run.",
     `upstream agent identity: ${registration.agentIdentityName ?? "unknown"}.`,
@@ -69,8 +94,211 @@ function buildClickyShellPromptContext(
     `screen context transport: ${registration.screenContextTransport ?? "unknown"}.`,
     `cursor pointing protocol: ${registration.cursorPointingProtocol ?? "unknown"}.`,
     `speech output mode: ${registration.speechOutputMode ?? "unknown"}.`,
-    "when visual guidance would help, use the clicky point-tag format at the end of your reply.",
+    "when visual guidance would help, return clicky's structured response contract with ordered point targets.",
   ].join(" ");
+}
+
+function extractJSONObjectString(rawResponse: string) {
+  const trimmedResponse = rawResponse.trim();
+  if (!trimmedResponse) return null;
+
+  if (!(trimmedResponse.startsWith("{") && trimmedResponse.endsWith("}"))) {
+    return null;
+  }
+
+  return trimmedResponse;
+}
+
+function transcriptRequiresVisiblePointing(transcript: string) {
+  const normalizedTranscript = transcript.toLowerCase();
+  const requiredPointingSignals = [
+    "point",
+    "point out",
+    "show me",
+    "walk me through",
+    "walkthrough",
+    "walk through",
+    "tour",
+    "breakdown",
+    "overview",
+    "where is",
+    "which button",
+    "which buttons",
+    "which control",
+    "which controls",
+    "button",
+    "buttons",
+    "control",
+    "controls",
+    "climate",
+    "dashboard",
+    "interior",
+    "screen",
+    "icon",
+    "icons",
+  ];
+
+  return requiredPointingSignals.some((signal) => normalizedTranscript.includes(signal));
+}
+
+function transcriptWantsNarratedWalkthrough(transcript: string) {
+  const normalizedTranscript = transcript.toLowerCase();
+  const walkthroughSignals = [
+    "walk me through",
+    "walk-through",
+    "walkthrough",
+    "walk through",
+    "give me a walkthrough",
+    "give me a walk-through",
+    "talk about a few features",
+    "point them out",
+    "few features",
+    "tour",
+    "breakdown",
+    "overview",
+    "what do they do",
+    "how to use them",
+    "how to use",
+    "how climate controls work",
+    "what are these buttons",
+    "interior",
+  ];
+
+  return walkthroughSignals.some((signal) => normalizedTranscript.includes(signal));
+}
+
+function validateStructuredReply(
+  structuredReply: ClickyStructuredReply,
+  requiresPoints: boolean,
+  requiresPointExplanations: boolean
+) {
+  const issues: string[] = [];
+
+  if (typeof structuredReply.spokenText !== "string" || !structuredReply.spokenText.trim()) {
+    issues.push("spokenText was empty");
+  }
+
+  if (!Array.isArray(structuredReply.points)) {
+    issues.push("points was not an array");
+    return issues;
+  }
+
+  if (requiresPoints && structuredReply.points.length === 0) {
+    issues.push("points array was empty even though the request required pointing");
+  }
+
+  structuredReply.points.forEach((point, index) => {
+    if (typeof point?.x !== "number" || !Number.isFinite(point.x)) {
+      issues.push(`point ${index + 1} was missing a valid x coordinate`);
+    }
+    if (typeof point?.y !== "number" || !Number.isFinite(point.y)) {
+      issues.push(`point ${index + 1} was missing a valid y coordinate`);
+    }
+    if (typeof point?.label !== "string" || !point.label.trim()) {
+      issues.push(`point ${index + 1} was missing a label`);
+    }
+
+    if (requiresPointExplanations) {
+      const explanation = typeof point?.explanation === "string" ? point.explanation.trim() : "";
+      if (!explanation) {
+        issues.push(`point ${index + 1} was missing an explanation`);
+      }
+    }
+  });
+
+  return issues;
+}
+
+function parseClickyStructuredReply(
+  rawResponse: string,
+  requiresPoints: boolean,
+  requiresPointExplanations: boolean
+) {
+  const jsonString = extractJSONObjectString(rawResponse);
+  if (!jsonString) {
+    return {
+      ok: false as const,
+      issues: ["response was not a single json object"],
+    };
+  }
+
+  let parsedResponse: ClickyStructuredReply;
+  try {
+    parsedResponse = JSON.parse(jsonString) as ClickyStructuredReply;
+  } catch {
+    return {
+      ok: false as const,
+      issues: ["response json did not parse"],
+    };
+  }
+
+  const issues = validateStructuredReply(parsedResponse, requiresPoints, requiresPointExplanations);
+  if (issues.length > 0) {
+    return {
+      ok: false as const,
+      issues,
+    };
+  }
+
+  return {
+    ok: true as const,
+    reply: jsonString,
+  };
+}
+
+function extractTextFromMessageContent(content: unknown): string | null {
+  if (typeof content === "string" && content.trim()) {
+    return content.trim();
+  }
+
+  if (!Array.isArray(content)) {
+    return null;
+  }
+
+  const text = content
+    .map((part) => {
+      if (!part || typeof part !== "object" || Array.isArray(part)) return "";
+      const record = part as Record<string, unknown>;
+      return typeof record.text === "string" ? record.text.trim() : "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+  return text || null;
+}
+
+function extractLatestUserText(messages: unknown[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const record = candidate as Record<string, unknown>;
+    if (record.role !== "user") continue;
+    const text = extractTextFromMessageContent(record.content);
+    if (text) return text;
+  }
+
+  return null;
+}
+
+function extractLatestAssistantText(messages: unknown[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const record = candidate as Record<string, unknown>;
+    if (record.role !== "assistant") continue;
+    const text = extractTextFromMessageContent(record.content);
+    if (text) return text;
+  }
+
+  return null;
+}
+
+function buildClickyStructuredErrorReply(message: string) {
+  return JSON.stringify({
+    spokenText: message,
+    points: [],
+  });
 }
 
 function serializeShellRegistration(
@@ -214,6 +442,7 @@ function parseShellRegistration(params: unknown): ClickyShellRegistration | null
     shellTransportScope: record.shellTransportScope === "remote-gateway" ? "remote-gateway" : "local-gateway",
     speechOutputMode: typeof record.speechOutputMode === "string" && record.speechOutputMode.trim() ? record.speechOutputMode.trim() : null,
     supportsInlineTextBubble: record.supportsInlineTextBubble === true,
+    promptContext: null,
   };
 }
 
@@ -340,6 +569,55 @@ export default definePluginEntry({
     );
 
     api.registerGatewayMethod(
+      "clicky.shell.set_prompt_context",
+      async ({ params, respond }) => {
+        try {
+          const shellId = readShellIdFromParams(params);
+          if (!shellId) {
+            respond(false, { error: "shellId required" });
+            return;
+          }
+
+          const existingRegistration = clickyShellRegistrationsById.get(shellId);
+          if (!existingRegistration) {
+            respond(false, { error: "shell not registered" });
+            return;
+          }
+
+          const promptContext =
+            typeof (params as Record<string, unknown>).promptContext === "string" &&
+            (params as Record<string, unknown>).promptContext.trim()
+              ? (params as Record<string, unknown>).promptContext.trim()
+              : null;
+
+          if (!promptContext) {
+            respond(false, { error: "promptContext required" });
+            return;
+          }
+
+          const sessionKey =
+            typeof (params as Record<string, unknown>).sessionKey === "string" &&
+            (params as Record<string, unknown>).sessionKey.trim()
+              ? (params as Record<string, unknown>).sessionKey.trim()
+              : existingRegistration.sessionKey;
+
+          existingRegistration.promptContext = promptContext;
+          existingRegistration.sessionKey = sessionKey;
+          existingRegistration.lastHeartbeatAt = Date.now();
+          clickyShellRegistrationsById.set(shellId, existingRegistration);
+
+          respond(true, {
+            ok: true,
+            shellId,
+          });
+        } catch (error) {
+          respond(false, { error: error instanceof Error ? error.message : String(error) });
+        }
+      },
+      { scope: "operator.write" }
+    );
+
+    api.registerGatewayMethod(
       "clicky.shell.status",
       async ({ params, respond }) => {
         try {
@@ -404,6 +682,7 @@ export default definePluginEntry({
               : null;
 
           existingRegistration.sessionKey = sessionKey;
+          existingRegistration.promptContext = null;
           existingRegistration.lastHeartbeatAt = Date.now();
           clickyShellRegistrationsById.set(shellId, existingRegistration);
 
@@ -461,8 +740,144 @@ export default definePluginEntry({
       }
 
       return {
-        prependSystemContext: buildClickyShellPromptContext(registration),
+        appendSystemContext: buildClickyShellPromptContext(registration),
       };
+    });
+
+    api.on("before_agent_reply", async (event, ctx) => {
+      const normalizedPluginConfig = normalizePluginConfig(api.pluginConfig);
+      const registration = findFreshShellRegistrationForSessionKey(
+        ctx.sessionKey,
+        normalizedPluginConfig.registrationTtlMs
+      );
+
+      if (!registration || !ctx.sessionKey) {
+        return;
+      }
+
+      if (activeClickyNormalizationSessionKeys.has(ctx.sessionKey)) {
+        return;
+      }
+
+      const sessionMessagesResult = await api.runtime.subagent.getSessionMessages({
+        sessionKey: ctx.sessionKey,
+        limit: 12,
+      });
+
+      const latestUserText = extractLatestUserText(sessionMessagesResult.messages ?? []);
+      const requiresPoints = latestUserText ? transcriptRequiresVisiblePointing(latestUserText) : false;
+      const requiresPointExplanations = latestUserText ? transcriptWantsNarratedWalkthrough(latestUserText) : false;
+      const parsedCurrentReply = parseClickyStructuredReply(
+        event.cleanedBody,
+        requiresPoints,
+        requiresPointExplanations
+      );
+
+      if (parsedCurrentReply.ok) {
+        return {
+          handled: true,
+          reply: {
+            text: parsedCurrentReply.reply,
+          },
+        };
+      }
+
+      if (!latestUserText) {
+        api.logger.warn(`clicky-shell: could not find the latest user text for ${ctx.sessionKey}; blocking invalid reply`);
+        return {
+          handled: true,
+          reply: {
+            text: buildClickyStructuredErrorReply("i hit a clicky reply contract error on this turn."),
+            isError: true,
+          },
+          reason: "clicky structured reply gate: missing latest user text",
+        };
+      }
+
+      const normalizerSystemPrompt = `${registration.promptContext ?? buildClickyShellPromptContext(registration)}
+
+normalizer override:
+- you are clicky's hidden structured reply normalizer.
+- the user's latest request remains the visible request.
+- return exactly one json object and nothing else.
+- do not mention this normalization step.
+- if the reply needs pointing, include real integer screenshot coordinates in points.
+- if this is a walkthrough with multiple points, include explanation on each point so clicky can narrate each target in sync.
+`;
+
+      const normalizationMessage = latestUserText;
+      const normalizationIdempotencyKey = `clicky-normalize:${ctx.runId ?? Date.now()}`;
+
+      activeClickyNormalizationSessionKeys.add(ctx.sessionKey);
+      try {
+        const normalizationRun = await api.runtime.subagent.run({
+          sessionKey: ctx.sessionKey,
+          message: normalizationMessage,
+          extraSystemPrompt: normalizerSystemPrompt,
+          deliver: false,
+          idempotencyKey: normalizationIdempotencyKey,
+        });
+
+        const normalizationWait = await api.runtime.subagent.waitForRun({
+          runId: normalizationRun.runId,
+          timeoutMs: 20_000,
+        });
+
+        if (normalizationWait.status !== "ok") {
+          api.logger.warn(`clicky-shell: hidden normalization ended with status=${normalizationWait.status} for ${ctx.sessionKey}`);
+          return {
+            handled: true,
+            reply: {
+              text: buildClickyStructuredErrorReply("i hit a clicky reply contract error on this turn."),
+              isError: true,
+            },
+            reason: `clicky structured reply gate: normalization status ${normalizationWait.status}`,
+          };
+        }
+
+        const normalizedMessages = await api.runtime.subagent.getSessionMessages({
+          sessionKey: ctx.sessionKey,
+          limit: 16,
+        });
+        const normalizedAssistantText = extractLatestAssistantText(normalizedMessages.messages ?? []);
+        const parsedNormalizedReply = parseClickyStructuredReply(
+          normalizedAssistantText ?? "",
+          requiresPoints,
+          requiresPointExplanations
+        );
+
+        if (!parsedNormalizedReply.ok) {
+          api.logger.warn(`clicky-shell: hidden normalization still failed for ${ctx.sessionKey}: ${parsedNormalizedReply.issues.join("; ")}`);
+          return {
+            handled: true,
+            reply: {
+              text: buildClickyStructuredErrorReply("i hit a clicky reply contract error on this turn."),
+              isError: true,
+            },
+            reason: "clicky structured reply gate: normalization output invalid",
+          };
+        }
+
+        return {
+          handled: true,
+          reply: {
+            text: parsedNormalizedReply.reply,
+          },
+          reason: "clicky structured reply gate: normalized upstream",
+        };
+      } catch (error) {
+        api.logger.warn(`clicky-shell: hidden normalization failed for ${ctx.sessionKey}: ${error instanceof Error ? error.message : String(error)}`);
+        return {
+          handled: true,
+          reply: {
+            text: buildClickyStructuredErrorReply("i hit a clicky reply contract error on this turn."),
+            isError: true,
+          },
+          reason: "clicky structured reply gate: normalization error",
+        };
+      } finally {
+        activeClickyNormalizationSessionKeys.delete(ctx.sessionKey);
+      }
     });
   },
 });

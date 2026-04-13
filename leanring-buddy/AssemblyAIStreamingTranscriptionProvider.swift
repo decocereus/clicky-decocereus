@@ -20,13 +20,13 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
     let displayName = "AssemblyAI"
     let requiresSpeechRecognitionPermission = false
 
-    var isConfigured: Bool { CompanionRuntimeConfiguration.isWorkerConfigured }
+    var isConfigured: Bool { CompanionRuntimeConfiguration.isBackendConfigured }
     var unavailableExplanation: String? {
         if isConfigured {
             return nil
         }
 
-        return "AssemblyAI streaming is unavailable until CompanionWorkerBaseURL points to a real Cloudflare Worker."
+        return "AssemblyAI streaming is unavailable until ClickyBackendBaseURL points to a real Clicky backend."
     }
 
     /// Single long-lived URLSession shared across all streaming sessions.

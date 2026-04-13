@@ -184,6 +184,7 @@ struct BlueCursorView: View {
     /// True when the buddy is flying BACK to the cursor after pointing.
     /// Only during the return flight can cursor movement cancel the animation.
     @State private var isReturningToCursor: Bool = false
+    @State private var sequenceReturnPosition: CGPoint?
 
     // MARK: - Onboarding Video Layout
 
@@ -196,9 +197,9 @@ struct BlueCursorView: View {
         "right here!",
         "this one!",
         "over here!",
-        "click this!",
         "here it is!",
-        "found it!"
+        "found it!",
+        "look here!"
     ]
 
     private var activeTheme: ClickyTheme {
@@ -333,7 +334,12 @@ struct BlueCursorView: View {
             // During navigation: NO implicit animation — the frame-by-frame bezier
             // timer controls position directly at 60fps for a smooth arc flight.
             personaCursorIdleView
-                .opacity(buddyIsVisibleOnThisScreen && surfaceController.voiceState == .idle ? cursorOpacity : 0)
+                .opacity(
+                    buddyIsVisibleOnThisScreen
+                        && (surfaceController.voiceState == .idle || buddyNavigationMode != .followingCursor)
+                        ? cursorOpacity
+                        : 0
+                )
                 .position(cursorPosition)
                 .animation(
                     buddyNavigationMode == .followingCursor
@@ -349,28 +355,52 @@ struct BlueCursorView: View {
 
             // Style-aware listening indicator
             listeningIndicatorView
-                .opacity(buddyIsVisibleOnThisScreen && surfaceController.voiceState == .listening ? cursorOpacity : 0)
+                .opacity(
+                    buddyIsVisibleOnThisScreen
+                        && buddyNavigationMode == .followingCursor
+                        && surfaceController.voiceState == .listening
+                        ? cursorOpacity
+                        : 0
+                )
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: surfaceController.voiceState)
 
             // Style-aware transcribing indicator
             transcribingIndicatorView
-                .opacity(buddyIsVisibleOnThisScreen && surfaceController.voiceState == .transcribing ? cursorOpacity : 0)
+                .opacity(
+                    buddyIsVisibleOnThisScreen
+                        && buddyNavigationMode == .followingCursor
+                        && surfaceController.voiceState == .transcribing
+                        ? cursorOpacity
+                        : 0
+                )
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: surfaceController.voiceState)
 
             // Style-aware thinking indicator
             thinkingIndicatorView
-                .opacity(buddyIsVisibleOnThisScreen && surfaceController.voiceState == .thinking ? cursorOpacity : 0)
+                .opacity(
+                    buddyIsVisibleOnThisScreen
+                        && buddyNavigationMode == .followingCursor
+                        && surfaceController.voiceState == .thinking
+                        ? cursorOpacity
+                        : 0
+                )
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: surfaceController.voiceState)
 
             // Style-aware responding indicator
             respondingIndicatorView
-                .opacity(buddyIsVisibleOnThisScreen && surfaceController.voiceState == .responding ? cursorOpacity : 0)
+                .opacity(
+                    buddyIsVisibleOnThisScreen
+                        && buddyNavigationMode == .followingCursor
+                        && surfaceController.voiceState == .responding
+                        ? cursorOpacity
+                        : 0
+                )
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: surfaceController.voiceState)
@@ -433,6 +463,14 @@ struct BlueCursorView: View {
             }
 
             startNavigatingToElement(screenLocation: screenLocation)
+        }
+        .onChange(of: surfaceController.managedPointSequenceReturnToken) { _, _ in
+            guard buddyNavigationMode == .pointingAtTarget else { return }
+            navigationBubbleOpacity = 0.0
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                guard self.buddyNavigationMode == .pointingAtTarget else { return }
+                self.startFlyingBackToCursor()
+            }
         }
     }
 
@@ -741,6 +779,13 @@ struct BlueCursorView: View {
         // Don't interrupt welcome animation
         guard !showWelcome || welcomeText.isEmpty else { return }
 
+        if sequenceReturnPosition == nil {
+            sequenceReturnPosition = cursorPosition
+        }
+
+        navigationBubbleText = ""
+        navigationBubbleOpacity = 0.0
+
         // Convert the AppKit screen location to SwiftUI coordinates for this screen
         let targetInSwiftUI = convertScreenPointToSwiftUICoordinates(screenLocation)
 
@@ -872,14 +917,24 @@ struct BlueCursorView: View {
             ?? navigationPointerPhrases.randomElement()
             ?? "right here!"
 
+        companionManager.notifyManagedPointTargetArrived()
+
         streamNavigationBubbleCharacter(phrase: pointerPhrase, characterIndex: 0) {
-            // All characters streamed — hold for 3 seconds, then fly back
+            guard !self.companionManager.isManagingPointSequence else {
+                return
+            }
+
+            // All characters streamed — hold for 3 seconds, then continue.
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                 guard self.buddyNavigationMode == .pointingAtTarget else { return }
                 self.navigationBubbleOpacity = 0.0
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     guard self.buddyNavigationMode == .pointingAtTarget else { return }
-                    self.startFlyingBackToCursor()
+                    if self.companionManager.hasPendingDetectedElementTargets {
+                        self.companionManager.advanceDetectedElementLocation()
+                    } else {
+                        self.startFlyingBackToCursor()
+                    }
                 }
             }
         }
@@ -918,9 +973,20 @@ struct BlueCursorView: View {
 
     /// Flies the buddy back to the current cursor position after pointing is done.
     private func startFlyingBackToCursor() {
-        let mouseLocation = NSEvent.mouseLocation
-        let cursorInSwiftUI = convertScreenPointToSwiftUICoordinates(mouseLocation)
-        let cursorWithTrackingOffset = CGPoint(x: cursorInSwiftUI.x + 35, y: cursorInSwiftUI.y + 25)
+        let cursorInSwiftUI: CGPoint
+        let cursorWithTrackingOffset: CGPoint
+
+        if let sequenceReturnPosition {
+            cursorWithTrackingOffset = sequenceReturnPosition
+            cursorInSwiftUI = CGPoint(
+                x: sequenceReturnPosition.x - 35,
+                y: sequenceReturnPosition.y - 25
+            )
+        } else {
+            let mouseLocation = NSEvent.mouseLocation
+            cursorInSwiftUI = convertScreenPointToSwiftUICoordinates(mouseLocation)
+            cursorWithTrackingOffset = CGPoint(x: cursorInSwiftUI.x + 35, y: cursorInSwiftUI.y + 25)
+        }
 
         cursorPositionWhenNavigationStarted = cursorInSwiftUI
 
@@ -940,7 +1006,12 @@ struct BlueCursorView: View {
         navigationBubbleOpacity = 0.0
         navigationBubbleScale = 1.0
         buddyFlightScale = 1.0
-        finishNavigationAndResumeFollowing()
+        buddyNavigationMode = .followingCursor
+        isReturningToCursor = false
+        triangleRotationDegrees = -35.0
+        companionManager.clearDetectedElementLocation()
+        sequenceReturnPosition = nil
+        companionManager.resumeTutorialPlaybackAfterPointingIfNeeded()
     }
 
     /// Returns the buddy to normal cursor-following mode after navigation completes.
@@ -954,7 +1025,15 @@ struct BlueCursorView: View {
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
         navigationBubbleScale = 1.0
-        companionManager.clearDetectedElementLocation()
+        if companionManager.isManagingPointSequence {
+            companionManager.resumeTutorialPlaybackAfterPointingIfNeeded()
+            return
+        }
+
+        companionManager.advanceDetectedElementLocation()
+        if !companionManager.hasPendingDetectedElementTargets {
+            sequenceReturnPosition = nil
+        }
         companionManager.resumeTutorialPlaybackAfterPointingIfNeeded()
     }
 

@@ -172,7 +172,9 @@ Apply these rules to every Swift/SwiftUI task in this target.
 - Actively help the user take advantage of the plugin by suggesting tighter run/debug loops, Run button support, and unified logging or telemetry when those would materially help.
 - Preserve the existing state ownership style within the file or feature you are editing unless there is a clear benefit to changing it. Prefer the simplest SwiftUI-native state model that fits new local code.
 - The assistant request path should stay provider-agnostic: build one canonical Clicky turn contract, then map it through one adapter file per backend. Do not reintroduce provider-specific request assembly inside `CompanionManager`.
+- The normal assistant response path should use one structured response contract with spoken text plus ordered point targets. Do not depend on backend-specific inline tag syntax in the main companion flow.
 - The canonical turn contract now includes focus context in addition to screenshots. Preserve that shared path for future providers instead of adding backend-specific cursor/focus hacks.
+- For OpenClaw, keep Clicky runtime/system instructions on the plugin-owned prompt-injection path. Do not concatenate them into the raw user `message` payload sent through Gateway.
 - Repo override: do **not** use terminal `xcodebuild` here. Preserve TCC permissions by preferring Xcode.app for build/run unless the user explicitly accepts the tradeoff.
 - The Codex app `Run` action is wired to `./script/build_and_run.sh`, which uses Xcode AppleScript automation rather than terminal `xcodebuild`.
 - Do **not** automatically reinstall the local `clicky-shell` OpenClaw plugin or restart the OpenClaw Gateway while iterating on the macOS app. Only do that when the user explicitly asks for it, or explicitly agrees to a verification step that requires it.

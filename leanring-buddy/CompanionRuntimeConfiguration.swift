@@ -23,6 +23,23 @@ enum CompanionRuntimeConfiguration {
         AppBundleConfiguration.stringValue(forKey: backendBaseURLInfoPlistKey) ?? placeholderBackendBaseURL
     }
 
+    private static var currentBackendBaseURL: String {
+        let storedBackendBaseURL = UserDefaults.standard
+            .string(forKey: "clickyBackendBaseURL")?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if !storedBackendBaseURL.isEmpty {
+            return storedBackendBaseURL.hasSuffix("/")
+                ? String(storedBackendBaseURL.dropLast())
+                : storedBackendBaseURL
+        }
+
+        let trimmedDefaultBackendBaseURL = defaultBackendBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedDefaultBackendBaseURL.hasSuffix("/")
+            ? String(trimmedDefaultBackendBaseURL.dropLast())
+            : trimmedDefaultBackendBaseURL
+    }
+
     static var tutorialExtractorBaseURL: String {
         AppBundleConfiguration.stringValue(forKey: tutorialExtractorBaseURLInfoPlistKey) ?? placeholderTutorialExtractorBaseURL
     }
@@ -33,6 +50,12 @@ enum CompanionRuntimeConfiguration {
         return normalizedWorkerBaseURL != placeholderWorkerBaseURL
     }
 
+    static var isBackendConfigured: Bool {
+        let normalizedBackendBaseURL = currentBackendBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedBackendBaseURL.isEmpty else { return false }
+        return normalizedBackendBaseURL != placeholderBackendBaseURL
+    }
+
     static var isTutorialExtractorConfigured: Bool {
         let normalizedTutorialExtractorBaseURL = tutorialExtractorBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTutorialExtractorBaseURL.isEmpty else { return false }
@@ -40,6 +63,6 @@ enum CompanionRuntimeConfiguration {
     }
 
     static var assemblyAITokenProxyURL: String {
-        "\(workerBaseURL)/transcribe-token"
+        "\(currentBackendBaseURL)/v1/transcription/assemblyai-token"
     }
 }

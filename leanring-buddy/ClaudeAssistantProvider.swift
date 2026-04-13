@@ -23,6 +23,14 @@ final class ClaudeAssistantProvider: ClickyAssistantProvider {
     ) async throws -> ClickyAssistantTurnResponse {
         let userPrompt = appendFocusContext(to: request.userPrompt, focusContext: request.focusContext)
 
+        ClickyAgentTurnDiagnostics.logProviderRequest(
+            backendLabel: backend.displayName,
+            systemPrompt: request.systemPrompt,
+            userPrompt: userPrompt,
+            conversationHistoryCount: request.conversationHistory.count,
+            imageLabels: request.imageAttachments.map(\.label)
+        )
+
         let response = try await claudeAPI.analyzeImageStreaming(
             images: request.imageAttachments.map { attachment in
                 (data: attachment.data, label: attachment.label)

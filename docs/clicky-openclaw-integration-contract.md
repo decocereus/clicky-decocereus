@@ -47,7 +47,7 @@ The safe default is:
 - Clicky connects outward to OpenClaw Gateway
 - Clicky identifies itself to the `clicky-shell` plugin over plugin-owned Gateway methods
 - OpenClaw stores that registration as shell metadata
-- when a shell is fresh and explicitly bound to a session, the plugin injects Clicky shell capability guidance into that session's prompt build
+- when a shell is fresh and explicitly bound to a session, Clicky syncs the current turn's shell prompt context through the plugin and the plugin appends that guidance into prompt build so Clicky's response contract lands after the base agent prompt
 - OpenClaw continues sending turns/results through the Gateway session model
 - Clicky remains the local shell that speaks, points, and renders presence
 
@@ -61,6 +61,7 @@ The `clicky-shell` plugin should own:
 - Clicky-specific Gateway RPC methods
 - Clicky status/introspection command/tool surfaces
 - prompt injection for bound/fresh Clicky shells so OpenClaw runs automatically understand the active shell capabilities
+- the server-side path for per-turn Clicky runtime/system prompt context, so Clicky does not serialize that prompt into raw user message payloads
 - the future handshake that tells OpenClaw what Clicky capabilities are currently online
 
 The plugin should **not** own:
@@ -96,6 +97,8 @@ The plugin should **not** own:
   Return the plugin-side status for a specific Clicky shell id.
 - `clicky.shell.bind_session`
   Explicitly bind a registered Clicky shell to an OpenClaw session key.
+- `clicky.shell.set_prompt_context`
+  Sync the current turn's Clicky runtime/system prompt so the plugin can inject it during prompt build without exposing it in the raw user message.
 
 ### First user-facing surfaces
 
@@ -131,7 +134,7 @@ The first registration payload should include:
 - `screenContextTransport`
   How screen context is delivered to the agent.
 - `cursorPointingProtocol`
-  The point-tag protocol the shell expects.
+  The structured assistant response contract the shell expects for speech plus pointing.
 - `speechOutputMode`
   How reply audio is presented by the shell.
 - `supportsInlineTextBubble`
@@ -166,5 +169,6 @@ For remote OpenClaw:
 2. Show plugin install/setup state in Clicky Studio.
 3. Teach Clicky to call `clicky.shell.register` and `clicky.shell.heartbeat`.
 4. Teach Clicky to read `clicky.shell.status` and update `clicky.shell.bind_session`.
-5. Add the explicit identity handshake so OpenClaw knows Clicky is a trusted shell integration.
-6. Route more shell-specific actions through the plugin as needed.
+5. Keep prompt-context syncing on the plugin path rather than concatenating runtime instructions into raw user turns.
+6. Add the explicit identity handshake so OpenClaw knows Clicky is a trusted shell integration.
+7. Route more shell-specific actions through the plugin as needed.

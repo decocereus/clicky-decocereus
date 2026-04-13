@@ -29,6 +29,14 @@ final class CodexAssistantProvider: ClickyAssistantProvider {
             focusContext: request.focusContext
         )
 
+        ClickyAgentTurnDiagnostics.logProviderRequest(
+            backendLabel: backend.displayName,
+            systemPrompt: enrichedRequest.systemPrompt,
+            userPrompt: enrichedRequest.userPrompt,
+            conversationHistoryCount: enrichedRequest.conversationHistory.count,
+            imageLabels: enrichedRequest.imageAttachments.map(\.label)
+        )
+
         return try await runtimeClient.executeTurn(
             request: enrichedRequest,
             onTextChunk: onTextChunk
