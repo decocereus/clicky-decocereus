@@ -24,13 +24,7 @@ export function getBackendUrl() {
     return configuredBackendUrl ?? DEFAULT_LOCAL_BACKEND_URL;
   }
 
-  try {
-    return configuredBackendUrl
-      ? new URL(configuredBackendUrl, origin).origin
-      : origin;
-  } catch {
-    return origin;
-  }
+  return origin;
 }
 
 export function getDownloadUrl() {

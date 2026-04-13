@@ -91,12 +91,39 @@ function expandLocalhostOrigin(origin: string | undefined) {
   return [...origins]
 }
 
+function expandCanonicalWebOriginVariants(origin: string | undefined) {
+  const origins = new Set(expandLocalhostOrigin(origin))
+  const trimmedOrigin = origin?.trim()
+
+  if (!trimmedOrigin) {
+    return [...origins]
+  }
+
+  try {
+    const url = new URL(trimmedOrigin)
+
+    if (url.hostname.startsWith("www.")) {
+      const apexUrl = new URL(url.toString())
+      apexUrl.hostname = url.hostname.slice(4)
+      origins.add(apexUrl.origin)
+    } else if (url.hostname.split(".").length === 2) {
+      const wwwUrl = new URL(url.toString())
+      wwwUrl.hostname = `www.${url.hostname}`
+      origins.add(wwwUrl.origin)
+    }
+  } catch {
+    // Ignore invalid URLs and just keep the original value.
+  }
+
+  return [...origins]
+}
+
 const corsOptions = {
   origin: (origin: string, c: { env: Env }) => {
     const allowedOrigins = new Set(
       [
         ...expandLocalhostOrigin(readEnvValue(c.env, "BETTER_AUTH_URL")),
-        ...expandLocalhostOrigin(readEnvValue(c.env, "WEB_ORIGIN")),
+        ...expandCanonicalWebOriginVariants(readEnvValue(c.env, "WEB_ORIGIN")),
       ],
     )
 
