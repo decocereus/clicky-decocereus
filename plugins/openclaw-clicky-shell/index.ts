@@ -25,10 +25,6 @@ type ClickyShellRegistration = {
 type ClickyShellFreshnessState = "fresh" | "stale";
 type ClickyShellTrustState = "trusted-local" | "trusted-remote";
 type ClickyPresentationMode = "answer" | "point" | "walkthrough" | "tutorial";
-const activeClickyNormalizationSessionKeys = new Set<string>();
-const pendingClickyPresentationRepliesBySessionKey = new Map<string, string>();
-const pendingClickyPresentationRepliesBySessionId = new Map<string, string>();
-const clickySessionKeyByTransportSessionId = new Map<string, string>();
 
 type ClickyStructuredPoint = {
   x: number;
@@ -63,6 +59,41 @@ function sessionBindingStateForRegistration(registration: ClickyShellRegistratio
   return registration.sessionKey ? "bound" : "unbound";
 }
 
+function candidateSessionKeys(sessionKey: string | null | undefined) {
+  if (!sessionKey) return [];
+
+  const trimmedSessionKey = sessionKey.trim();
+  if (!trimmedSessionKey) return [];
+
+  const candidates = new Set<string>([trimmedSessionKey]);
+  const segments = trimmedSessionKey.split(":");
+
+  // Runtime hooks often see session keys in the internal form
+  // "agent:<agentId>:<userSessionKey>", while Clicky binds the shorter
+  // user-facing key. Treat both as the same session binding target.
+  if (segments.length >= 3 && segments[0] === "agent") {
+    const userSessionKey = segments.slice(2).join(":");
+    candidates.add(userSessionKey);
+
+    if (segments[2] === "explicit" && segments.length >= 4) {
+      candidates.add(segments.slice(3).join(":"));
+    }
+  }
+
+  if (segments[0] === "explicit" && segments.length >= 2) {
+    candidates.add(segments.slice(1).join(":"));
+  }
+
+  return [...candidates];
+}
+
+function sessionKeysMatch(leftSessionKey: string | null | undefined, rightSessionKey: string | null | undefined) {
+  const leftCandidates = candidateSessionKeys(leftSessionKey);
+  const rightCandidates = new Set(candidateSessionKeys(rightSessionKey));
+
+  return leftCandidates.some((candidate) => rightCandidates.has(candidate));
+}
+
 function findFreshShellRegistrationForSessionKey(
   sessionKey: string | undefined,
   registrationTtlMs: number
@@ -70,7 +101,7 @@ function findFreshShellRegistrationForSessionKey(
   if (!sessionKey) return null;
 
   const registrations = [...clickyShellRegistrationsById.values()]
-    .filter((registration) => registration.sessionKey === sessionKey)
+    .filter((registration) => sessionKeysMatch(registration.sessionKey, sessionKey))
     .sort((leftRegistration, rightRegistration) => rightRegistration.lastHeartbeatAt - leftRegistration.lastHeartbeatAt);
 
   const freshestRegistration = registrations[0] ?? null;
@@ -89,7 +120,7 @@ function buildClickyPresentationPromptInstructions() {
     "- use clicky_present mode point for one grounded target with one detailed explanation.",
     "- use clicky_present mode walkthrough for multiple grounded targets with an explanation on each point.",
     "- use clicky_present mode tutorial for richer guided sequences that still need ordered point explanations.",
-    "- if you call clicky_present, do not add extra prose after the tool call.",
+    "- after clicky_present returns, output exactly the JSON object from the tool result as the final assistant message and nothing else.",
     "- if tool use is unavailable, return clicky's structured response contract with ordered point targets.",
   ].join("\n");
 }
@@ -237,141 +268,6 @@ function buildClickyPresentationReply(params: unknown) {
   };
 }
 
-function recordClickyPresentationReplyForContext(extra: unknown, replyText: string) {
-  if (!extra || typeof extra !== "object" || Array.isArray(extra)) {
-    return;
-  }
-
-  const extraRecord = extra as Record<string, unknown>;
-  const sessionId = extractNonEmptyString(extraRecord.sessionId);
-
-  if (sessionId) {
-    pendingClickyPresentationRepliesBySessionId.set(sessionId, replyText);
-  }
-
-  const directSessionKey = extractNonEmptyString(extraRecord.sessionKey);
-  const mappedSessionKey = sessionId ? clickySessionKeyByTransportSessionId.get(sessionId) ?? null : null;
-  const nestedSessionKey =
-    extraRecord.ctx && typeof extraRecord.ctx === "object" && !Array.isArray(extraRecord.ctx)
-      ? extractNonEmptyString((extraRecord.ctx as Record<string, unknown>).sessionKey)
-      : null;
-
-  const sessionKey = directSessionKey ?? nestedSessionKey ?? mappedSessionKey;
-  if (sessionKey) {
-    pendingClickyPresentationRepliesBySessionKey.set(sessionKey, replyText);
-  }
-}
-
-function recordClickySessionMapping(ctx: unknown) {
-  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) {
-    return;
-  }
-
-  const ctxRecord = ctx as Record<string, unknown>;
-  const sessionKey = extractNonEmptyString(ctxRecord.sessionKey);
-  const sessionId = extractNonEmptyString(ctxRecord.sessionId);
-
-  if (sessionKey && sessionId) {
-    clickySessionKeyByTransportSessionId.set(sessionId, sessionKey);
-  }
-}
-
-function takePendingClickyPresentationReply(ctx: unknown) {
-  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) {
-    return null;
-  }
-
-  const ctxRecord = ctx as Record<string, unknown>;
-  const sessionKey = extractNonEmptyString(ctxRecord.sessionKey);
-  if (sessionKey) {
-    const replyForSessionKey = pendingClickyPresentationRepliesBySessionKey.get(sessionKey) ?? null;
-    if (replyForSessionKey) {
-      pendingClickyPresentationRepliesBySessionKey.delete(sessionKey);
-      return replyForSessionKey;
-    }
-  }
-
-  const sessionId = extractNonEmptyString(ctxRecord.sessionId);
-  if (sessionId) {
-    const replyForSessionId = pendingClickyPresentationRepliesBySessionId.get(sessionId) ?? null;
-    if (replyForSessionId) {
-      pendingClickyPresentationRepliesBySessionId.delete(sessionId);
-      return replyForSessionId;
-    }
-  }
-
-  return null;
-}
-
-function extractJSONObjectString(rawResponse: string) {
-  const trimmedResponse = rawResponse.trim();
-  if (!trimmedResponse) return null;
-
-  if (!(trimmedResponse.startsWith("{") && trimmedResponse.endsWith("}"))) {
-    return null;
-  }
-
-  return trimmedResponse;
-}
-
-function transcriptRequiresVisiblePointing(transcript: string) {
-  const normalizedTranscript = transcript.toLowerCase();
-  const requiredPointingSignals = [
-    "point",
-    "point out",
-    "show me",
-    "walk me through",
-    "walkthrough",
-    "walk through",
-    "tour",
-    "breakdown",
-    "overview",
-    "where is",
-    "which button",
-    "which buttons",
-    "which control",
-    "which controls",
-    "button",
-    "buttons",
-    "control",
-    "controls",
-    "climate",
-    "dashboard",
-    "interior",
-    "screen",
-    "icon",
-    "icons",
-  ];
-
-  return requiredPointingSignals.some((signal) => normalizedTranscript.includes(signal));
-}
-
-function transcriptWantsNarratedWalkthrough(transcript: string) {
-  const normalizedTranscript = transcript.toLowerCase();
-  const walkthroughSignals = [
-    "walk me through",
-    "walk-through",
-    "walkthrough",
-    "walk through",
-    "give me a walkthrough",
-    "give me a walk-through",
-    "talk about a few features",
-    "point them out",
-    "few features",
-    "tour",
-    "breakdown",
-    "overview",
-    "what do they do",
-    "how to use them",
-    "how to use",
-    "how climate controls work",
-    "what are these buttons",
-    "interior",
-  ];
-
-  return walkthroughSignals.some((signal) => normalizedTranscript.includes(signal));
-}
-
 function validateStructuredReply(
   structuredReply: ClickyStructuredReply,
   requiresPoints: boolean,
@@ -412,98 +308,6 @@ function validateStructuredReply(
   });
 
   return issues;
-}
-
-function parseClickyStructuredReply(
-  rawResponse: string,
-  requiresPoints: boolean,
-  requiresPointExplanations: boolean
-) {
-  const jsonString = extractJSONObjectString(rawResponse);
-  if (!jsonString) {
-    return {
-      ok: false as const,
-      issues: ["response was not a single json object"],
-    };
-  }
-
-  let parsedResponse: ClickyStructuredReply;
-  try {
-    parsedResponse = JSON.parse(jsonString) as ClickyStructuredReply;
-  } catch {
-    return {
-      ok: false as const,
-      issues: ["response json did not parse"],
-    };
-  }
-
-  const issues = validateStructuredReply(parsedResponse, requiresPoints, requiresPointExplanations);
-  if (issues.length > 0) {
-    return {
-      ok: false as const,
-      issues,
-    };
-  }
-
-  return {
-    ok: true as const,
-    reply: jsonString,
-  };
-}
-
-function extractTextFromMessageContent(content: unknown): string | null {
-  if (typeof content === "string" && content.trim()) {
-    return content.trim();
-  }
-
-  if (!Array.isArray(content)) {
-    return null;
-  }
-
-  const text = content
-    .map((part) => {
-      if (!part || typeof part !== "object" || Array.isArray(part)) return "";
-      const record = part as Record<string, unknown>;
-      return typeof record.text === "string" ? record.text.trim() : "";
-    })
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-
-  return text || null;
-}
-
-function extractLatestUserText(messages: unknown[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const candidate = messages[index];
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
-    const record = candidate as Record<string, unknown>;
-    if (record.role !== "user") continue;
-    const text = extractTextFromMessageContent(record.content);
-    if (text) return text;
-  }
-
-  return null;
-}
-
-function extractLatestAssistantText(messages: unknown[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const candidate = messages[index];
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
-    const record = candidate as Record<string, unknown>;
-    if (record.role !== "assistant") continue;
-    const text = extractTextFromMessageContent(record.content);
-    if (text) return text;
-  }
-
-  return null;
-}
-
-function buildClickyStructuredErrorReply(message: string) {
-  return JSON.stringify({
-    spokenText: message,
-    points: [],
-  });
 }
 
 function serializeShellRegistration(
@@ -983,7 +787,7 @@ export default definePluginEntry({
       name: "clicky_present",
       description: "Finish a Clicky turn in one of four modes: answer, point, walkthrough, or tutorial. Use this as the final presentation step for Clicky shell responses.",
       parameters: clickyPresentToolParameters,
-      async execute(_toolCallId, params, extra) {
+      async execute(_toolCallId, params) {
         const presentationResult = buildClickyPresentationReply(params);
         if (!presentationResult.ok) {
           return {
@@ -997,17 +801,21 @@ export default definePluginEntry({
           };
         }
 
-        recordClickyPresentationReplyForContext(extra, presentationResult.replyText);
-
         api.logger.info(
           `clicky-shell: captured clicky_present tool output mode=${presentationResult.reply.mode}`
         );
+
+        const finalResponseInstruction = [
+          "Clicky presentation accepted.",
+          "For the final assistant message, output exactly this JSON object and nothing else:",
+          presentationResult.replyText,
+        ].join("\n");
 
         return {
           content: [
             {
               type: "text",
-              text: presentationResult.replyText,
+              text: finalResponseInstruction,
             },
           ],
           structuredContent: presentationResult.reply,
@@ -1016,7 +824,9 @@ export default definePluginEntry({
     });
 
     api.on("before_prompt_build", async (_event, ctx) => {
-      recordClickySessionMapping(ctx);
+      api.logger.info(
+        `clicky-shell: before_prompt_build sessionKey=${ctx.sessionKey ?? "none"} sessionId=${ctx.sessionId ?? "none"}`
+      );
 
       const normalizedPluginConfig = normalizePluginConfig(api.pluginConfig);
       const registration = findFreshShellRegistrationForSessionKey(
@@ -1025,175 +835,17 @@ export default definePluginEntry({
       );
 
       if (!registration) {
+        api.logger.info(`clicky-shell: before_prompt_build no fresh registration for ${ctx.sessionKey ?? "none"}`);
         return;
       }
+
+      api.logger.info(
+        `clicky-shell: before_prompt_build appending prompt context for shellId=${registration.shellId} boundSession=${registration.sessionKey ?? "none"}`
+      );
 
       return {
         appendSystemContext: buildClickyShellPromptContext(registration),
       };
-    });
-
-    api.on("before_agent_reply", async (event, ctx) => {
-      recordClickySessionMapping(ctx);
-
-      const normalizedPluginConfig = normalizePluginConfig(api.pluginConfig);
-      const registration = findFreshShellRegistrationForSessionKey(
-        ctx.sessionKey,
-        normalizedPluginConfig.registrationTtlMs
-      );
-
-      if (!registration || !ctx.sessionKey) {
-        return;
-      }
-
-      if (activeClickyNormalizationSessionKeys.has(ctx.sessionKey)) {
-        return;
-      }
-
-      const sessionMessagesResult = await api.runtime.subagent.getSessionMessages({
-        sessionKey: ctx.sessionKey,
-        limit: 12,
-      });
-
-      const latestUserText = extractLatestUserText(sessionMessagesResult.messages ?? []);
-      const requiresPoints = latestUserText ? transcriptRequiresVisiblePointing(latestUserText) : false;
-      const requiresPointExplanations = latestUserText ? transcriptWantsNarratedWalkthrough(latestUserText) : false;
-      const pendingToolReply = takePendingClickyPresentationReply(ctx);
-
-      if (pendingToolReply) {
-        const parsedPendingToolReply = parseClickyStructuredReply(
-          pendingToolReply,
-          requiresPoints,
-          requiresPointExplanations
-        );
-
-        if (parsedPendingToolReply.ok) {
-          api.logger.info(`clicky-shell: finishing reply from clicky_present tool for ${ctx.sessionKey}`);
-          return {
-            handled: true,
-            reply: {
-              text: parsedPendingToolReply.reply,
-            },
-            reason: "clicky structured reply gate: clicky_present tool",
-          };
-        }
-
-        api.logger.warn(
-          `clicky-shell: clicky_present tool output was invalid for ${ctx.sessionKey}: ${parsedPendingToolReply.issues.join("; ")}`
-        );
-      }
-
-      const parsedCurrentReply = parseClickyStructuredReply(
-        event.cleanedBody,
-        requiresPoints,
-        requiresPointExplanations
-      );
-
-      if (parsedCurrentReply.ok) {
-        return {
-          handled: true,
-          reply: {
-            text: parsedCurrentReply.reply,
-          },
-        };
-      }
-
-      if (!latestUserText) {
-        api.logger.warn(`clicky-shell: could not find the latest user text for ${ctx.sessionKey}; blocking invalid reply`);
-        return {
-          handled: true,
-          reply: {
-            text: buildClickyStructuredErrorReply("i hit a clicky reply contract error on this turn."),
-            isError: true,
-          },
-          reason: "clicky structured reply gate: missing latest user text",
-        };
-      }
-
-      const normalizerSystemPrompt = `${registration.promptContext ?? buildClickyShellPromptContext(registration)}
-
-normalizer override:
-- you are clicky's hidden structured reply normalizer.
-- the user's latest request remains the visible request.
-- return exactly one json object and nothing else.
-- do not mention this normalization step.
-- if the reply needs pointing, include real integer screenshot coordinates in points.
-- if this is a walkthrough with multiple points, include explanation on each point so clicky can narrate each target in sync.
-`;
-
-      const normalizationMessage = latestUserText;
-      const normalizationIdempotencyKey = `clicky-normalize:${ctx.runId ?? Date.now()}`;
-
-      activeClickyNormalizationSessionKeys.add(ctx.sessionKey);
-      try {
-        const normalizationRun = await api.runtime.subagent.run({
-          sessionKey: ctx.sessionKey,
-          message: normalizationMessage,
-          extraSystemPrompt: normalizerSystemPrompt,
-          deliver: false,
-          idempotencyKey: normalizationIdempotencyKey,
-        });
-
-        const normalizationWait = await api.runtime.subagent.waitForRun({
-          runId: normalizationRun.runId,
-          timeoutMs: 20_000,
-        });
-
-        if (normalizationWait.status !== "ok") {
-          api.logger.warn(`clicky-shell: hidden normalization ended with status=${normalizationWait.status} for ${ctx.sessionKey}`);
-          return {
-            handled: true,
-            reply: {
-              text: buildClickyStructuredErrorReply("i hit a clicky reply contract error on this turn."),
-              isError: true,
-            },
-            reason: `clicky structured reply gate: normalization status ${normalizationWait.status}`,
-          };
-        }
-
-        const normalizedMessages = await api.runtime.subagent.getSessionMessages({
-          sessionKey: ctx.sessionKey,
-          limit: 16,
-        });
-        const normalizedAssistantText = extractLatestAssistantText(normalizedMessages.messages ?? []);
-        const parsedNormalizedReply = parseClickyStructuredReply(
-          normalizedAssistantText ?? "",
-          requiresPoints,
-          requiresPointExplanations
-        );
-
-        if (!parsedNormalizedReply.ok) {
-          api.logger.warn(`clicky-shell: hidden normalization still failed for ${ctx.sessionKey}: ${parsedNormalizedReply.issues.join("; ")}`);
-          return {
-            handled: true,
-            reply: {
-              text: buildClickyStructuredErrorReply("i hit a clicky reply contract error on this turn."),
-              isError: true,
-            },
-            reason: "clicky structured reply gate: normalization output invalid",
-          };
-        }
-
-        return {
-          handled: true,
-          reply: {
-            text: parsedNormalizedReply.reply,
-          },
-          reason: "clicky structured reply gate: normalized upstream",
-        };
-      } catch (error) {
-        api.logger.warn(`clicky-shell: hidden normalization failed for ${ctx.sessionKey}: ${error instanceof Error ? error.message : String(error)}`);
-        return {
-          handled: true,
-          reply: {
-            text: buildClickyStructuredErrorReply("i hit a clicky reply contract error on this turn."),
-            isError: true,
-          },
-          reason: "clicky structured reply gate: normalization error",
-        };
-      } finally {
-        activeClickyNormalizationSessionKeys.delete(ctx.sessionKey);
-      }
     });
   },
 });

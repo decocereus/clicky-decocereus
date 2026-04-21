@@ -8,6 +8,26 @@ Last stable pushed checkpoint before this slice:
 
 Move OpenClaw-backed Clicky turns away from prompt-only JSON formatting and toward a tool-driven final presentation path, without losing the current structured-response fallback that already works.
 
+## Current Verification Result
+
+The live local Gateway path was verified on April 21, 2026 after enabling
+`clicky-shell` in `~/.openclaw/openclaw.json` and restarting the Gateway.
+
+Direct app-like Gateway `agent` calls now pass for:
+
+- `answer`
+- `point`
+- `walkthrough`
+- ambiguous fallback as `answer`
+
+Each run called `clicky_present` once with zero tool failures and returned the
+structured JSON envelope that Clicky's Mac app parser expects.
+
+Important runtime finding: OpenClaw treats a tool-only final response as an
+empty user-visible response on the direct Gateway `agent` method. The working
+path is for `clicky_present` to return finalization instructions, then for the
+model to emit the exact JSON envelope as the final assistant message.
+
 ## What Is Implemented
 
 ### Plugin-side presentation tool
@@ -25,18 +45,19 @@ Move OpenClaw-backed Clicky turns away from prompt-only JSON formatting and towa
   - mode-compatible point counts
   - explanations on non-`answer` modes
   - point coordinate/label basics
-- The tool returns the same structured envelope Clicky already understands, so the app-side execution path stays intact.
+- The tool validates the same structured envelope Clicky already understands,
+  then instructs the model to emit that exact envelope as the final assistant
+  message so the app-side execution path stays intact.
 
-### Plugin prompt and interception changes
+### Plugin prompt changes
 
 - The prompt path now appends explicit `clicky_present` tool guidance after the synced Clicky prompt context instead of relying only on the plugin's default fallback prompt.
-- The reply interceptor now checks for a pending `clicky_present` tool result before:
-  1. accepting raw structured JSON already in the reply
-  2. using hidden normalization
-- There is best-effort session tracking using:
-  - `sessionKey`
-  - `sessionId`
-  - a transport-session to session-key map
+- The prompt path handles OpenClaw's internal session keys, including both
+  `agent:<agentId>:<sessionKey>` and
+  `agent:<agentId>:explicit:<sessionKey>`, so Clicky's shorter bound session key
+  still receives shell prompt context.
+- The old cached-tool-result recovery and hidden normalizer paths have been
+  deleted. The app-facing path is now tool call plus final JSON emission.
 
 ### App-side contract alignment
 
@@ -61,57 +82,36 @@ These now describe `clicky_present` as the preferred OpenClaw final presentation
 
 ## What Is Not Done Yet
 
-### Not live-verified
-
-The code has not yet been live-verified against the running gateway/plugin because we deliberately did not:
-
-- reinstall the local `clicky-shell` plugin
-- restart the OpenClaw gateway
-
-That was intentional to preserve the current runtime during iteration unless the user explicitly wants the disruption.
-
 ### Locator tool not implemented
 
 `clicky_locate` / `clicky_locate_many` is still pending.
 
 That is the next meaningful implementation phase, but it depends on confirming the cleanest plugin-to-shell request path for asking Clicky to resolve coordinates from the live screen context.
 
-### Old fallback path still present
-
-We still keep:
-
-- raw structured JSON parsing
-- hidden normalization
-- current repair path
-
-This is intentional. The migration is additive right now.
-
 ## Main Open Questions
 
-1. Does the live OpenClaw runtime pass a stable enough session identifier into `clicky_present` tool execution for the stored tool result to be recovered reliably in `before_agent_reply`?
-2. Does `before_agent_reply` expose both `sessionKey` and `sessionId` in practice, or only `sessionKey`?
-3. Is `structuredContent` from the tool callback surfaced usefully enough in the live runtime, or are we effectively depending only on the cached JSON string right now?
-4. When the model calls `clicky_present`, does it consistently stop cleanly afterward, or does it still tend to add prose after the tool call?
+1. Should the OpenClaw plugin be installed/provenanced cleanly instead of being
+   loaded as unmanaged global code from `~/.openclaw/extensions/clicky-shell`?
+2. Should the Mac app surface a clearer diagnostic when `clicky_present` is
+   called but the final assistant message is not structured JSON?
 
-## First Verification Pass To Run
-
-After explicit user approval to reload the plugin/gateway, verify these four turn types:
+## Verified Matrix
 
 1. Answer-only
    - Example: general guidance, no screen grounding
-   - Expected: `clicky_present` with `mode=answer`, no points
+   - Result: `clicky_present` with `mode=answer`, no points, final JSON returned
 
 2. Single-point detailed explanation
    - Example: "what does this one button do?"
-   - Expected: `clicky_present` with `mode=point`, exactly one point, explanation present
+   - Result: `clicky_present` with `mode=point`, exactly one point, explanation present, final JSON returned
 
 3. Narrated walkthrough
    - Example: steering wheel or gearbox walkthrough
-   - Expected: `clicky_present` with `mode=walkthrough`, multiple points, explanations on every point
+   - Result: `clicky_present` with `mode=walkthrough`, multiple points, explanations on every point, final JSON returned
 
 4. Ambiguous or low-confidence screen case
    - Example: blurry screenshot or vague target
-   - Expected: answer-only fallback, or raw structured JSON fallback if tool path is missed
+   - Result: `clicky_present` with `mode=answer`, no points, final JSON returned
 
 ## If The Tool Path Fails Tomorrow
 
@@ -119,28 +119,24 @@ Check in this order:
 
 1. Whether `clicky_present` appeared in the live plugin's advertised tools.
 2. Whether the tool callback ran at all.
-3. Whether the callback saw a usable `sessionId`.
-4. Whether `before_agent_reply` saw the same session identity.
-5. Whether the model added prose after the tool call.
+3. Whether the model emitted the exact final JSON object after the tool call.
+4. Whether the model added prose around the final JSON.
 
-If the callback runs but the pending result is not recovered, the likely next fix is to make the session handoff explicit instead of inferred.
+If a future run regresses into an empty response, first check whether the model
+emitted the final JSON after the `clicky_present` tool result.
 
 ## Next Implementation Phase
 
 After the first live verification:
 
-1. Decide whether the session handoff is reliable enough to keep.
+1. Clean up unmanaged plugin provenance.
 2. Start `clicky_locate` or `clicky_locate_many`.
 3. Use the existing element-location path as the grounding primitive, not a new coordinate system.
-4. Only after tool reliability is proven, trim the old repair and normalization path.
 
 ## Practical Pickup Point
 
 Tomorrow, start here:
 
 - review `plugins/openclaw-clicky-shell/index.ts`
-- reload the live plugin/gateway only if the user wants verification
-- run the four-turn verification matrix above
-- inspect logs for whether `clicky_present` is actually winning before fallback
-
-Do not begin by deleting the old JSON/repair path. First prove the tool path works live.
+- clean up the unmanaged global plugin provenance
+- start `clicky_locate` or `clicky_locate_many`

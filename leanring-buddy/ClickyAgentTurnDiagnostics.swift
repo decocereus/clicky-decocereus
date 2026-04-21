@@ -123,6 +123,67 @@ enum ClickyAgentTurnDiagnostics {
         )
     }
 
+    static func logOpenClawGatewayRPCRequest(
+        method: String,
+        requestIdentifier: String,
+        timeoutSeconds: TimeInterval,
+        params: [String: Any]
+    ) {
+        ClickyLogger.info(
+            .turns,
+            """
+            turn-openclaw-gateway-rpc-request
+            method=\(method)
+            requestId=\(requestIdentifier)
+            timeoutSeconds=\(timeoutSeconds)
+            params:
+            \(String(describing: params))
+            """
+        )
+    }
+
+    static func logOpenClawGatewayRPCResponse(
+        method: String,
+        requestIdentifier: String,
+        ok: Bool,
+        payload: [String: Any]? = nil,
+        errorMessage: String? = nil
+    ) {
+        ClickyLogger.info(
+            .turns,
+            """
+            turn-openclaw-gateway-rpc-response
+            method=\(method)
+            requestId=\(requestIdentifier)
+            ok=\(ok)
+            payload:
+            \(payload.map { String(describing: $0) } ?? "(none)")
+            error:
+            \(errorMessage ?? "(none)")
+            """
+        )
+    }
+
+    static func logOpenClawGatewayRunLifecycle(
+        stage: String,
+        sessionKey: String,
+        runIdentifier: String? = nil,
+        status: String? = nil,
+        detail: String? = nil
+    ) {
+        ClickyLogger.info(
+            .turns,
+            """
+            turn-openclaw-gateway-run-lifecycle
+            stage=\(stage)
+            sessionKey=\(sessionKey)
+            runId=\(runIdentifier ?? "(none)")
+            status=\(status ?? "(none)")
+            detail=\(detail ?? "(none)")
+            """
+        )
+    }
+
     static func logRenderedPrompt(
         backendLabel: String,
         prompt: String

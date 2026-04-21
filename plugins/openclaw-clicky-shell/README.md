@@ -9,13 +9,13 @@ Native OpenClaw plugin scaffold for connecting OpenClaw to the Clicky desktop sh
 - registers Clicky-namespaced Gateway methods
 - registers a simple `/clicky` command
 - registers a `clicky_status` tool
-- registers a `clicky_present` tool as the preferred final presentation surface for Clicky turns
+- registers a `clicky_present` tool as the preferred presentation-mode surface for Clicky turns
 - accepts real shell registrations
 - tracks shell heartbeat freshness in memory
 - reports shell status and session binding state
 - syncs per-turn Clicky prompt context through plugin-owned gateway methods
 - appends prompt context for fresh, bound Clicky shells during prompt build without exposing it in raw user message payloads
-- prefers tool-driven Clicky presentation first, while keeping the raw structured JSON reply path as fallback
+- prefers tool-driven Clicky presentation first, then mirrors the tool result as the final structured JSON reply for the app, while keeping the raw structured JSON reply path as fallback
 
 ## What it will do next
 

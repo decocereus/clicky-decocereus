@@ -553,6 +553,13 @@ final class OpenClawGatewayCompanionAgent {
             await state.setTrackedRunIdentifier(acceptedRunIdentifier)
 
             let acceptedStatus = ((acceptedPayload["status"] as? String) ?? "").lowercased()
+            ClickyAgentTurnDiagnostics.logOpenClawGatewayRunLifecycle(
+                stage: "agent-accepted",
+                sessionKey: sessionKey,
+                runIdentifier: acceptedRunIdentifier,
+                status: acceptedStatus,
+                detail: String(describing: acceptedPayload)
+            )
             if acceptedStatus != "ok" {
                 let waitPayload = try await request(
                     method: "agent.wait",
@@ -564,6 +571,13 @@ final class OpenClawGatewayCompanionAgent {
                 )
 
                 let waitStatus = ((waitPayload["status"] as? String) ?? "").lowercased()
+                ClickyAgentTurnDiagnostics.logOpenClawGatewayRunLifecycle(
+                    stage: "agent-wait",
+                    sessionKey: sessionKey,
+                    runIdentifier: acceptedRunIdentifier,
+                    status: waitStatus,
+                    detail: String(describing: waitPayload)
+                )
                 if waitStatus == "timeout" {
                     throw NSError(
                         domain: "OpenClawGatewayCompanionAgent",
@@ -587,6 +601,13 @@ final class OpenClawGatewayCompanionAgent {
 
             let fullResponseText = await state.accumulatedResponseText()
             let lifecycleError = await state.lifecycleError()
+            ClickyAgentTurnDiagnostics.logOpenClawGatewayRunLifecycle(
+                stage: "agent-finished",
+                sessionKey: sessionKey,
+                runIdentifier: acceptedRunIdentifier,
+                status: fullResponseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "empty-response" : "text-response",
+                detail: lifecycleError ?? "responseLength=\(fullResponseText.count)"
+            )
             if fullResponseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let lifecycleError,
                !lifecycleError.isEmpty {
@@ -907,6 +928,12 @@ final class OpenClawGatewayCompanionAgent {
             timeoutSeconds: TimeInterval
         ) async throws -> [String: Any] {
             let requestIdentifier = UUID().uuidString
+            ClickyAgentTurnDiagnostics.logOpenClawGatewayRPCRequest(
+                method: method,
+                requestIdentifier: requestIdentifier,
+                timeoutSeconds: timeoutSeconds,
+                params: params
+            )
 
             return try await withTimeout(seconds: timeoutSeconds) {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
@@ -1014,8 +1041,15 @@ final class OpenClawGatewayCompanionAgent {
             if frameType == "res",
                let responseIdentifier = frame["id"] as? String,
                let responseIsOkay = frame["ok"] as? Bool {
+                let responseMethod = frame["method"] as? String ?? "unknown"
                 if responseIsOkay {
                     let payload = frame["payload"] as? [String: Any] ?? [:]
+                    ClickyAgentTurnDiagnostics.logOpenClawGatewayRPCResponse(
+                        method: responseMethod,
+                        requestIdentifier: responseIdentifier,
+                        ok: true,
+                        payload: payload
+                    )
                     await state.resolvePendingResponse(
                         requestIdentifier: responseIdentifier,
                         payload: payload
@@ -1025,6 +1059,12 @@ final class OpenClawGatewayCompanionAgent {
                     let errorMessage = (errorPayload["message"] as? String)
                         ?? (errorPayload["code"] as? String)
                         ?? "OpenClaw Gateway request failed."
+                    ClickyAgentTurnDiagnostics.logOpenClawGatewayRPCResponse(
+                        method: responseMethod,
+                        requestIdentifier: responseIdentifier,
+                        ok: false,
+                        errorMessage: errorMessage
+                    )
                     let error = NSError(
                         domain: "OpenClawGatewayCompanionAgent",
                         code: -6,

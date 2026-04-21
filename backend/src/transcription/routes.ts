@@ -1,4 +1,5 @@
 import type { Context } from "hono"
+import type { ContentfulStatusCode } from "hono/utils/http-status"
 
 import { readEnvValue, type Env } from "../env"
 
@@ -28,7 +29,7 @@ export async function handleCreateAssemblyAIToken(c: Context<{ Bindings: Env }>)
     const errorBody = await response.text()
     console.error(`[backend:/v1/transcription/assemblyai-token] AssemblyAI token error ${response.status}: ${errorBody}`)
 
-    return c.body(errorBody, response.status, {
+    return c.body(errorBody, response.status as ContentfulStatusCode, {
       "content-type": response.headers.get("content-type") ?? "application/json",
     })
   }

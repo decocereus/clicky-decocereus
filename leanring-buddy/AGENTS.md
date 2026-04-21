@@ -173,7 +173,7 @@ Apply these rules to every Swift/SwiftUI task in this target.
 - Preserve the existing state ownership style within the file or feature you are editing unless there is a clear benefit to changing it. Prefer the simplest SwiftUI-native state model that fits new local code.
 - The assistant request path should stay provider-agnostic: build one canonical Clicky turn contract, then map it through one adapter file per backend. Do not reintroduce provider-specific request assembly inside `CompanionManager`.
 - The normal assistant response path should use one structured response contract with spoken text plus ordered point targets. Do not depend on backend-specific inline tag syntax in the main companion flow.
-- For OpenClaw-backed Clicky turns, prefer the plugin-exposed `clicky_present` tool as the final presentation path. Keep raw structured JSON handling only as fallback during migration.
+- For OpenClaw-backed Clicky turns, prefer the plugin-exposed `clicky_present` tool to choose the presentation mode, then have the agent emit the exact structured JSON envelope returned by that tool as the final assistant message. Keep raw structured JSON without the tool only as fallback during migration.
 - The canonical turn contract now includes focus context in addition to screenshots. Preserve that shared path for future providers instead of adding backend-specific cursor/focus hacks.
 - For OpenClaw, keep Clicky runtime/system instructions on the plugin-owned prompt-injection path. Do not concatenate them into the raw user `message` payload sent through Gateway.
 - Repo override: do **not** use terminal `xcodebuild` here. Preserve TCC permissions by preferring Xcode.app for build/run unless the user explicitly accepts the tradeoff.

@@ -146,7 +146,7 @@ Role:
 - stores in-memory shell registrations
 - exposes Clicky-specific gateway methods
 - injects Clicky shell prompt context for fresh bound sessions
-- prefers tool-driven final presentation via `clicky_present`, while keeping raw structured JSON as migration fallback
+- prefers tool-driven presentation selection via `clicky_present`, then mirrors the tool result as final structured JSON for the app, while keeping raw structured JSON as migration fallback
 
 Key file:
 
@@ -166,6 +166,12 @@ The repo consistently tries to preserve this split:
 The macOS app no longer assembles provider-specific requests directly in the
 main manager. It now uses a shared assistant turn model and per-provider
 adapters.
+
+Claude and Codex both use the shared structured JSON response contract directly
+through their normal text-generation paths. OpenClaw uses the `clicky_present`
+tool to choose the presentation mode, then emits the same structured JSON
+envelope as its final assistant message so the Mac app consumes all three
+backends through the same parser.
 
 Important files:
 
@@ -348,12 +354,14 @@ It also:
 
 - exposes `/clicky`
 - exposes `clicky_status`
-- exposes `clicky_present` as the preferred final presentation tool for Clicky turns
+- exposes `clicky_present` as the preferred presentation-mode tool for Clicky turns
 - injects Clicky shell prompt context on `before_prompt_build` when a shell is
   fresh and bound
-- checks for a pending `clicky_present` tool result on `before_agent_reply`
-  before falling back to raw structured JSON validation and hidden
-  normalization
+- instructs the model to emit the `clicky_present` result as final structured
+  JSON because direct Gateway `agent` runs treat tool-only final responses as
+  empty
+- keeps raw structured JSON without the tool as the fallback response shape
+  during migration
 
 This is enough for a working shell loop, but not yet a final trust model.
 

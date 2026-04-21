@@ -9,6 +9,59 @@ import Testing
 
 struct ClickyRefactorTests {
     @Test
+    func responseContractPromptAdvertisesAllPresentationModes() {
+        let promptInstructions = ClickyAssistantResponseContract.promptInstructions
+
+        #expect(promptInstructions.contains("answer|point|walkthrough|tutorial"))
+        #expect(promptInstructions.contains("\"mode\""))
+        #expect(promptInstructions.contains("\"spokenText\""))
+        #expect(promptInstructions.contains("\"points\""))
+        #expect(promptInstructions.contains("\"explanation\""))
+    }
+
+    @Test
+    func responseContractParsesAnswerPointAndWalkthroughModes() throws {
+        let answer = try ClickyAssistantResponseContract.parse(
+            rawResponse: #"{"mode":"answer","spokenText":"hello there.","points":[]}"#,
+            requiresPoints: false
+        )
+        #expect(answer.mode == .answer)
+        #expect(answer.spokenText == "hello there.")
+        #expect(answer.points.isEmpty)
+
+        let point = try ClickyAssistantResponseContract.parse(
+            rawResponse: #"{"mode":"point","spokenText":"use save.","points":[{"x":820,"y":460,"label":"Save button","bubbleText":"Save","explanation":"This button saves your changes.","screenNumber":1}]}"#,
+            requiresPoints: true
+        )
+        #expect(point.mode == .point)
+        #expect(point.points.count == 1)
+        #expect(point.points[0].x == 820)
+        #expect(point.points[0].explanation == "This button saves your changes.")
+
+        let walkthrough = try ClickyAssistantResponseContract.parse(
+            rawResponse: #"{"mode":"walkthrough","spokenText":"here is the tour.","points":[{"x":260,"y":210,"label":"Account","bubbleText":"Account","explanation":"Start with account settings."},{"x":260,"y":310,"label":"Voice","bubbleText":"Voice","explanation":"Then check voice settings."}]}"#,
+            requiresPoints: true
+        )
+        #expect(walkthrough.mode == .walkthrough)
+        #expect(walkthrough.points.count == 2)
+    }
+
+    @Test
+    func responseContractRejectsPointingRequestsWithoutPoints() {
+        do {
+            _ = try ClickyAssistantResponseContract.parse(
+                rawResponse: #"{"mode":"answer","spokenText":"i cannot point at that.","points":[]}"#,
+                requiresPoints: true
+            )
+            Issue.record("Expected response contract parsing to fail when pointing is required.")
+        } catch let ClickyAssistantResponseContractError.invalidResponse(issues, _) {
+            #expect(issues.contains("points array was empty even though the request required pointing"))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
     @MainActor
     func preferencesStorePersistsSelectionsAcrossReloads() throws {
         let suiteName = "ClickyPreferencesStoreTests-\(UUID().uuidString)"
