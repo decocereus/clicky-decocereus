@@ -338,7 +338,7 @@ final class CompanionManager: ObservableObject {
             self?.surfaceController.isOverlayVisible == true
         }
     )
-    private lazy var tutorialPlaybackCoordinator = ClickyTutorialPlaybackCoordinator(
+    lazy var tutorialPlaybackCoordinator = ClickyTutorialPlaybackCoordinator(
         tutorialController: tutorialController
     )
     private lazy var tutorialImportVoiceIntentCoordinator = ClickyTutorialImportVoiceIntentCoordinator(
@@ -501,7 +501,7 @@ final class CompanionManager: ObservableObject {
             self?.preferences.selectedAgentBackend ?? .claude
         }
     )
-    private lazy var tutorialImportCoordinator = ClickyTutorialImportCoordinator(
+    lazy var tutorialImportCoordinator = ClickyTutorialImportCoordinator(
         tutorialController: tutorialController,
         backendURLProvider: { [weak self] in
             self?.preferences.clickyBackendBaseURL ?? ""
@@ -770,30 +770,6 @@ final class CompanionManager: ObservableObject {
 
     func notifyManagedPointTargetArrived() {
         pointingSequenceController.notifyTargetArrived()
-    }
-
-    func startTutorialImportFromPanel() {
-        tutorialImportCoordinator.startImportFromPanel()
-    }
-
-    func startTutorialLessonFromReadyState() {
-        tutorialPlaybackCoordinator.startLessonFromReadyState()
-    }
-
-    func advanceTutorialLessonFromPanel() {
-        tutorialPlaybackCoordinator.advanceLessonFromPanel()
-    }
-
-    func rewindTutorialLessonFromPanel() {
-        tutorialPlaybackCoordinator.rewindLessonFromPanel()
-    }
-
-    func repeatTutorialLessonStepFromPanel() {
-        tutorialPlaybackCoordinator.repeatLessonStepFromPanel()
-    }
-
-    func retryTutorialImportFromPanel() {
-        tutorialImportCoordinator.retryImportFromPanel()
     }
 
     func startTutorialPlayback(

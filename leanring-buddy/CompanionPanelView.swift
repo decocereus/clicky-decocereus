@@ -800,7 +800,7 @@ struct CompanionPanelView: View {
                     placeholder: "https://youtube.com/watch?v=...",
                     theme: theme,
                     contentTheme: contentTheme,
-                    onSubmit: companionManager.startTutorialImportFromPanel
+                    onSubmit: companionManager.tutorialImportCoordinator.startImportFromPanel
                 )
             }
 
@@ -810,7 +810,7 @@ struct CompanionPanelView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Button(action: {
-                companionManager.startTutorialImportFromPanel()
+                companionManager.tutorialImportCoordinator.startImportFromPanel()
             }) {
                 Text("Start Learning")
                     .frame(maxWidth: .infinity)
@@ -833,7 +833,7 @@ struct CompanionPanelView: View {
                     placeholder: "https://youtube.com/watch?v=dQw4w9WgXcQ",
                     theme: theme,
                     contentTheme: contentTheme,
-                    onSubmit: companionManager.startTutorialImportFromPanel
+                    onSubmit: companionManager.tutorialImportCoordinator.startImportFromPanel
                 )
             }
 
@@ -938,7 +938,7 @@ struct CompanionPanelView: View {
 
             HStack(spacing: 10) {
                 Button(action: {
-                    companionManager.startTutorialLessonFromReadyState()
+                    companionManager.tutorialPlaybackCoordinator.startLessonFromReadyState()
                 }) {
                     Text("Start Lesson")
                         .frame(maxWidth: .infinity)
@@ -969,7 +969,7 @@ struct CompanionPanelView: View {
 
             HStack(spacing: 10) {
                 Button(action: {
-                    companionManager.repeatTutorialLessonStepFromPanel()
+                    companionManager.tutorialPlaybackCoordinator.repeatLessonStepFromPanel()
                 }) {
                     Text("Repeat")
                         .frame(maxWidth: .infinity)
@@ -978,7 +978,7 @@ struct CompanionPanelView: View {
                 .pointerCursor()
 
                 Button(action: {
-                    companionManager.rewindTutorialLessonFromPanel()
+                    companionManager.tutorialPlaybackCoordinator.rewindLessonFromPanel()
                 }) {
                     Text("Back")
                         .frame(maxWidth: .infinity)
@@ -987,7 +987,7 @@ struct CompanionPanelView: View {
                 .pointerCursor()
 
                 Button(action: {
-                    companionManager.advanceTutorialLessonFromPanel()
+                    companionManager.tutorialPlaybackCoordinator.advanceLessonFromPanel()
                 }) {
                     Text("Next Step")
                         .frame(maxWidth: .infinity)
@@ -1014,7 +1014,7 @@ struct CompanionPanelView: View {
 
             HStack(spacing: 10) {
                 Button(action: {
-                    companionManager.retryTutorialImportFromPanel()
+                    companionManager.tutorialImportCoordinator.retryImportFromPanel()
                 }) {
                     Text("Try Again")
                         .frame(maxWidth: .infinity)
