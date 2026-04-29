@@ -980,7 +980,7 @@ private struct CompanionStudioCompanionScene: View {
                             control: AnyView(
                                 CompanionStudioPointerGuidanceToggle(
                                     preferences: preferences,
-                                    onSetClickyCursorEnabled: companionManager.setClickyCursorEnabled,
+                                    onSetClickyCursorEnabled: companionManager.surfaceLifecycleCoordinator.setCursorEnabled,
                                     theme: theme
                                 )
                             )

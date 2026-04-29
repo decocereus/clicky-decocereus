@@ -446,7 +446,7 @@ struct BlueCursorView: View {
         .onDisappear {
             timer?.invalidate()
             navigationAnimationTimer?.invalidate()
-            companionManager.tearDownOnboardingVideo()
+            companionManager.onboardingVideoController.tearDownVideo()
         }
         .onChange(of: surfaceController.detectedElementScreenLocation) { _, newLocation in
             // When a UI element location is detected, navigate the buddy to
@@ -1055,7 +1055,7 @@ struct BlueCursorView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                     self.showWelcome = false
                     // Start the onboarding video right after the welcome text disappears
-                    self.companionManager.setupOnboardingVideo()
+                    self.companionManager.onboardingVideoController.setupVideo()
                 }
                 return
             }

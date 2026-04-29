@@ -672,7 +672,7 @@ struct CompanionPanelView: View {
 
             HStack(spacing: 10) {
                 Button(action: {
-                    companionManager.triggerOnboarding()
+                    companionManager.surfaceLifecycleCoordinator.triggerOnboarding()
                 }) {
                     Text("Start Using Clicky")
                         .frame(maxWidth: .infinity)
@@ -1283,7 +1283,7 @@ struct CompanionPanelView: View {
                         : "So Clicky can still understand the text and interfaces in front of you.",
                     primaryTitle: companionManager.isRequestingScreenContent ? "Waiting…" : "Grant",
                     primaryAction: {
-                        companionManager.requestScreenContentPermission()
+                        companionManager.permissionCoordinator.requestScreenContentPermission()
                     }
                 ).withState(rowState(for: .screenContent, isGranted: false))
             )
@@ -1499,7 +1499,7 @@ struct CompanionPanelView: View {
     }
 
     private func continueFromPermissions() {
-        companionManager.refreshAllPermissions()
+        companionManager.permissionCoordinator.refreshAllPermissions()
 
         if allPermissionsGranted {
             withAnimation(panelSpringAnimation) {
@@ -1520,12 +1520,12 @@ struct CompanionPanelView: View {
 
     private func requestAccessibilityPermission() {
         _ = WindowPositionManager.requestAccessibilityPermission()
-        companionManager.refreshAllPermissions()
+        companionManager.permissionCoordinator.refreshAllPermissions()
     }
 
     private func requestScreenRecordingPermission() {
         _ = WindowPositionManager.requestScreenRecordingPermission()
-        companionManager.refreshAllPermissions()
+        companionManager.permissionCoordinator.refreshAllPermissions()
     }
 
     private func handleSignInPrimaryAction() {

@@ -140,7 +140,7 @@ final class CompanionManager: ObservableObject {
         backendRoutingController: backendRoutingController,
         runtimeClient: codexRuntimeClient
     )
-    private lazy var permissionCoordinator = ClickyPermissionCoordinator(
+    lazy var permissionCoordinator = ClickyPermissionCoordinator(
         surfaceController: surfaceController,
         shortcutMonitor: globalPushToTalkShortcutMonitor,
         onRequestingScreenContentChanged: { [weak self] _ in
@@ -152,7 +152,7 @@ final class CompanionManager: ObservableObject {
         }
     )
     private let onboardingMusicController = ClickyOnboardingMusicController()
-    private lazy var surfaceLifecycleCoordinator = ClickySurfaceLifecycleCoordinator(
+    lazy var surfaceLifecycleCoordinator = ClickySurfaceLifecycleCoordinator(
         preferences: preferences,
         surfaceController: surfaceController,
         overlayWindowManager: overlayWindowManager,
@@ -243,7 +243,7 @@ final class CompanionManager: ObservableObject {
             self?.queueDetectedElementTargets(targets)
         }
     )
-    private lazy var onboardingVideoController = ClickyOnboardingVideoController(
+    lazy var onboardingVideoController = ClickyOnboardingVideoController(
         surfaceController: surfaceController,
         performDemoInteraction: { [weak self] in
             self?.onboardingDemoController.perform()
@@ -638,10 +638,6 @@ final class CompanionManager: ObservableObject {
         set { preferences.isClickyCursorEnabled = newValue }
     }
 
-    func setClickyCursorEnabled(_ enabled: Bool) {
-        surfaceLifecycleCoordinator.setCursorEnabled(enabled)
-    }
-
     /// Whether the user has completed onboarding at least once. Persisted
     /// to UserDefaults so the Start button only appears on first launch.
     var hasCompletedOnboarding: Bool {
@@ -651,21 +647,6 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         lifecycleCoordinator.start()
-    }
-
-    /// Called by BlueCursorView after the buddy finishes its pointing
-    /// animation and returns to cursor-following mode.
-    /// Triggers the onboarding sequence — dismisses the panel and restarts
-    /// the overlay so the welcome animation and intro video play.
-    func triggerOnboarding() {
-        surfaceLifecycleCoordinator.triggerOnboarding()
-    }
-
-    /// Replays the onboarding experience from the "Watch Onboarding Again"
-    /// footer link. Same flow as triggerOnboarding but the cursor overlay
-    /// is already visible so we just restart the welcome animation and video.
-    func replayOnboarding() {
-        surfaceLifecycleCoordinator.replayOnboarding()
     }
 
     func clearDetectedElementLocation() {
@@ -742,17 +723,6 @@ final class CompanionManager: ObservableObject {
         launchRuntimeCoordinator.handleApplicationDidBecomeActive()
     }
 
-    func refreshAllPermissions() {
-        permissionCoordinator.refreshAllPermissions()
-    }
-
-    /// Triggers the macOS screen content picker by performing a dummy
-    /// screenshot capture. Once the user approves, we persist the grant
-    /// so they're never asked again during onboarding.
-    func requestScreenContentPermission() {
-        permissionCoordinator.requestScreenContentPermission()
-    }
-
     // MARK: - AI Response Pipeline
 
     /// Captures a screenshot, sends it along with the transcript to Claude,
@@ -774,18 +744,6 @@ final class CompanionManager: ObservableObject {
 
     private func scheduleTransientHideIfNeeded() {
         voiceSessionCoordinator.scheduleTransientHideIfNeeded()
-    }
-
-    // MARK: - Onboarding Video
-
-    /// Sets up the onboarding video player, starts playback, and schedules
-    /// the demo interaction at 40s. Called by BlueCursorView when onboarding starts.
-    func setupOnboardingVideo() {
-        onboardingVideoController.setupVideo()
-    }
-
-    func tearDownOnboardingVideo() {
-        onboardingVideoController.tearDownVideo()
     }
 
 }
