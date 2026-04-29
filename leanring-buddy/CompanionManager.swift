@@ -253,7 +253,7 @@ final class CompanionManager: ObservableObject {
         client: clickyBackendAuthClient,
         accessController: launchAccessController
     )
-    private lazy var launchTurnGate = ClickyLaunchTurnGate(
+    lazy var launchTurnGate = ClickyLaunchTurnGate(
         accessController: launchAccessController,
         sessionService: launchSessionService
     )
@@ -621,34 +621,6 @@ final class CompanionManager: ObservableObject {
     /// microphone) are granted. Used by the panel to show a single "all good" state.
     var allPermissionsGranted: Bool {
         permissionCoordinator.allPermissionsGranted
-    }
-
-    var isClickyLaunchAuthPending: Bool {
-        switch launchAccessController.clickyLaunchAuthState {
-        case .restoring, .signingIn:
-            return true
-        case .signedOut, .signedIn, .failed:
-            return false
-        }
-    }
-
-    var requiresLaunchRepurchaseForCompanionUse: Bool {
-        launchTurnGate.requiresRepurchaseForCompanionUse()
-    }
-
-    var requiresLaunchEntitlementRefreshForCompanionUse: Bool {
-        launchTurnGate.requiresEntitlementRefreshForCompanionUse()
-    }
-
-    var requiresLaunchSignInForCompanionUse: Bool {
-        launchTurnGate.requiresSignInForCompanionUse(
-            hasCompletedOnboarding: hasCompletedOnboarding,
-            allPermissionsGranted: allPermissionsGranted
-        )
-    }
-
-    var isClickyLaunchPaywallActive: Bool {
-        launchTurnGate.isPaywallActive()
     }
 
     func setClickyPersonaPreset(_ preset: ClickyPersonaPreset) {

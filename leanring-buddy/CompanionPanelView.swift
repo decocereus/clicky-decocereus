@@ -60,6 +60,26 @@ struct CompanionPanelView: View {
         ClickyLaunchPresentation.isSignedIn(clickyLaunchAuthState)
     }
 
+    private var isClickyLaunchAuthPending: Bool {
+        switch clickyLaunchAuthState {
+        case .restoring, .signingIn:
+            return true
+        case .signedOut, .signedIn, .failed:
+            return false
+        }
+    }
+
+    private var isClickyLaunchPaywallActive: Bool {
+        companionManager.launchTurnGate.isPaywallActive()
+    }
+
+    private var requiresLaunchSignInForCompanionUse: Bool {
+        companionManager.launchTurnGate.requiresSignInForCompanionUse(
+            hasCompletedOnboarding: hasCompletedOnboarding,
+            allPermissionsGranted: allPermissionsGranted
+        )
+    }
+
     private var activeClickyPersonaLabel: String {
         preferences.clickyPersonaPreset.definition.displayName
     }
@@ -81,12 +101,12 @@ struct CompanionPanelView: View {
     }
 
     private var panelScreen: CompanionPanelScreen {
-        if companionManager.isClickyLaunchPaywallActive {
+        if isClickyLaunchPaywallActive {
             return .locked
         }
 
         if hasCompletedOnboarding {
-            if companionManager.isClickyLaunchAuthPending || companionManager.requiresLaunchSignInForCompanionUse {
+            if isClickyLaunchAuthPending || requiresLaunchSignInForCompanionUse {
                 return .signIn
             }
 
@@ -622,8 +642,8 @@ struct CompanionPanelView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .modifier(ClickyProminentActionStyle())
-                .pointerCursor(isEnabled: !companionManager.isClickyLaunchAuthPending)
-                .disabled(companionManager.isClickyLaunchAuthPending)
+                .pointerCursor(isEnabled: !isClickyLaunchAuthPending)
+                .disabled(isClickyLaunchAuthPending)
 
                 Button(action: {
                     withAnimation(panelSpringAnimation) {
@@ -1446,7 +1466,7 @@ struct CompanionPanelView: View {
             return "Setup"
         }
 
-        if companionManager.isClickyLaunchPaywallActive {
+        if isClickyLaunchPaywallActive {
             return "Locked"
         }
 
