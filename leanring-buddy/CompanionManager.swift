@@ -509,7 +509,7 @@ final class CompanionManager: ObservableObject {
             self?.handleTutorialPlaybackKeyboardCommand(command)
         },
         dismissOnboardingPrompt: { [weak self] in
-            self?.dismissOnboardingPromptIfNeeded()
+            self?.onboardingVideoController.dismissPromptIfNeeded()
         },
         submitTranscript: { [weak self] finalTranscript in
             self?.surfaceController.lastTranscript = finalTranscript
@@ -1026,17 +1026,6 @@ final class CompanionManager: ObservableObject {
     /// Once granted/denied the status sticks and polling picks it up.
     private func promptForMicrophoneIfNotDetermined() {
         permissionCoordinator.promptForMicrophoneIfNotDetermined()
-    }
-
-    private func dismissOnboardingPromptIfNeeded() {
-        guard surfaceController.showOnboardingPrompt else { return }
-        withAnimation(.easeOut(duration: 0.3)) {
-            surfaceController.onboardingPromptOpacity = 0.0
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            self.surfaceController.showOnboardingPrompt = false
-            self.surfaceController.onboardingPromptText = ""
-        }
     }
 
     // MARK: - AI Response Pipeline

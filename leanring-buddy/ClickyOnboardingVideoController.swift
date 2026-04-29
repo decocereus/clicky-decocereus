@@ -89,6 +89,19 @@ final class ClickyOnboardingVideoController {
         }
     }
 
+    func dismissPromptIfNeeded() {
+        guard surfaceController.showOnboardingPrompt else { return }
+        promptTask?.cancel()
+        withAnimation(.easeOut(duration: 0.3)) {
+            surfaceController.onboardingPromptOpacity = 0.0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            self.surfaceController.showOnboardingPrompt = false
+            self.surfaceController.onboardingPromptText = ""
+            self.promptTask = nil
+        }
+    }
+
     private func startPromptStream() {
         let message = "press control + option and introduce yourself"
         promptTask?.cancel()
