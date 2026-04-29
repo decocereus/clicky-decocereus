@@ -45,11 +45,6 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
                 mimeType: attachment.mimeType ?? "image/jpeg"
             )
         }
-        let messageBody = buildGatewayMessageBody(
-            imageLabels: openClawImages.map(\.label),
-            userPrompt: userPrompt
-        )
-
         ClickyAgentTurnDiagnostics.logProviderRequest(
             backendLabel: backend.displayName,
             systemPrompt: request.systemPrompt,
@@ -91,30 +86,5 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
         User request:
         \(userPrompt)
         """
-    }
-
-    private func buildGatewayMessageBody(
-        imageLabels: [String],
-        userPrompt: String
-    ) -> String {
-        var messageSections: [String] = []
-        if !imageLabels.isEmpty {
-            let formattedLabels = imageLabels.enumerated().map { index, label in
-                "attachment \(index + 1): \(label)"
-            }.joined(separator: "\n")
-            messageSections.append(
-                """
-                Attached screen captures:
-                \(formattedLabels)
-                Use the attached images as the current screen context.
-                """
-            )
-        }
-
-        let trimmedUserPrompt = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedUserPrompt.isEmpty {
-            messageSections.append(trimmedUserPrompt)
-        }
-        return messageSections.joined(separator: "\n\n")
     }
 }

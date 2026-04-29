@@ -63,7 +63,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             callback: eventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("⚠️ Global push-to-talk: couldn't create CGEvent tap")
+            ClickyLogger.error(.audio, "Global push-to-talk could not create CGEvent tap")
             return
         }
 
@@ -73,7 +73,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             0
         ) else {
             CFMachPortInvalidate(globalEventTap)
-            print("⚠️ Global push-to-talk: couldn't create event tap run loop source")
+            ClickyLogger.error(.audio, "Global push-to-talk could not create event tap run loop source")
             return
         }
 

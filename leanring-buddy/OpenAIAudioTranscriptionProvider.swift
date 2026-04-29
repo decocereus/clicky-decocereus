@@ -169,7 +169,7 @@ private final class OpenAIAudioTranscriptionSession: BuddyStreamingTranscription
             deliverFinalTranscript(transcriptText)
         } catch {
             guard !stateQueue.sync(execute: { isCancelled }) else { return }
-            print("[OpenAI Transcription] ❌ Upload failed (audio size: \(wavAudioData.count) bytes): \(error.localizedDescription)")
+            ClickyLogger.error(.audio, "OpenAI transcription upload failed audioBytes=\(wavAudioData.count) error=\(error.localizedDescription)")
             onError(error)
         }
     }

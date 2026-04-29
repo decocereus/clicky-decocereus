@@ -62,6 +62,76 @@ struct ClickyRefactorTests {
     }
 
     @Test
+    func assistantResponseRepairerRequiresPointingForVisibleControlRequests() {
+        #expect(ClickyAssistantResponseRepairer.transcriptRequiresVisiblePointing("show me the button"))
+        #expect(ClickyAssistantResponseRepairer.transcriptRequiresVisiblePointing("where is the settings icon?"))
+        #expect(!ClickyAssistantResponseRepairer.transcriptRequiresVisiblePointing("tell me a joke"))
+    }
+
+    @Test
+    func assistantResponseRepairerAuditsNarratedWalkthroughExplanations() {
+        let registry = ClickyAssistantProviderRegistry(providers: [])
+        let repairer = ClickyAssistantResponseRepairer(
+            assistantTurnExecutor: ClickyAssistantTurnExecutor(providerRegistry: registry)
+        )
+        let response = """
+        {"mode":"walkthrough","spokenText":"here are the controls.","points":[{"x":100,"y":120,"label":"Fan"},{"x":200,"y":220,"label":"Temperature","explanation":"This adjusts temperature."}]}
+        """
+
+        let audit = repairer.audit(
+            responseText: response,
+            transcript: "walk me through the climate controls"
+        )
+
+        #expect(audit.needsRepair)
+        #expect(audit.issues.contains("response omitted per-point explanation for a narrated walkthrough"))
+    }
+
+    @Test
+    func pointingCoordinatorParsesLegacyPointTags() {
+        let result = ClickyPointingCoordinator.parsePointingCoordinates(
+            from: "look here [POINT:120,240:screen2:Save button|save]"
+        )
+
+        #expect(result.spokenText == "look here")
+        #expect(result.targets.count == 1)
+        #expect(result.targets[0].coordinate == CGPoint(x: 120, y: 240))
+        #expect(result.targets[0].screenNumber == 2)
+        #expect(result.targets[0].elementLabel == "Save button")
+        #expect(result.targets[0].bubbleText == "save")
+    }
+
+    @Test
+    func pointingCoordinatorResolvesScreenshotPixelsToDisplayPoints() {
+        let capture = CompanionScreenCapture(
+            imageData: Data(),
+            label: "primary focus",
+            isCursorScreen: true,
+            capturedAt: Date(),
+            displayWidthInPoints: 500,
+            displayHeightInPoints: 250,
+            displayFrame: CGRect(x: 10, y: 20, width: 500, height: 250),
+            screenshotWidthInPixels: 1000,
+            screenshotHeightInPixels: 500
+        )
+        let targets = ClickyPointingCoordinator.resolvedPointingTargets(
+            from: [
+                ParsedPointingTarget(
+                    coordinate: CGPoint(x: 500, y: 250),
+                    elementLabel: "Center",
+                    screenNumber: nil,
+                    bubbleText: "center"
+                )
+            ],
+            screenCaptures: [capture]
+        )
+
+        #expect(targets.count == 1)
+        #expect(targets[0].screenLocation == CGPoint(x: 260, y: 145))
+        #expect(targets[0].displayFrame == capture.displayFrame)
+    }
+
+    @Test
     @MainActor
     func preferencesStorePersistsSelectionsAcrossReloads() throws {
         let suiteName = "ClickyPreferencesStoreTests-\(UUID().uuidString)"
@@ -122,6 +192,182 @@ struct ClickyRefactorTests {
 
         manager.launchAccessController.clickyLaunchAuthState = .failed(message: "Oops")
         #expect(!manager.isClickyLaunchAuthPending)
+    }
+
+    @Test
+    func launchTurnAuthorizationMapsPromptModes() {
+        #expect(LaunchAssistantTurnAuthorization.standard.promptMode == .standard)
+        #expect(LaunchAssistantTurnAuthorization(
+            session: nil,
+            shouldUseWelcomeTurn: true,
+            shouldUsePaywallTurn: false
+        ).promptMode == .welcome)
+        #expect(LaunchAssistantTurnAuthorization(
+            session: nil,
+            shouldUseWelcomeTurn: true,
+            shouldUsePaywallTurn: true
+        ).promptMode == .paywall)
+    }
+
+    @Test
+    func launchAccessControllerFormatsEntitlementAccessRules() {
+        let activeEntitlement = ClickyLaunchEntitlementSnapshot(
+            productKey: "clicky-launch",
+            status: "active",
+            hasAccess: true,
+            gracePeriodEndsAt: nil
+        )
+        let refundedEntitlement = ClickyLaunchEntitlementSnapshot(
+            productKey: "clicky-launch",
+            status: "refunded",
+            hasAccess: false,
+            gracePeriodEndsAt: nil
+        )
+
+        #expect(ClickyLaunchAccessController.entitlementHasEffectiveAccess(activeEntitlement))
+        #expect(!ClickyLaunchAccessController.entitlementRequiresRepurchase(activeEntitlement))
+        #expect(ClickyLaunchAccessController.entitlementRequiresRepurchase(refundedEntitlement))
+        #expect(ClickyLaunchAccessController.formatEntitlementStatus(activeEntitlement) == "Active")
+        #expect(ClickyLaunchAccessController.formatEntitlementStatus(refundedEntitlement) == "Refunded")
+    }
+
+    @Test
+    func tutorialLessonCompilerExtractsJSONObjectFromWrappedResponse() {
+        let wrappedResponse = """
+        Sure, here is the draft:
+        {"title":"Basics","summary":"Learn the flow","steps":[]}
+        """
+
+        #expect(
+            ClickyTutorialLessonCompiler.extractJSONObject(from: wrappedResponse)
+                == #"{"title":"Basics","summary":"Learn the flow","steps":[]}"#
+        )
+    }
+
+    @Test
+    func tutorialImportCoordinatorAcceptsOnlyYouTubeURLs() {
+        #expect(ClickyTutorialImportCoordinator.isSupportedYouTubeURL("https://youtube.com/watch?v=abc"))
+        #expect(ClickyTutorialImportCoordinator.isSupportedYouTubeURL("https://www.youtube.com/watch?v=abc"))
+        #expect(ClickyTutorialImportCoordinator.isSupportedYouTubeURL("https://youtu.be/abc"))
+        #expect(ClickyTutorialImportCoordinator.isSupportedYouTubeURL("https://music.youtube.com/watch?v=abc"))
+        #expect(!ClickyTutorialImportCoordinator.isSupportedYouTubeURL("https://example.com/watch?v=abc"))
+        #expect(!ClickyTutorialImportCoordinator.isSupportedYouTubeURL("not a url"))
+    }
+
+    @Test
+    func tutorialModeIntentMatcherClassifiesCommonCommands() {
+        #expect(ClickyTutorialModeIntentMatcher.shouldAdvanceStep("i am done, next"))
+        #expect(ClickyTutorialModeIntentMatcher.shouldRepeatCurrentStep("repeat that please"))
+        #expect(ClickyTutorialModeIntentMatcher.shouldListSteps("what are the steps"))
+        #expect(ClickyTutorialModeIntentMatcher.shouldStopTutorialMode("stop tutorial"))
+        #expect(ClickyTutorialModeIntentMatcher.isImportIntent("help me with a youtube tutorial"))
+        #expect(!ClickyTutorialModeIntentMatcher.isImportIntent("what is the weather"))
+    }
+
+    @Test
+    func assistantConversationHistoryTrimsToMaximumCount() {
+        var history = ClickyAssistantConversationHistory()
+
+        for index in 0..<12 {
+            history.append(
+                userTranscript: "user \(index)",
+                assistantResponse: "assistant \(index)"
+            )
+        }
+
+        #expect(history.exchanges.count == 10)
+        #expect(history.exchanges.first?.userTranscript == "user 2")
+        #expect(history.exchanges.last?.assistantResponse == "assistant 11")
+    }
+
+    @Test
+    func speechProviderCoordinatorClassifiesElevenLabsErrors() {
+        let creditError = NSError(domain: "test", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "insufficient credits"
+        ])
+        let authError = NSError(domain: "test", code: 401, userInfo: [
+            NSLocalizedDescriptionKey: "unauthorized"
+        ])
+        let missingVoiceError = NSError(domain: "test", code: 404, userInfo: [
+            NSLocalizedDescriptionKey: "voice not found"
+        ])
+
+        #expect(ClickySpeechProviderCoordinator.isLikelyCreditExhaustion(creditError))
+        #expect(ClickySpeechProviderCoordinator.isLikelyUnauthorized(authError))
+        #expect(ClickySpeechProviderCoordinator.isLikelyVoiceMissing(missingVoiceError))
+    }
+
+    @Test
+    @MainActor
+    func openClawShellLifecycleBlocksRegistrationWhenBackendIsNotOpenClaw() async {
+        let gateway = FakeOpenClawShellGateway()
+        let routingController = ClickyBackendRoutingController()
+        let controller = ClickyOpenClawShellLifecycleController(
+            gatewayAgent: gateway,
+            routingController: routingController,
+            configurationProvider: {
+                ClickyOpenClawShellLifecycleConfiguration(
+                    selectedBackend: .claude,
+                    gatewayURL: "http://127.0.0.1:4891",
+                    gatewayAuthToken: "",
+                    isGatewayRemote: false,
+                    isLocalPluginEnabled: true,
+                    effectiveAgentName: "Agent",
+                    effectivePresentationName: "Clicky",
+                    personaScopeMode: .useOpenClawIdentity,
+                    sessionKey: ""
+                )
+            }
+        )
+
+        controller.registerNow()
+
+        #expect(gateway.registerShellCallCount == 0)
+        guard case .failed(let message) = routingController.clickyShellRegistrationStatus else {
+            Issue.record("Expected shell registration to fail before hitting the gateway.")
+            return
+        }
+        #expect(message.contains("Switch the Agent backend"))
+    }
+
+    @Test
+    @MainActor
+    func openClawShellLifecycleRegistersRemoteGatewayAndPublishesStatus() async throws {
+        let gateway = FakeOpenClawShellGateway()
+        let routingController = ClickyBackendRoutingController()
+        let controller = ClickyOpenClawShellLifecycleController(
+            gatewayAgent: gateway,
+            routingController: routingController,
+            configurationProvider: {
+                ClickyOpenClawShellLifecycleConfiguration(
+                    selectedBackend: .openClaw,
+                    gatewayURL: "https://gateway.example.com",
+                    gatewayAuthToken: "token",
+                    isGatewayRemote: true,
+                    isLocalPluginEnabled: false,
+                    effectiveAgentName: "Agent",
+                    effectivePresentationName: "Clicky",
+                    personaScopeMode: .overrideInClicky,
+                    sessionKey: "session-1"
+                )
+            }
+        )
+
+        controller.registerNow()
+        try await Task.sleep(for: .milliseconds(50))
+        controller.stop()
+
+        #expect(gateway.registerShellCallCount == 1)
+        #expect(gateway.lastRegistrationPayload?.personaScope == "clicky-local-override")
+        #expect(gateway.lastRegistrationPayload?.sessionKey == "session-1")
+        guard case .registered(let summary) = routingController.clickyShellRegistrationStatus else {
+            Issue.record("Expected shell registration to publish registered status.")
+            return
+        }
+        #expect(summary == "Registered")
+        #expect(routingController.clickyShellServerFreshnessState == "fresh")
+        #expect(routingController.clickyShellServerSessionBindingState == "bound")
+        #expect(routingController.clickyShellServerTrustState == "trusted-remote")
     }
 
     @Test
@@ -198,5 +444,216 @@ struct ClickyRefactorTests {
         )
 
         #expect(ClickyMenuBarIconStateResolver.resolve(input) == .onboarding)
+    }
+
+    @Test
+    func codexRuntimeCoordinatorFormatsReadinessCopy() {
+        #expect(ClickyCodexRuntimeCoordinator.statusLabel(for: .idle) == "Not checked yet")
+        #expect(
+            ClickyCodexRuntimeCoordinator.summaryCopy(for: .failed(message: "Needs login")) == "Needs login"
+        )
+        #expect(
+            ClickyCodexRuntimeCoordinator.readinessChipLabels(
+                status: .ready(summary: "Ready"),
+                authModeLabel: "ChatGPT",
+                configuredModelName: "gpt-5"
+            ) == ["Ready", "ChatGPT", "gpt-5"]
+        )
+        #expect(
+            ClickyCodexRuntimeCoordinator.readinessChipLabels(
+                status: .idle,
+                authModeLabel: " ",
+                configuredModelName: nil
+            ) == ["Not checked yet", "Local runtime"]
+        )
+    }
+
+    @Test
+    func permissionCoordinatorRequiresEveryPermission() {
+        #expect(
+            ClickyPermissionCoordinator.allPermissionsGranted(
+                hasAccessibilityPermission: true,
+                hasScreenRecordingPermission: true,
+                hasMicrophonePermission: true,
+                hasScreenContentPermission: true
+            )
+        )
+        #expect(
+            !ClickyPermissionCoordinator.allPermissionsGranted(
+                hasAccessibilityPermission: true,
+                hasScreenRecordingPermission: true,
+                hasMicrophonePermission: false,
+                hasScreenContentPermission: true
+            )
+        )
+    }
+
+    @Test
+    func openClawStudioCoordinatorFormatsGatewayAndPluginState() {
+        #expect(!ClickyOpenClawStudioCoordinator.isGatewayRemote("ws://localhost:4466"))
+        #expect(!ClickyOpenClawStudioCoordinator.isGatewayRemote("ws://127.0.0.1:4466"))
+        #expect(ClickyOpenClawStudioCoordinator.isGatewayRemote("wss://gateway.example.com"))
+        #expect(ClickyOpenClawStudioCoordinator.gatewayAuthSummary(explicitGatewayAuthToken: " token ") == "Using token from Studio settings")
+
+        let enabledConfiguration: [String: Any] = [
+            "plugins": [
+                "entries": [
+                    "clicky-shell": ["enabled": true],
+                ],
+            ],
+        ]
+        let disabledConfiguration: [String: Any] = [
+            "plugins": [
+                "entries": [
+                    "clicky-shell": ["enabled": false],
+                ],
+            ],
+        ]
+
+        #expect(ClickyOpenClawStudioCoordinator.pluginStatus(openClawConfiguration: enabledConfiguration) == .enabled)
+        #expect(ClickyOpenClawStudioCoordinator.pluginStatus(openClawConfiguration: disabledConfiguration) == .disabled)
+        #expect(ClickyOpenClawStudioCoordinator.pluginStatus(openClawConfiguration: nil) == .notConfigured)
+        #expect(ClickyOpenClawStudioCoordinator.pluginStatusLabel(for: .enabled) == "Enabled in local OpenClaw config")
+    }
+
+    @Test
+    func openClawStudioCoordinatorFormatsIdentityLabels() {
+        #expect(
+            ClickyOpenClawStudioCoordinator.effectiveAgentName(
+                manualName: "  Ada  ",
+                inferredName: "Claw"
+            ) == "Ada"
+        )
+        #expect(
+            ClickyOpenClawStudioCoordinator.effectiveAgentName(
+                manualName: " ",
+                inferredName: " Claw "
+            ) == "Claw"
+        )
+        #expect(
+            ClickyOpenClawStudioCoordinator.inferredIdentityDisplayName(
+                emoji: "*",
+                name: "Claw"
+            ) == "* Claw"
+        )
+        #expect(ClickyOpenClawStudioCoordinator.inferredIdentityEmojiLabel(" ") == "No emoji provided by OpenClaw")
+        #expect(ClickyOpenClawStudioCoordinator.inferredIdentityAvatarLabel("avatar-url") == "Avatar available from OpenClaw")
+    }
+
+    @Test
+    func personaPromptCoordinatorResolvesPresentationAndModelLabels() {
+        #expect(
+            ClickyPersonaPromptCoordinator.effectivePresentationName(
+                selectedBackend: .claude,
+                personaScopeMode: .useOpenClawIdentity,
+                personaOverrideName: "  Pilot  ",
+                effectiveOpenClawAgentName: "Claw"
+            ) == "Pilot"
+        )
+        #expect(
+            ClickyPersonaPromptCoordinator.effectivePresentationName(
+                selectedBackend: .openClaw,
+                personaScopeMode: .useOpenClawIdentity,
+                personaOverrideName: "Pilot",
+                effectiveOpenClawAgentName: "Claw"
+            ) == "Claw"
+        )
+        #expect(
+            ClickyPersonaPromptCoordinator.effectivePresentationName(
+                selectedBackend: .openClaw,
+                personaScopeMode: .overrideInClicky,
+                personaOverrideName: " ",
+                effectiveOpenClawAgentName: "Claw"
+            ) == "Clicky"
+        )
+        #expect(
+            ClickyPersonaPromptCoordinator.selectedAssistantModelIdentityLabel(
+                selectedBackend: .codex,
+                selectedModel: "",
+                codexConfiguredModelName: "  gpt-5  ",
+                openClawAgentIdentifier: "",
+                inferredOpenClawAgentIdentifier: nil,
+                effectiveOpenClawAgentName: "Claw"
+            ) == "gpt-5"
+        )
+        #expect(
+            ClickyPersonaPromptCoordinator.selectedAssistantModelIdentityLabel(
+                selectedBackend: .openClaw,
+                selectedModel: "",
+                codexConfiguredModelName: nil,
+                openClawAgentIdentifier: " ",
+                inferredOpenClawAgentIdentifier: " agent-1 ",
+                effectiveOpenClawAgentName: "Claw"
+            ) == "agent-1"
+        )
+    }
+
+    @Test
+    func personaPromptCoordinatorAppendsCustomToneInstructions() {
+        let definition = ClickyPersonaPreset.guide.definition
+        let baseInstructions = ClickyPersonaPromptCoordinator.effectiveSpeechInstructions(
+            activePersonaDefinition: definition,
+            customToneInstructions: " "
+        )
+        let customInstructions = ClickyPersonaPromptCoordinator.effectiveSpeechInstructions(
+            activePersonaDefinition: definition,
+            customToneInstructions: "more concise"
+        )
+
+        #expect(baseInstructions.contains(definition.speechGuidance))
+        #expect(!baseInstructions.contains("also follow these clicky-only tone notes"))
+        #expect(customInstructions.contains("also follow these clicky-only tone notes: more concise"))
+    }
+}
+
+private final class FakeOpenClawShellGateway: ClickyOpenClawShellGateway {
+    var registerShellCallCount = 0
+    var lastRegistrationPayload: OpenClawShellRegistrationPayload?
+
+    func registerShell(
+        gatewayURLString: String,
+        explicitGatewayAuthToken: String?,
+        payload: OpenClawShellRegistrationPayload
+    ) async throws -> String {
+        registerShellCallCount += 1
+        lastRegistrationPayload = payload
+        return "Registered"
+    }
+
+    func sendShellHeartbeat(
+        gatewayURLString: String,
+        explicitGatewayAuthToken: String?,
+        shellIdentifier: String
+    ) async throws {}
+
+    func fetchShellStatus(
+        gatewayURLString: String,
+        explicitGatewayAuthToken: String?,
+        shellIdentifier: String
+    ) async throws -> OpenClawShellStatusSnapshot {
+        OpenClawShellStatusSnapshot(
+            freshnessState: "fresh",
+            isRegistered: true,
+            agentIdentityName: "Agent",
+            clickyPresentationName: "Clicky",
+            personaScope: "clicky-local-override",
+            sessionKey: "session-1",
+            summary: "Registered",
+            sessionBindingState: "bound",
+            trustState: "trusted-remote"
+        )
+    }
+
+    func bindShellSession(
+        gatewayURLString: String,
+        explicitGatewayAuthToken: String?,
+        shellIdentifier: String,
+        sessionKey: String?
+    ) async throws -> OpenClawShellStatusSnapshot {
+        try await fetchShellStatus(
+            gatewayURLString: gatewayURLString,
+            explicitGatewayAuthToken: explicitGatewayAuthToken,
+            shellIdentifier: shellIdentifier
+        )
     }
 }

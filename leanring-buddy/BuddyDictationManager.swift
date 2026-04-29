@@ -387,11 +387,10 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     ) async {
         guard !isDictationInProgress else { return }
 
-        print("🎙️ BuddyDictationManager: start requested (\(startSource))")
         ClickyLogger.info(.audio, "Push-to-talk start requested source=\(String(describing: startSource))")
 
         if needsInitialPermissionPrompt {
-            print("🎙️ BuddyDictationManager: requesting initial permissions")
+            ClickyLogger.info(.audio, "Push-to-talk requesting initial permissions")
             NSApplication.shared.activate(ignoringOtherApps: true)
 
             do {
@@ -416,18 +415,17 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         guard await requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts(
             for: preferredTranscriptionProvider
         ) else {
-            print("🎙️ BuddyDictationManager: permissions missing or denied")
             ClickyLogger.error(.audio, "Push-to-talk permissions missing or denied")
             isPreparingToRecord = false
             return
         }
         guard !Task.isCancelled else {
-            print("🎙️ BuddyDictationManager: start cancelled (shortcut released during permission check)")
+            ClickyLogger.info(.audio, "Push-to-talk start cancelled during permission check")
             isPreparingToRecord = false
             return
         }
         guard pendingStartRequestIdentifier == startRequestIdentifier else {
-            print("🎙️ BuddyDictationManager: start request superseded")
+            ClickyLogger.info(.audio, "Push-to-talk start request superseded")
             isPreparingToRecord = false
             return
         }
@@ -454,7 +452,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         lastRecordedAudioPowerSampleDate = .distantPast
 
         guard !Task.isCancelled else {
-            print("🎙️ BuddyDictationManager: start cancelled (shortcut released before recording began)")
+            ClickyLogger.info(.audio, "Push-to-talk start cancelled before recording began")
             resetSessionState()
             return
         }
@@ -462,7 +460,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         do {
             try await startRecognitionSession(preferredProvider: preferredTranscriptionProvider)
             guard !Task.isCancelled else {
-                print("🎙️ BuddyDictationManager: start cancelled (shortcut released during session start)")
+                ClickyLogger.info(.audio, "Push-to-talk start cancelled during session start")
                 audioEngine.stop()
                 audioEngine.inputNode.removeTap(onBus: 0)
                 activeTranscriptionSession?.cancel()
@@ -473,7 +471,6 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                 microphoneButtonRecordingStartedAt = Date()
             }
             isPreparingToRecord = false
-            print("🎙️ BuddyDictationManager: recognition session started")
             ClickyLogger.info(.audio, "Recognition session started provider=\(transcriptionProviderDisplayName)")
         } catch {
             isPreparingToRecord = false
@@ -481,7 +478,6 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                 from: error,
                 fallback: "couldn't start voice input. try again."
             )
-            print("❌ BuddyDictationManager: failed to start recognition session (\(transcriptionProviderDisplayName)): \(error)")
             ClickyLogger.error(.audio, "Recognition session failed provider=\(transcriptionProviderDisplayName) error=\(error.localizedDescription)")
             resetSessionState()
         }
@@ -496,7 +492,6 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         }
         guard !isFinalizingTranscript else { return }
 
-        print("🎙️ BuddyDictationManager: stop requested (\(expectedStartSource))")
         ClickyLogger.info(.audio, "Push-to-talk stop requested source=\(String(describing: expectedStartSource))")
 
         isRecordingFromMicrophoneButton = false
@@ -538,7 +533,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         do {
             sessionProvider = preferredProvider
             transcriptionProviderDisplayName = sessionProvider.displayName
-            print("🎙️ BuddyDictationManager: opening transcription provider \(sessionProvider.displayName)")
+            ClickyLogger.info(.audio, "Opening transcription provider provider=\(sessionProvider.displayName)")
             activeTranscriptionSession = try await sessionProvider.startStreamingSession(
                 keyterms: buildTranscriptionKeyterms(),
                 onTranscriptUpdate: { [weak self] transcriptText in
@@ -575,7 +570,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
 
             ClickyLogger.error(.audio, "Preferred transcription provider failed provider=\(preferredProvider.displayName) error=\(error.localizedDescription) fallback=Apple Speech")
             transcriptionProviderDisplayName = fallbackProvider.displayName
-            print("🎙️ BuddyDictationManager: falling back to transcription provider \(fallbackProvider.displayName)")
+            ClickyLogger.info(.audio, "Falling back to transcription provider provider=\(fallbackProvider.displayName)")
 
             sessionProvider = fallbackProvider
             activeTranscriptionSession = try await sessionProvider.startStreamingSession(
@@ -607,7 +602,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
 
         activeTranscriptionProvider = sessionProvider
         self.activeTranscriptionSession = activeTranscriptionSession
-        print("🎙️ BuddyDictationManager: provider ready, starting audio engine")
+        ClickyLogger.info(.audio, "Transcription provider ready; starting audio engine provider=\(sessionProvider.displayName)")
 
         let inputNode = audioEngine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
@@ -632,7 +627,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                 shouldSubmitFinalDraft: shouldAutomaticallySubmitFinalDraft
             )
         } else {
-            print("❌ Buddy dictation error (\(transcriptionProviderDisplayName)): \(error)")
+            ClickyLogger.error(.audio, "Buddy dictation error provider=\(transcriptionProviderDisplayName) error=\(error.localizedDescription)")
             lastErrorMessage = userFacingErrorMessage(
                 from: error,
                 fallback: "couldn't transcribe that. try again."

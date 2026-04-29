@@ -401,11 +401,11 @@ private final class AssemblyAIStreamingTranscriptionSession: NSObject, BuddyStre
             if self.isAwaitingExplicitFinalTranscript
                 && !self.hasDeliveredFinalTranscript
                 && !latestTranscriptText.isEmpty {
-                print("[AssemblyAI] ⚠️ WebSocket error during active session, delivering partial transcript as fallback: \(error.localizedDescription)")
+                ClickyLogger.error(.audio, "AssemblyAI WebSocket error during active session; delivering partial transcript fallback error=\(error.localizedDescription)")
                 self.deliverFinalTranscriptIfNeeded(latestTranscriptText)
                 return
             }
-            print("[AssemblyAI] ❌ Session failed with error: \(error.localizedDescription)")
+            ClickyLogger.error(.audio, "AssemblyAI session failed error=\(error.localizedDescription)")
 
             self.onError(error)
         }
