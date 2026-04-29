@@ -306,6 +306,38 @@ final class CompanionManager: ObservableObject {
             self?.surfaceController.showOnboardingVideo == true
         }
     )
+    private lazy var lifecycleCoordinator = ClickyCompanionLifecycleCoordinator(
+        preferences: preferences,
+        settingsMutationCoordinator: settingsMutationCoordinator,
+        launchRuntimeCoordinator: launchRuntimeCoordinator,
+        permissionCoordinator: permissionCoordinator,
+        voiceSessionCoordinator: voiceSessionCoordinator,
+        dictationManager: buddyDictationManager,
+        shortcutMonitor: globalPushToTalkShortcutMonitor,
+        overlayWindowManager: overlayWindowManager,
+        surfaceLifecycleCoordinator: surfaceLifecycleCoordinator,
+        openClawShellLifecycleController: openClawShellLifecycleController,
+        openClawStudioCoordinator: openClawStudioCoordinator,
+        codexRuntimeCoordinator: codexRuntimeCoordinator,
+        onboardingMusicController: onboardingMusicController,
+        assistantTurnTaskController: assistantTurnTaskController,
+        stopTutorialPlayback: { [weak self] in
+            self?.stopTutorialPlayback()
+        },
+        warmClaudeAPI: { [weak self] in
+            guard let self else { return }
+            _ = self.claudeAPI
+        },
+        allPermissionsGranted: { [weak self] in
+            self?.allPermissionsGranted == true
+        },
+        hasCompletedOnboarding: { [weak self] in
+            self?.hasCompletedOnboarding == true
+        },
+        isOverlayVisible: { [weak self] in
+            self?.surfaceController.isOverlayVisible == true
+        }
+    )
     private lazy var tutorialPlaybackCoordinator = ClickyTutorialPlaybackCoordinator(
         tutorialController: tutorialController
     )
@@ -760,48 +792,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func start() {
-        ClickyUnifiedTelemetry.lifecycle.info("Companion start began")
-
-        if !CompanionRuntimeConfiguration.isWorkerConfigured && preferences.selectedAgentBackend == .claude {
-            settingsMutationCoordinator.setSelectedBackend(.openClaw)
-            ClickyUnifiedTelemetry.lifecycle.info(
-                "Agent backend fallback applied from=Claude to=OpenClaw reason=worker-unconfigured"
-            )
-        }
-
-        launchRuntimeCoordinator.restoreSessionIfPossible()
-        refreshAllPermissions()
-        permissionCoordinator.startPolling()
-        voiceSessionCoordinator.start()
-        // Eagerly touch the Claude API so its TLS warmup handshake completes
-        // well before the onboarding demo fires at ~40s into the video.
-        if preferences.selectedAgentBackend == .claude {
-            _ = claudeAPI
-        }
-
-        // When the worker is not configured we fall back to Apple Speech,
-        // which needs a separate Speech Recognition permission. Request it
-        // proactively so the user's first push-to-talk press doesn't get
-        // consumed by a permission prompt and feel like a broken hotkey.
-        if buddyDictationManager.needsInitialPermissionPrompt {
-            Task { @MainActor in
-                await buddyDictationManager.requestInitialPushToTalkPermissionsIfNeeded()
-            }
-        }
-
-        openClawShellLifecycleController.refreshLifecycle()
-        refreshOpenClawAgentIdentity()
-        refreshCodexRuntimeStatus()
-
-        // If the user already completed onboarding AND all permissions are
-        // still granted, show the cursor overlay immediately. If permissions
-        // were revoked (e.g. signing change), don't show the cursor — the
-        // panel will show the permissions UI instead.
-        surfaceLifecycleCoordinator.showOverlayIfReady()
-
-        ClickyUnifiedTelemetry.lifecycle.info(
-            "Companion start completed backend=\(self.preferences.selectedAgentBackend.displayName, privacy: .public) permissions=\(self.allPermissionsGranted ? "ready" : "needs-attention", privacy: .public) onboarding=\(self.hasCompletedOnboarding ? "complete" : "pending", privacy: .public) overlay=\(self.surfaceController.isOverlayVisible ? "shown" : "hidden", privacy: .public)"
-        )
+        lifecycleCoordinator.start()
     }
 
     /// Called by BlueCursorView after the buddy finishes its pointing
@@ -906,18 +897,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func stop() {
-        globalPushToTalkShortcutMonitor.stop()
-        buddyDictationManager.cancelCurrentDictation()
-        overlayWindowManager.hideOverlay()
-        stopTutorialPlayback()
-        voiceSessionCoordinator.cancelTransientHide()
-        launchRuntimeCoordinator.stop()
-        openClawShellLifecycleController.stop()
-        onboardingMusicController.stop()
-
-        assistantTurnTaskController.stop()
-        voiceSessionCoordinator.stop()
-        permissionCoordinator.stopPolling()
+        lifecycleCoordinator.stop()
     }
 
     private var clickyBackendAuthClient: ClickyBackendAuthClient {
