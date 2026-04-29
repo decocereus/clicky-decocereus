@@ -106,7 +106,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         companionManager.start()
         // Auto-open the panel if the user still needs to do something:
         // either they haven't onboarded yet, or permissions were revoked.
-        if !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted {
+        if !companionManager.preferences.hasCompletedOnboarding || !companionManager.permissionCoordinator.allPermissionsGranted {
             menuBarPanelManager?.showPanelOnLaunch()
         }
         registerAsLoginItemIfNeeded()

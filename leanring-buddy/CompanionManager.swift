@@ -297,7 +297,7 @@ final class CompanionManager: ObservableObject {
             self?.launchAccessController.clickyLaunchAuthState ?? .signedOut
         },
         hasCompletedOnboarding: { [weak self] in
-            self?.hasCompletedOnboarding == true
+            self?.preferences.hasCompletedOnboarding == true
         },
         allPermissionsGranted: { [weak self] in
             self?.allPermissionsGranted == true
@@ -332,7 +332,7 @@ final class CompanionManager: ObservableObject {
             self?.allPermissionsGranted == true
         },
         hasCompletedOnboarding: { [weak self] in
-            self?.hasCompletedOnboarding == true
+            self?.preferences.hasCompletedOnboarding == true
         },
         isOverlayVisible: { [weak self] in
             self?.surfaceController.isOverlayVisible == true
@@ -489,7 +489,7 @@ final class CompanionManager: ObservableObject {
             await self?.tutorialModeCoordinator.handleTurnIfNeeded(for: transcript) ?? false
         },
         hasCompletedOnboarding: { [weak self] in
-            self?.hasCompletedOnboarding == true
+            self?.preferences.hasCompletedOnboarding == true
         },
         allPermissionsGranted: { [weak self] in
             self?.allPermissionsGranted == true
@@ -538,7 +538,7 @@ final class CompanionManager: ObservableObject {
         overlayWindowManager: overlayWindowManager,
         ttsClient: elevenLabsTTSClient,
         isClickyCursorEnabled: { [weak self] in
-            self?.isClickyCursorEnabled == true
+            self?.preferences.isClickyCursorEnabled == true
         },
         canBeginPushToTalk: { [weak self] in
             self?.launchPreflightCoordinator.canBeginPushToTalkSession() ?? false
@@ -590,6 +590,10 @@ final class CompanionManager: ObservableObject {
         permissionCoordinator.isScreenContentRequestInFlight
     }
 
+    private var allPermissionsGranted: Bool {
+        permissionCoordinator.allPermissionsGranted
+    }
+
     private static func currentOpenClawPluginStatus() -> ClickyOpenClawPluginStatus {
         ClickyOpenClawStudioCoordinator.pluginStatus(
             openClawConfiguration: ClickyOpenClawStudioCoordinator.loadLocalOpenClawConfiguration()
@@ -617,32 +621,11 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// True when all three required permissions (accessibility, screen recording,
-    /// microphone) are granted. Used by the panel to show a single "all good" state.
-    var allPermissionsGranted: Bool {
-        permissionCoordinator.allPermissionsGranted
-    }
-
     private func playSpeechText(
         _ text: String,
         purpose: ClickySpeechPlaybackPurpose
     ) async -> ClickySpeechPlaybackOutcome {
         await speechPlaybackCoordinator.play(text, purpose: purpose)
-    }
-
-    /// User preference for whether the Clicky cursor should be shown.
-    /// When toggled off, the overlay is hidden and push-to-talk is disabled.
-    /// Persisted to UserDefaults so the choice survives app restarts.
-    var isClickyCursorEnabled: Bool {
-        get { preferences.isClickyCursorEnabled }
-        set { preferences.isClickyCursorEnabled = newValue }
-    }
-
-    /// Whether the user has completed onboarding at least once. Persisted
-    /// to UserDefaults so the Start button only appears on first launch.
-    var hasCompletedOnboarding: Bool {
-        get { preferences.hasCompletedOnboarding }
-        set { preferences.hasCompletedOnboarding = newValue }
     }
 
     func start() {
@@ -653,7 +636,7 @@ final class CompanionManager: ObservableObject {
         pointingSequenceController.queue(targets)
     }
 
-    func stopTutorialPlayback() {
+    private func stopTutorialPlayback() {
         tutorialPlaybackCoordinator.stopPlayback()
     }
 

@@ -636,7 +636,7 @@ final class MenuBarPanelManager: NSObject {
 
                 // If permissions aren't all granted yet, a system dialog
                 // may have focus — don't dismiss during onboarding.
-                if !self.companionManager.allPermissionsGranted && !NSApp.isActive {
+                if !self.companionManager.permissionCoordinator.allPermissionsGranted && !NSApp.isActive {
                     return
                 }
 
