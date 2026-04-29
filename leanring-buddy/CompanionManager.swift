@@ -210,7 +210,7 @@ final class CompanionManager: ObservableObject {
         claudeAPI: claudeAPI,
         shouldRun: { [weak self] in
             guard let self else { return false }
-            return self.voiceState == .idle || self.voiceState == .responding
+            return self.surfaceController.voiceState == .idle || self.surfaceController.voiceState == .responding
         },
         queueTargets: { [weak self] targets in
             self?.queueDetectedElementTargets(targets)
@@ -253,7 +253,7 @@ final class CompanionManager: ObservableObject {
             self?.elevenLabsTTSClient.stopPlayback()
         },
         setVoiceState: { [weak self] state in
-            self?.voiceState = state
+            self?.surfaceController.voiceState = state
         },
         playSpeech: { [weak self] message, purpose in
             guard let self else { return }
@@ -350,7 +350,7 @@ final class CompanionManager: ObservableObject {
             self?.selectedAgentBackend ?? .claude
         },
         setVoiceState: { [weak self] state in
-            self?.voiceState = state
+            self?.surfaceController.voiceState = state
         },
         playSpeech: { [weak self] text, purpose in
             guard let self else {
@@ -432,7 +432,7 @@ final class CompanionManager: ObservableObject {
             self?.selectedAgentBackend ?? .claude
         },
         setVoiceState: { [weak self] state in
-            self?.voiceState = state
+            self?.surfaceController.voiceState = state
         },
         playSpeech: { [weak self] text, purpose in
             guard let self else { return }
@@ -467,13 +467,13 @@ final class CompanionManager: ObservableObject {
             self?.clearDetectedElementLocation()
         },
         detectedElementScreenLocation: { [weak self] in
-            self?.detectedElementScreenLocation
+            self?.surfaceController.detectedElementScreenLocation
         },
         showTransientOverlay: { [weak self] in
             guard let self else { return }
             self.overlayWindowManager.hasShownOverlayBefore = true
             self.overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-            self.isOverlayVisible = true
+            self.surfaceController.isOverlayVisible = true
         },
         isTutorialPlaybackVisible: { [weak self] in
             self?.tutorialPlaybackState?.isVisible == true
@@ -485,7 +485,7 @@ final class CompanionManager: ObservableObject {
             self?.dismissOnboardingPromptIfNeeded()
         },
         submitTranscript: { [weak self] finalTranscript in
-            self?.lastTranscript = finalTranscript
+            self?.surfaceController.lastTranscript = finalTranscript
             self?.submitTranscriptToSelectedAgent(finalTranscript)
         }
     )
@@ -524,106 +524,6 @@ final class CompanionManager: ObservableObject {
     /// microphone) are granted. Used by the panel to show a single "all good" state.
     var allPermissionsGranted: Bool {
         permissionCoordinator.allPermissionsGranted
-    }
-
-    var voiceState: CompanionVoiceState {
-        get { surfaceController.voiceState }
-        set { surfaceController.voiceState = newValue }
-    }
-
-    var lastTranscript: String? {
-        get { surfaceController.lastTranscript }
-        set { surfaceController.lastTranscript = newValue }
-    }
-
-    var currentAudioPowerLevel: CGFloat {
-        get { surfaceController.currentAudioPowerLevel }
-        set { surfaceController.currentAudioPowerLevel = newValue }
-    }
-
-    var hasAccessibilityPermission: Bool {
-        get { surfaceController.hasAccessibilityPermission }
-        set { surfaceController.hasAccessibilityPermission = newValue }
-    }
-
-    var hasScreenRecordingPermission: Bool {
-        get { surfaceController.hasScreenRecordingPermission }
-        set { surfaceController.hasScreenRecordingPermission = newValue }
-    }
-
-    var hasMicrophonePermission: Bool {
-        get { surfaceController.hasMicrophonePermission }
-        set { surfaceController.hasMicrophonePermission = newValue }
-    }
-
-    var hasScreenContentPermission: Bool {
-        get { surfaceController.hasScreenContentPermission }
-        set { surfaceController.hasScreenContentPermission = newValue }
-    }
-
-    /// Screen location (global AppKit coords) of a detected UI element the
-    /// buddy should fly to and point at. Parsed from Claude's response;
-    /// observed by BlueCursorView to trigger the flight animation.
-    var detectedElementScreenLocation: CGPoint? {
-        get { surfaceController.detectedElementScreenLocation }
-        set { surfaceController.detectedElementScreenLocation = newValue }
-    }
-
-    /// The display frame (global AppKit coords) of the screen the detected
-    /// element is on, so BlueCursorView knows which screen overlay should animate.
-    var detectedElementDisplayFrame: CGRect? {
-        get { surfaceController.detectedElementDisplayFrame }
-        set { surfaceController.detectedElementDisplayFrame = newValue }
-    }
-
-    /// Custom speech bubble text for the pointing animation. When set,
-    /// BlueCursorView uses this instead of a random pointer phrase.
-    var detectedElementBubbleText: String? {
-        get { surfaceController.detectedElementBubbleText }
-        set { surfaceController.detectedElementBubbleText = newValue }
-    }
-
-    var managedPointSequenceReturnToken: Int {
-        get { surfaceController.managedPointSequenceReturnToken }
-        set { surfaceController.managedPointSequenceReturnToken = newValue }
-    }
-
-    var onboardingVideoPlayer: AVPlayer? {
-        get { surfaceController.onboardingVideoPlayer }
-        set { surfaceController.onboardingVideoPlayer = newValue }
-    }
-
-    var showOnboardingVideo: Bool {
-        get { surfaceController.showOnboardingVideo }
-        set { surfaceController.showOnboardingVideo = newValue }
-    }
-
-    var onboardingVideoOpacity: Double {
-        get { surfaceController.onboardingVideoOpacity }
-        set { surfaceController.onboardingVideoOpacity = newValue }
-    }
-
-    /// Text streamed character-by-character on the cursor after the onboarding video ends.
-    var onboardingPromptText: String {
-        get { surfaceController.onboardingPromptText }
-        set { surfaceController.onboardingPromptText = newValue }
-    }
-
-    var onboardingPromptOpacity: Double {
-        get { surfaceController.onboardingPromptOpacity }
-        set { surfaceController.onboardingPromptOpacity = newValue }
-    }
-
-    var showOnboardingPrompt: Bool {
-        get { surfaceController.showOnboardingPrompt }
-        set { surfaceController.showOnboardingPrompt = newValue }
-    }
-
-    /// Whether the blue cursor overlay is currently visible on screen.
-    /// Used by the panel to show accurate status text ("Active" vs "Ready").
-    var isOverlayVisible: Bool {
-        get { surfaceController.isOverlayVisible }
-        set { surfaceController.isOverlayVisible = newValue }
     }
 
     var tutorialPlaybackState: TutorialPlaybackBindingState? {
@@ -1355,7 +1255,7 @@ final class CompanionManager: ObservableObject {
         surfaceLifecycleCoordinator.showOverlayIfReady()
 
         ClickyUnifiedTelemetry.lifecycle.info(
-            "Companion start completed backend=\(self.selectedAgentBackend.displayName, privacy: .public) permissions=\(self.allPermissionsGranted ? "ready" : "needs-attention", privacy: .public) onboarding=\(self.hasCompletedOnboarding ? "complete" : "pending", privacy: .public) overlay=\(self.isOverlayVisible ? "shown" : "hidden", privacy: .public)"
+            "Companion start completed backend=\(self.selectedAgentBackend.displayName, privacy: .public) permissions=\(self.allPermissionsGranted ? "ready" : "needs-attention", privacy: .public) onboarding=\(self.hasCompletedOnboarding ? "complete" : "pending", privacy: .public) overlay=\(self.surfaceController.isOverlayVisible ? "shown" : "hidden", privacy: .public)"
         )
     }
 
@@ -1625,7 +1525,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private func preparePushToTalkSessionIfAllowed() -> Bool {
-        guard !showOnboardingVideo else { return false }
+        guard !surfaceController.showOnboardingVideo else { return false }
 
         if requiresLaunchRepurchaseForCompanionUse {
             presentLaunchAccessRecoveryState(
@@ -1659,13 +1559,13 @@ final class CompanionManager: ObservableObject {
     }
 
     private func dismissOnboardingPromptIfNeeded() {
-        guard showOnboardingPrompt else { return }
+        guard surfaceController.showOnboardingPrompt else { return }
         withAnimation(.easeOut(duration: 0.3)) {
-            onboardingPromptOpacity = 0.0
+            surfaceController.onboardingPromptOpacity = 0.0
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            self.showOnboardingPrompt = false
-            self.onboardingPromptText = ""
+            self.surfaceController.showOnboardingPrompt = false
+            self.surfaceController.onboardingPromptText = ""
         }
     }
 
@@ -1705,7 +1605,7 @@ final class CompanionManager: ObservableObject {
 
         tutorialImportStatusMessage = "Open the companion menu and paste the YouTube URL to begin."
         NotificationCenter.default.post(name: .clickyShowPanel, object: nil)
-        voiceState = .responding
+        surfaceController.voiceState = .responding
         _ = await playSpeechText(
             "open the companion menu and paste the youtube url to begin. once it's there, hit start learning and i'll guide you through it.",
             purpose: .systemMessage
