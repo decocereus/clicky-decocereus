@@ -825,6 +825,24 @@ struct ClickyRefactorTests {
             ) == .restore
         )
     }
+
+    @Test
+    func runtimeEnvironmentDetectsAppHostedUnitTests() {
+        #expect(ClickyRuntimeEnvironment.isRunningAppHostedUnitTests(
+            environment: ["XCTestConfigurationFilePath": "/tmp/Clicky.xctestconfiguration"],
+            arguments: []
+        ))
+
+        #expect(ClickyRuntimeEnvironment.isRunningAppHostedUnitTests(
+            environment: [:],
+            arguments: ["/Applications/Xcode.app/Contents/Developer/usr/bin/xctest"]
+        ))
+
+        #expect(!ClickyRuntimeEnvironment.isRunningAppHostedUnitTests(
+            environment: [:],
+            arguments: ["/Applications/Clicky.app/Contents/MacOS/Clicky"]
+        ))
+    }
 }
 
 private final class FakeOpenClawShellGateway: ClickyOpenClawShellGateway {

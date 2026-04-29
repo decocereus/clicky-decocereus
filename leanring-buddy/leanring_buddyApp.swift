@@ -67,7 +67,7 @@ struct leanring_buddyApp: App {
 final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarPanelManager: MenuBarPanelManager?
     private var checkForUpdatesObserver: NSObjectProtocol?
-    let companionManager = CompanionManager()
+    private lazy var companionManager = CompanionManager()
     private var sparkleUpdaterController: SPUStandardUpdaterController?
     private lazy var studioWindowController = StudioWindowController(companionManager: companionManager)
 
@@ -77,6 +77,12 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             "App launch began version=\(version, privacy: .public)"
         )
         ClickyLogger.notice(.app, "Launching Clicky version=\(version)")
+
+        if ClickyRuntimeEnvironment.isRunningAppHostedUnitTests {
+            ClickyUnifiedTelemetry.lifecycle.info("Production app startup skipped for app-hosted unit tests")
+            ClickyLogger.notice(.app, "Skipping production app startup for app-hosted unit tests")
+            return
+        }
 
         terminateOtherRunningClickyInstances()
 
@@ -116,6 +122,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         ClickyUnifiedTelemetry.lifecycle.info("App termination began")
         ClickyLogger.notice(.app, "Terminating Clicky")
+        guard !ClickyRuntimeEnvironment.isRunningAppHostedUnitTests else { return }
         companionManager.stop()
     }
 
