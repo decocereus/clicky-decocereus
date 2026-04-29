@@ -35,7 +35,7 @@ final class CompanionManager: ObservableObject {
     // streamingResponseText, so no separate response overlay manager is needed.
 
     private lazy var claudeAPI: ClaudeAPI = {
-        return ClaudeAPI(proxyURL: "\(CompanionRuntimeConfiguration.workerBaseURL)/chat", model: selectedModel)
+        return ClaudeAPI(proxyURL: "\(CompanionRuntimeConfiguration.workerBaseURL)/chat", model: preferences.selectedModel)
     }()
 
     private lazy var claudeAssistantProvider: ClaudeAssistantProvider = {
@@ -63,26 +63,26 @@ final class CompanionManager: ObservableObject {
             }
 
             return ClickyOpenClawShellLifecycleConfiguration(
-                selectedBackend: self.selectedAgentBackend,
-                gatewayURL: self.openClawGatewayURL,
-                gatewayAuthToken: self.openClawGatewayAuthToken,
-                isGatewayRemote: ClickyOpenClawStudioCoordinator.isGatewayRemote(self.openClawGatewayURL),
+                selectedBackend: self.preferences.selectedAgentBackend,
+                gatewayURL: self.preferences.openClawGatewayURL,
+                gatewayAuthToken: self.preferences.openClawGatewayAuthToken,
+                isGatewayRemote: ClickyOpenClawStudioCoordinator.isGatewayRemote(self.preferences.openClawGatewayURL),
                 isLocalPluginEnabled: Self.currentOpenClawPluginStatus() == .enabled,
                 effectiveAgentName: ClickyOpenClawStudioCoordinator.effectiveAgentName(
-                    manualName: self.openClawAgentName,
+                    manualName: self.preferences.openClawAgentName,
                     inferredName: self.backendRoutingController.inferredOpenClawAgentIdentityName
                 ),
                 effectivePresentationName: ClickyPersonaPromptCoordinator.effectivePresentationName(
-                    selectedBackend: self.selectedAgentBackend,
-                    personaScopeMode: self.clickyPersonaScopeMode,
-                    personaOverrideName: self.clickyPersonaOverrideName,
+                    selectedBackend: self.preferences.selectedAgentBackend,
+                    personaScopeMode: self.preferences.clickyPersonaScopeMode,
+                    personaOverrideName: self.preferences.clickyPersonaOverrideName,
                     effectiveOpenClawAgentName: ClickyOpenClawStudioCoordinator.effectiveAgentName(
-                        manualName: self.openClawAgentName,
+                        manualName: self.preferences.openClawAgentName,
                         inferredName: self.backendRoutingController.inferredOpenClawAgentIdentityName
                     )
                 ),
-                personaScopeMode: self.clickyPersonaScopeMode,
-                sessionKey: self.openClawSessionKey
+                personaScopeMode: self.preferences.clickyPersonaScopeMode,
+                sessionKey: self.preferences.openClawSessionKey
             )
         }
     )
@@ -92,7 +92,7 @@ final class CompanionManager: ObservableObject {
         gatewayAgent: openClawGatewayCompanionAgent,
         shellLifecycleController: openClawShellLifecycleController,
         selectedBackendProvider: { [weak self] in
-            self?.selectedAgentBackend ?? .claude
+            self?.preferences.selectedAgentBackend ?? .claude
         }
     )
     private lazy var settingsMutationCoordinator = ClickySettingsMutationCoordinator(
@@ -123,10 +123,10 @@ final class CompanionManager: ObservableObject {
                 }
 
                 return OpenClawAssistantProviderConfiguration(
-                    gatewayURLString: self.openClawGatewayURL,
-                    gatewayAuthToken: self.openClawGatewayAuthToken,
-                    agentIdentifier: self.openClawAgentIdentifier,
-                    sessionKey: self.openClawSessionKey,
+                    gatewayURLString: self.preferences.openClawGatewayURL,
+                    gatewayAuthToken: self.preferences.openClawGatewayAuthToken,
+                    agentIdentifier: self.preferences.openClawAgentIdentifier,
+                    sessionKey: self.preferences.openClawSessionKey,
                     shellIdentifier: self.openClawShellLifecycleController.shellIdentifier
                 )
             }
@@ -311,7 +311,7 @@ final class CompanionManager: ObservableObject {
             return self.speechProviderCoordinator.effectiveSpeechRouting
         },
         voicePresetProvider: { [weak self] in
-            self?.clickyVoicePreset ?? .balanced
+            self?.preferences.clickyVoicePreset ?? .balanced
         }
     )
     private lazy var personaPromptCoordinator = ClickyPersonaPromptCoordinator(
@@ -335,19 +335,19 @@ final class CompanionManager: ObservableObject {
             }
 
             return ClickyPersonaPromptSnapshot(
-                selectedBackend: self.selectedAgentBackend,
-                selectedModel: self.selectedModel,
+                selectedBackend: self.preferences.selectedAgentBackend,
+                selectedModel: self.preferences.selectedModel,
                 codexConfiguredModelName: self.backendRoutingController.codexConfiguredModelName,
-                openClawAgentIdentifier: self.openClawAgentIdentifier,
+                openClawAgentIdentifier: self.preferences.openClawAgentIdentifier,
                 inferredOpenClawAgentIdentifier: self.backendRoutingController.inferredOpenClawAgentIdentifier,
                 effectiveOpenClawAgentName: self.openClawStudioCoordinator.effectiveAgentName,
-                personaScopeMode: self.clickyPersonaScopeMode,
-                personaOverrideName: self.clickyPersonaOverrideName,
-                personaOverrideInstructions: self.clickyPersonaOverrideInstructions,
-                activePersonaDefinition: self.clickyPersonaPreset.definition,
-                voicePreset: self.clickyVoicePreset,
-                cursorStyle: self.clickyCursorStyle,
-                customToneInstructions: self.clickyPersonaToneInstructions
+                personaScopeMode: self.preferences.clickyPersonaScopeMode,
+                personaOverrideName: self.preferences.clickyPersonaOverrideName,
+                personaOverrideInstructions: self.preferences.clickyPersonaOverrideInstructions,
+                activePersonaDefinition: self.preferences.clickyPersonaPreset.definition,
+                voicePreset: self.preferences.clickyVoicePreset,
+                cursorStyle: self.preferences.clickyCursorStyle,
+                customToneInstructions: self.preferences.clickyPersonaToneInstructions
             )
         }
     )
@@ -358,7 +358,7 @@ final class CompanionManager: ObservableObject {
         launchTurnGate: launchTurnGate,
         launchPostTurnRecorder: launchPostTurnRecorder,
         selectedBackendProvider: { [weak self] in
-            self?.selectedAgentBackend ?? .claude
+            self?.preferences.selectedAgentBackend ?? .claude
         },
         setVoiceState: { [weak self] state in
             self?.surfaceController.voiceState = state
@@ -420,13 +420,13 @@ final class CompanionManager: ObservableObject {
     private lazy var tutorialLessonCompiler = ClickyTutorialLessonCompiler(
         assistantTurnExecutor: assistantTurnExecutor,
         selectedBackendProvider: { [weak self] in
-            self?.selectedAgentBackend ?? .claude
+            self?.preferences.selectedAgentBackend ?? .claude
         }
     )
     private lazy var tutorialImportCoordinator = ClickyTutorialImportCoordinator(
         tutorialController: tutorialController,
         backendURLProvider: { [weak self] in
-            self?.clickyBackendBaseURL ?? ""
+            self?.preferences.clickyBackendBaseURL ?? ""
         },
         lessonCompiler: tutorialLessonCompiler,
         clearConversationHistory: { [weak self] in
@@ -440,7 +440,7 @@ final class CompanionManager: ObservableObject {
         assistantResponseRepairer: assistantResponseRepairer,
         focusContextProvider: assistantFocusContextProvider,
         selectedBackendProvider: { [weak self] in
-            self?.selectedAgentBackend ?? .claude
+            self?.preferences.selectedAgentBackend ?? .claude
         },
         setVoiceState: { [weak self] state in
             self?.surfaceController.voiceState = state
@@ -543,163 +543,8 @@ final class CompanionManager: ObservableObject {
         permissionCoordinator.allPermissionsGranted
     }
 
-    /// The Claude model used for voice responses. Persisted to UserDefaults.
-    var selectedModel: String {
-        get { preferences.selectedModel }
-        set { preferences.selectedModel = newValue }
-    }
-
-    /// The active agent backend driving the companion response pipeline.
-    /// Claude remains the default, but OpenClaw can be selected for local
-    /// Gateway-backed agent runs.
-    var selectedAgentBackend: CompanionAgentBackend {
-        get { preferences.selectedAgentBackend }
-        set { preferences.selectedAgentBackend = newValue }
-    }
-
-    /// Connection details for the OpenClaw Gateway backend. These are kept
-    /// lightweight for the first integration pass so the app can target a
-    /// local Gateway quickly while still allowing remote/tunneled setups.
-    var openClawGatewayURL: String {
-        get { preferences.openClawGatewayURL }
-        set { preferences.openClawGatewayURL = newValue }
-    }
-
-    var openClawAgentIdentifier: String {
-        get { preferences.openClawAgentIdentifier }
-        set { preferences.openClawAgentIdentifier = newValue }
-    }
-
-    var openClawAgentName: String {
-        get { preferences.openClawAgentName }
-        set { preferences.openClawAgentName = newValue }
-    }
-
-    var openClawGatewayAuthToken: String {
-        get { preferences.openClawGatewayAuthToken }
-        set { preferences.openClawGatewayAuthToken = newValue }
-    }
-
-    var openClawSessionKey: String {
-        get { preferences.openClawSessionKey }
-        set { preferences.openClawSessionKey = newValue }
-    }
-
-    var clickyPersonaScopeMode: ClickyPersonaScopeMode {
-        get { preferences.clickyPersonaScopeMode }
-        set {
-            guard preferences.clickyPersonaScopeMode != newValue else { return }
-            preferences.clickyPersonaScopeMode = newValue
-            openClawShellLifecycleController.refreshLifecycle()
-        }
-    }
-
-    var clickyPersonaOverrideName: String {
-        get { preferences.clickyPersonaOverrideName }
-        set {
-            guard preferences.clickyPersonaOverrideName != newValue else { return }
-            preferences.clickyPersonaOverrideName = newValue
-            openClawShellLifecycleController.refreshLifecycle()
-        }
-    }
-
-    var clickyPersonaOverrideInstructions: String {
-        get { preferences.clickyPersonaOverrideInstructions }
-        set {
-            guard preferences.clickyPersonaOverrideInstructions != newValue else { return }
-            preferences.clickyPersonaOverrideInstructions = newValue
-            openClawShellLifecycleController.refreshLifecycle()
-        }
-    }
-
-    var clickyPersonaPreset: ClickyPersonaPreset {
-        get { preferences.clickyPersonaPreset }
-        set {
-            guard preferences.clickyPersonaPreset != newValue else { return }
-            preferences.clickyPersonaPreset = newValue
-            openClawShellLifecycleController.refreshLifecycle()
-        }
-    }
-
-    var clickyPersonaToneInstructions: String {
-        get { preferences.clickyPersonaToneInstructions }
-        set {
-            guard preferences.clickyPersonaToneInstructions != newValue else { return }
-            preferences.clickyPersonaToneInstructions = newValue
-            openClawShellLifecycleController.refreshLifecycle()
-        }
-    }
-
-    var clickyVoicePreset: ClickyVoicePreset {
-        get { preferences.clickyVoicePreset }
-        set { preferences.clickyVoicePreset = newValue }
-    }
-
-    var clickyCursorStyle: ClickyCursorStyle {
-        get { preferences.clickyCursorStyle }
-        set { preferences.clickyCursorStyle = newValue }
-    }
-
-    var clickySpeechProviderMode: ClickySpeechProviderMode {
-        get { preferences.clickySpeechProviderMode }
-        set {
-            guard preferences.clickySpeechProviderMode != newValue else { return }
-            preferences.clickySpeechProviderMode = newValue
-            ClickyLogger.notice(.audio, "Speech provider selected provider=\(clickySpeechProviderMode.displayName)")
-        }
-    }
-
-    var clickyLaunchAuthState: ClickyLaunchAuthState {
-        get { launchAccessController.clickyLaunchAuthState }
-        set { launchAccessController.clickyLaunchAuthState = newValue }
-    }
-
-    var clickyLaunchEntitlementStatusLabel: String {
-        get { launchAccessController.clickyLaunchEntitlementStatusLabel }
-        set { launchAccessController.clickyLaunchEntitlementStatusLabel = newValue }
-    }
-
-    var clickyLaunchBillingState: ClickyLaunchBillingState {
-        get { launchAccessController.clickyLaunchBillingState }
-        set { launchAccessController.clickyLaunchBillingState = newValue }
-    }
-
-    var clickyLaunchTrialState: ClickyLaunchTrialState {
-        get { launchAccessController.clickyLaunchTrialState }
-        set { launchAccessController.clickyLaunchTrialState = newValue }
-    }
-
-    var clickyLaunchProfileName: String {
-        get { launchAccessController.clickyLaunchProfileName }
-        set { launchAccessController.clickyLaunchProfileName = newValue }
-    }
-
-    var clickyLaunchProfileImageURL: String {
-        get { launchAccessController.clickyLaunchProfileImageURL }
-        set { launchAccessController.clickyLaunchProfileImageURL = newValue }
-    }
-    var clickyBackendBaseURL: String {
-        get { preferences.clickyBackendBaseURL }
-        set { preferences.clickyBackendBaseURL = newValue }
-    }
-
-    var elevenLabsSelectedVoiceID: String {
-        get { preferences.elevenLabsSelectedVoiceID }
-        set { preferences.elevenLabsSelectedVoiceID = newValue }
-    }
-
-    var elevenLabsSelectedVoiceName: String {
-        get { preferences.elevenLabsSelectedVoiceName }
-        set { preferences.elevenLabsSelectedVoiceName = newValue }
-    }
-
-    var clickyThemePreset: ClickyThemePreset {
-        get { preferences.clickyThemePreset }
-        set { preferences.clickyThemePreset = newValue }
-    }
-
     var isClickyLaunchAuthPending: Bool {
-        switch clickyLaunchAuthState {
+        switch launchAccessController.clickyLaunchAuthState {
         case .restoring, .signingIn:
             return true
         case .signedOut, .signedIn, .failed:
@@ -883,8 +728,8 @@ final class CompanionManager: ObservableObject {
     func start() {
         ClickyUnifiedTelemetry.lifecycle.info("Companion start began")
 
-        if !CompanionRuntimeConfiguration.isWorkerConfigured && selectedAgentBackend == .claude {
-            selectedAgentBackend = .openClaw
+        if !CompanionRuntimeConfiguration.isWorkerConfigured && preferences.selectedAgentBackend == .claude {
+            settingsMutationCoordinator.setSelectedBackend(.openClaw)
             ClickyUnifiedTelemetry.lifecycle.info(
                 "Agent backend fallback applied from=Claude to=OpenClaw reason=worker-unconfigured"
             )
@@ -896,7 +741,7 @@ final class CompanionManager: ObservableObject {
         voiceSessionCoordinator.start()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
-        if selectedAgentBackend == .claude {
+        if preferences.selectedAgentBackend == .claude {
             _ = claudeAPI
         }
 
@@ -921,7 +766,7 @@ final class CompanionManager: ObservableObject {
         surfaceLifecycleCoordinator.showOverlayIfReady()
 
         ClickyUnifiedTelemetry.lifecycle.info(
-            "Companion start completed backend=\(self.selectedAgentBackend.displayName, privacy: .public) permissions=\(self.allPermissionsGranted ? "ready" : "needs-attention", privacy: .public) onboarding=\(self.hasCompletedOnboarding ? "complete" : "pending", privacy: .public) overlay=\(self.surfaceController.isOverlayVisible ? "shown" : "hidden", privacy: .public)"
+            "Companion start completed backend=\(self.preferences.selectedAgentBackend.displayName, privacy: .public) permissions=\(self.allPermissionsGranted ? "ready" : "needs-attention", privacy: .public) onboarding=\(self.hasCompletedOnboarding ? "complete" : "pending", privacy: .public) overlay=\(self.surfaceController.isOverlayVisible ? "shown" : "hidden", privacy: .public)"
         )
     }
 
@@ -1115,7 +960,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private var clickyBackendAuthClient: ClickyBackendAuthClient {
-        ClickyBackendAuthClient(baseURL: clickyBackendBaseURL)
+        ClickyBackendAuthClient(baseURL: preferences.clickyBackendBaseURL)
     }
 
     func handleApplicationDidBecomeActive() {
@@ -1134,7 +979,7 @@ final class CompanionManager: ObservableObject {
 
     private func presentLaunchSignInRequiredState(openStudio: Bool) {
         launchBlockedTurnPresenter.presentSignInRequired(
-            authState: clickyLaunchAuthState,
+            authState: launchAccessController.clickyLaunchAuthState,
             openStudio: openStudio
         )
     }
