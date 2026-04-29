@@ -1982,7 +1982,7 @@ private struct CompanionStudioSupportScene: View {
     }
 
     private var clickyOpenClawPluginStatusLabel: String {
-        companionManager.clickyOpenClawPluginStatusLabel
+        companionManager.openClawStudioCoordinator.pluginStatusLabel
     }
 
     var body: some View {

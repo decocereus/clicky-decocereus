@@ -66,16 +66,27 @@ final class CompanionManager: ObservableObject {
                 selectedBackend: self.selectedAgentBackend,
                 gatewayURL: self.openClawGatewayURL,
                 gatewayAuthToken: self.openClawGatewayAuthToken,
-                isGatewayRemote: self.isOpenClawGatewayRemote,
-                isLocalPluginEnabled: self.clickyOpenClawPluginStatus == .enabled,
-                effectiveAgentName: self.effectiveOpenClawAgentName,
-                effectivePresentationName: self.effectiveClickyPresentationName,
+                isGatewayRemote: ClickyOpenClawStudioCoordinator.isGatewayRemote(self.openClawGatewayURL),
+                isLocalPluginEnabled: Self.currentOpenClawPluginStatus() == .enabled,
+                effectiveAgentName: ClickyOpenClawStudioCoordinator.effectiveAgentName(
+                    manualName: self.openClawAgentName,
+                    inferredName: self.backendRoutingController.inferredOpenClawAgentIdentityName
+                ),
+                effectivePresentationName: ClickyPersonaPromptCoordinator.effectivePresentationName(
+                    selectedBackend: self.selectedAgentBackend,
+                    personaScopeMode: self.clickyPersonaScopeMode,
+                    personaOverrideName: self.clickyPersonaOverrideName,
+                    effectiveOpenClawAgentName: ClickyOpenClawStudioCoordinator.effectiveAgentName(
+                        manualName: self.openClawAgentName,
+                        inferredName: self.backendRoutingController.inferredOpenClawAgentIdentityName
+                    )
+                ),
                 personaScopeMode: self.clickyPersonaScopeMode,
                 sessionKey: self.openClawSessionKey
             )
         }
     )
-    private lazy var openClawStudioCoordinator = ClickyOpenClawStudioCoordinator(
+    lazy var openClawStudioCoordinator = ClickyOpenClawStudioCoordinator(
         preferences: preferences,
         backendRoutingController: backendRoutingController,
         gatewayAgent: openClawGatewayCompanionAgent,
@@ -300,7 +311,7 @@ final class CompanionManager: ObservableObject {
             return self.speechProviderCoordinator.effectiveSpeechRouting
         },
         voicePresetProvider: { [weak self] in
-            self?.effectiveClickyVoicePreset ?? .balanced
+            self?.clickyVoicePreset ?? .balanced
         }
     )
     private lazy var personaPromptCoordinator = ClickyPersonaPromptCoordinator(
@@ -329,13 +340,13 @@ final class CompanionManager: ObservableObject {
                 codexConfiguredModelName: self.backendRoutingController.codexConfiguredModelName,
                 openClawAgentIdentifier: self.openClawAgentIdentifier,
                 inferredOpenClawAgentIdentifier: self.backendRoutingController.inferredOpenClawAgentIdentifier,
-                effectiveOpenClawAgentName: self.effectiveOpenClawAgentName,
+                effectiveOpenClawAgentName: self.openClawStudioCoordinator.effectiveAgentName,
                 personaScopeMode: self.clickyPersonaScopeMode,
                 personaOverrideName: self.clickyPersonaOverrideName,
                 personaOverrideInstructions: self.clickyPersonaOverrideInstructions,
-                activePersonaDefinition: self.activeClickyPersonaDefinition,
-                voicePreset: self.effectiveClickyVoicePreset,
-                cursorStyle: self.effectiveClickyCursorStyle,
+                activePersonaDefinition: self.clickyPersonaPreset.definition,
+                voicePreset: self.clickyVoicePreset,
+                cursorStyle: self.clickyCursorStyle,
                 customToneInstructions: self.clickyPersonaToneInstructions
             )
         }
@@ -498,6 +509,12 @@ final class CompanionManager: ObservableObject {
     private var speechProviderObjectWillChangeCancellable: AnyCancellable?
 
     @Published private(set) var isRequestingScreenContent = false
+
+    private static func currentOpenClawPluginStatus() -> ClickyOpenClawPluginStatus {
+        ClickyOpenClawStudioCoordinator.pluginStatus(
+            openClawConfiguration: ClickyOpenClawStudioCoordinator.loadLocalOpenClawConfiguration()
+        )
+    }
 
     init() {
         preferencesObjectWillChangeCancellable = preferences.objectWillChange.sink { [weak self] _ in
@@ -681,37 +698,6 @@ final class CompanionManager: ObservableObject {
         set { preferences.clickyThemePreset = newValue }
     }
 
-    var clickyLaunchAuthStatusLabel: String {
-        ClickyLaunchPresentation.authStatusLabel(for: clickyLaunchAuthState)
-    }
-
-    var clickyLaunchBillingStatusLabel: String {
-        ClickyLaunchPresentation.billingStatusLabel(for: clickyLaunchBillingState)
-    }
-
-    var clickyLaunchTrialStatusLabel: String {
-        ClickyLaunchPresentation.trialStatusLabel(for: clickyLaunchTrialState)
-    }
-
-    var isClickyLaunchSignedIn: Bool {
-        ClickyLaunchPresentation.isSignedIn(clickyLaunchAuthState)
-    }
-
-    var clickyLaunchDisplayName: String {
-        ClickyLaunchPresentation.displayName(
-            profileName: clickyLaunchProfileName,
-            authState: clickyLaunchAuthState
-        )
-    }
-
-    var clickyLaunchDisplayInitials: String {
-        ClickyLaunchPresentation.initials(for: clickyLaunchDisplayName)
-    }
-
-    var hasUnlimitedClickyLaunchAccess: Bool {
-        launchTurnGate.hasUnlimitedAccess()
-    }
-
     var isClickyLaunchAuthPending: Bool {
         switch clickyLaunchAuthState {
         case .restoring, .signingIn:
@@ -738,22 +724,6 @@ final class CompanionManager: ObservableObject {
 
     var isClickyLaunchPaywallActive: Bool {
         launchTurnGate.isPaywallActive()
-    }
-
-    var activeClickyPersonaDefinition: ClickyPersonaDefinition {
-        clickyPersonaPreset.definition
-    }
-
-    var effectiveClickyVoicePreset: ClickyVoicePreset {
-        clickyVoicePreset
-    }
-
-    var effectiveClickyCursorStyle: ClickyCursorStyle {
-        clickyCursorStyle
-    }
-
-    var effectiveClickyPersonaSpeechInstructions: String {
-        personaPromptCoordinator.effectiveSpeechInstructions
     }
 
     func setClickyPersonaPreset(_ preset: ClickyPersonaPreset) {
@@ -834,94 +804,6 @@ final class CompanionManager: ObservableObject {
 
     func setOpenClawSessionKey(_ sessionKey: String) {
         settingsMutationCoordinator.setOpenClawSessionKey(sessionKey)
-    }
-
-    var openClawGatewayAuthSummary: String {
-        openClawStudioCoordinator.gatewayAuthSummary
-    }
-
-    var isOpenClawGatewayRemote: Bool {
-        openClawStudioCoordinator.isGatewayRemote
-    }
-
-    var clickyOpenClawPluginIdentifier: String {
-        openClawStudioCoordinator.pluginIdentifier
-    }
-
-    var clickyOpenClawPluginStatus: ClickyOpenClawPluginStatus {
-        openClawStudioCoordinator.pluginStatus
-    }
-
-    var clickyOpenClawPluginStatusLabel: String {
-        openClawStudioCoordinator.pluginStatusLabel
-    }
-
-    var clickyOpenClawPluginInstallPathHint: String {
-        openClawStudioCoordinator.pluginInstallPathHint
-    }
-
-    var clickyOpenClawPluginInstallCommand: String {
-        openClawStudioCoordinator.pluginInstallCommand
-    }
-
-    var clickyOpenClawPluginEnableCommand: String {
-        openClawStudioCoordinator.pluginEnableCommand
-    }
-
-    var clickyOpenClawRemoteReadinessSummary: String {
-        openClawStudioCoordinator.remoteReadinessSummary
-    }
-
-    var clickyShellRegistrationStatusLabel: String {
-        openClawStudioCoordinator.shellRegistrationStatusLabel
-    }
-
-    var clickyShellServerSessionKeyLabel: String {
-        openClawStudioCoordinator.shellServerSessionKeyLabel
-    }
-
-    var clickyShellServerFreshnessLabel: String {
-        openClawStudioCoordinator.shellServerFreshnessLabel
-    }
-
-    var clickyShellServerTrustLabel: String {
-        openClawStudioCoordinator.shellServerTrustLabel
-    }
-
-    var clickyShellServerBindingLabel: String {
-        openClawStudioCoordinator.shellServerBindingLabel
-    }
-
-    var effectiveOpenClawAgentName: String {
-        openClawStudioCoordinator.effectiveAgentName
-    }
-
-    var inferredOpenClawAgentIdentityDisplayName: String {
-        openClawStudioCoordinator.inferredIdentityDisplayName
-    }
-
-    var inferredOpenClawAgentIdentityEmojiLabel: String {
-        openClawStudioCoordinator.inferredIdentityEmojiLabel
-    }
-
-    var inferredOpenClawAgentIdentityAvatarLabel: String {
-        openClawStudioCoordinator.inferredIdentityAvatarLabel
-    }
-
-    var effectiveClickyPresentationName: String {
-        personaPromptCoordinator.effectivePresentationName
-    }
-
-    var clickyPersonaScopeLabel: String {
-        personaPromptCoordinator.personaScopeLabel
-    }
-
-    var activeClickyPersonaLabel: String {
-        personaPromptCoordinator.activePersonaLabel
-    }
-
-    var selectedAssistantModelIdentityLabel: String {
-        personaPromptCoordinator.selectedAssistantModelIdentityLabel
     }
 
     private func playSpeechText(

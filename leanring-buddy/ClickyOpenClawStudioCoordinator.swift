@@ -318,7 +318,7 @@ final class ClickyOpenClawStudioCoordinator {
         return avatarValue.isEmpty ? "No avatar provided by OpenClaw" : "Avatar available from OpenClaw"
     }
 
-    private static func loadLocalOpenClawConfiguration() -> [String: Any]? {
+    static func loadLocalOpenClawConfiguration() -> [String: Any]? {
         let openClawHomeDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".openclaw", isDirectory: true)
         let configurationFileURL = openClawHomeDirectoryURL.appendingPathComponent("openclaw.json")
