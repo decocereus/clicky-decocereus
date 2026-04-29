@@ -35,6 +35,7 @@ struct ClickyLaunchTurnGate {
 
     let accessController: ClickyLaunchAccessController
     let sessionService: ClickyLaunchSessionService
+    var storedSessionProvider: () -> ClickyAuthSessionSnapshot? = ClickyAuthSessionStore.load
 
     func hasUnlimitedAccess() -> Bool {
         if case .unlocked = accessController.clickyLaunchTrialState {
@@ -45,7 +46,7 @@ struct ClickyLaunchTurnGate {
     }
 
     func requiresRepurchaseForCompanionUse() -> Bool {
-        guard let storedSession = ClickyAuthSessionStore.load() else {
+        guard let storedSession = storedSessionProvider() else {
             return false
         }
 
@@ -53,7 +54,7 @@ struct ClickyLaunchTurnGate {
     }
 
     func requiresEntitlementRefreshForCompanionUse() -> Bool {
-        guard let storedSession = ClickyAuthSessionStore.load() else {
+        guard let storedSession = storedSessionProvider() else {
             return false
         }
 
@@ -81,7 +82,7 @@ struct ClickyLaunchTurnGate {
     }
 
     func isPaywallActive() -> Bool {
-        if let storedSession = ClickyAuthSessionStore.load() {
+        if let storedSession = storedSessionProvider() {
             return !storedSession.entitlement.hasAccess && storedSession.trial?.status == "paywalled"
         }
 
@@ -97,7 +98,7 @@ struct ClickyLaunchTurnGate {
         hasCompletedOnboarding: Bool,
         allPermissionsGranted: Bool
     ) async throws -> LaunchAssistantTurnAuthorization {
-        guard let storedSession = ClickyAuthSessionStore.load() else {
+        guard let storedSession = storedSessionProvider() else {
             return .standard
         }
 

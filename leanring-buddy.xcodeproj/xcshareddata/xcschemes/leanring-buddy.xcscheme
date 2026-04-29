@@ -35,6 +35,17 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "9F4E1D022F5A000100000001"
+               BuildableName = "ClickyCoreTests.xctest"
+               BlueprintName = "ClickyCoreTests"
+               ReferencedContainer = "container:leanring-buddy.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "28F22CCB2F56440300A0FC59"
                BuildableName = "leanring-buddyTests.xctest"
                BlueprintName = "leanring-buddyTests"

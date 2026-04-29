@@ -236,7 +236,8 @@ struct ClickyRefactorTests {
         )
         let gate = ClickyLaunchTurnGate(
             accessController: accessController,
-            sessionService: sessionService
+            sessionService: sessionService,
+            storedSessionProvider: { nil }
         )
 
         accessController.clickyLaunchAuthState = .signedOut
