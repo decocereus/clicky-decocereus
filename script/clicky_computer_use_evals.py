@@ -127,8 +127,10 @@ def eval_plugin_contract() -> list[str]:
         failures.append("plugin tools do not use route-specific parameter schemas")
     if "formatToolResult(route, result)" not in source:
         failures.append("plugin does not render runtime JSON into model-visible tool text")
-    if "Use this JSON as the source of truth" not in source:
-        failures.append("plugin tool text does not tell the model to use runtime JSON as source of truth")
+    if "Clicky computer-use result for" in source or "Use this JSON as the source of truth" in source:
+        failures.append("plugin tool text still wraps runtime JSON in prose")
+    if "return JSON.stringify(compact, null, 2)" not in source:
+        failures.append("plugin tool text is not pure JSON")
     if "rememberCompletionProof(shell, route, result, ctx?.sessionKey)" not in source:
         failures.append("plugin does not record runtime completion proof after tool results")
     if "validatePresentationAgainstCompletionProof(params, ctx?.sessionKey, shell)" not in source:
@@ -160,12 +162,18 @@ def eval_plugin_contract() -> list[str]:
         failures.append("set_value schema does not use upstream target object")
     if 'if (!hasTarget(payload, "target")) return missing("target")' not in source:
         failures.append("plugin does not validate required target payloads")
-    if 'Defaults to base64 through Clicky' not in source:
-        failures.append("plugin schema does not advertise model-usable screenshot transport")
-    if "function screenshotDataUrl(result: Record<string, unknown>)" not in source:
-        failures.append("plugin does not attach inline screenshots from get_window_state results")
-    if 'content.push({ type: "image", url: screenshotUrl })' not in source:
-        failures.append("plugin does not expose screenshots as tool-result image content")
+    if 'Defaults to path' not in source:
+        failures.append("plugin schema does not default screenshot transport to path")
+    if "sanitizeToolResultForModel(result)" not in source:
+        failures.append("plugin does not sanitize runtime results before returning structuredContent")
+    if "compactToolResultForModel(route, result)" not in source:
+        failures.append("plugin does not compact runtime results before returning them to the model")
+    if "normalizeComputerUsePayloadForModel(route, payload)" not in source:
+        failures.append("plugin does not normalize expensive computer-use observation defaults")
+    if "function screenshotDataUrl(result: Record<string, unknown>)" in source:
+        failures.append("plugin still attaches inline screenshots to tool results")
+    if 'content.push({ type: "image", url: screenshotUrl })' in source:
+        failures.append("plugin still exposes screenshots as image tool-result content")
 
     if "_ = try await connect()\n            defer { cancel() }" not in agent_source:
         failures.append("OpenClaw companion session is not canceled on timeout/error exits")
@@ -175,12 +183,27 @@ def eval_plugin_contract() -> list[str]:
         failures.append("computer-use cursor activity does not debounce per-tool finish")
     if "minimumComputerUseStatusDisplayInterval" not in manager_source:
         failures.append("computer-use cursor status updates are not rate-limited")
-    if 'body["imageMode"] = "base64"' not in manager_source:
-        failures.append("Clicky does not default OpenClaw screenshots to base64")
+    if 'body["imageMode"] = "path"' not in manager_source:
+        failures.append("Clicky does not default OpenClaw screenshots to path")
+    if "preparedCompactObservationPayload" not in manager_source:
+        failures.append("Clicky does not apply compact observation defaults before runtime calls")
+    if 'body["includeMenuBar"] = false' not in manager_source:
+        failures.append("Clicky still defaults computer-use observations to include menu bar")
     if '"id": "clicky-openclaw-operator"' not in manager_source:
         failures.append("Clicky does not provide a stable runtime cursor for action routes")
     if "validateOpenClawComputerUsePayload(route: route, payload: payload)" not in manager_source:
         failures.append("Clicky does not enforce the OpenClaw action payload contract before forwarding")
+    trace_source = (ROOT / "leanring-buddy/ClickyComputerUseDebugTrace.swift").read_text()
+    gateway_source = (ROOT / "leanring-buddy/OpenClawGatewayCompanionAgent.swift").read_text()
+    provider_source = (ROOT / "leanring-buddy/OpenClawAssistantProvider.swift").read_text()
+    if "ComputerUseTraces" not in trace_source:
+        failures.append("Clicky does not persist computer-use debug traces")
+    if "recordOpenClawFrame" not in gateway_source:
+        failures.append("Clicky does not trace OpenClaw gateway frames")
+    if "recordOpenClawDispatch" not in provider_source:
+        failures.append("Clicky does not trace the exact OpenClaw dispatch payload")
+    if "beginToolStep" not in manager_source or "finishToolStep" not in manager_source:
+        failures.append("Clicky does not trace before/after screenshots around computer-use tool calls")
     return failures
 
 

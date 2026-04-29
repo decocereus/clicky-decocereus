@@ -231,7 +231,9 @@ function buildPromptInstructions() {
     "- use an observe-act-observe loop: list_apps or list_windows when choosing a target, get_window_state before meaningful UI actions, perform one action, then observe again.",
     "- window must be the exact stable window ID from list_windows. do not pass frontmost, current, active, or a visible title as the window value.",
     "- choose windows and elements yourself from runtime state. Clicky does not perform semantic target scoring for you.",
-    "- get_window_state returns model-usable screenshots in the structured tool result. after each action, call get_window_state again before deciding the next step; do not call separate image tools on local screenshot paths.",
+    "- get_window_state returns compact live window state, element indices, focused element, stateToken, and screenshot metadata. after each action, call get_window_state again before deciding the next step.",
+    "- normal computer-use tools return compact JSON only. screenshots, raw trees, gateway frames, and before/after artifacts are recorded by Clicky out-of-band for debugging, not stuffed into this model context.",
+    "- keep observation calls cheap unless you truly need expansion: prefer visible traversal, omit menu bars, and request debug or full traversal only for targeted recovery.",
     "- actions require the exact window ID from list_windows. use target objects from the latest get_window_state, for example {kind:'display_index', value: 12}. pass stateToken when the runtime returned one, but do not invent it.",
     "- for text entry, call type_text with an observed text-entry target from get_window_state whenever possible. if the editor is not visible in the latest state, observe or recover before typing.",
     "- for draft flows, stop before final submit/publish unless the user explicitly asks and Review allows it.",
@@ -302,9 +304,9 @@ const actionTargetParameter = {
 };
 
 const commonObservationProperties = {
-  includeMenuBar: { type: "boolean" },
-  maxNodes: { type: "integer" },
-  imageMode: { type: "string", enum: ["path", "base64", "omit"], description: "Defaults to base64 through Clicky so OpenClaw can inspect the screenshot without reading a local temp path." },
+  includeMenuBar: { type: "boolean", description: "Defaults to false for normal computer-use. Set true only when intentionally inspecting menus." },
+  maxNodes: { type: "integer", description: "Defaults to a compact bound. Increase only for targeted recovery after a compact observation was insufficient." },
+  imageMode: { type: "string", enum: ["path", "base64", "omit"], description: "Defaults to path. Inline base64 screenshots are not returned through OpenClaw tool results because they bloat and can poison provider history." },
   debug: { type: "boolean" },
 };
 
@@ -333,14 +335,14 @@ function runtimeToolParameters(route: ComputerUseRoute) {
       properties: {
         window: { type: "string", description: "Stable window ID returned by list_windows." },
         menuPath: { type: "array", items: { type: "string" } },
-        webTraversal: { type: "string", enum: ["visible", "full"] },
+        webTraversal: { type: "string", enum: ["visible", "full"], description: "Defaults to visible. Use full only for targeted recovery because it can produce very large state." },
         includeRawScreenshot: { type: "boolean" },
         debugMode: { type: "string", enum: ["none", "summary", "full"] },
         includeDiagnostics: { type: "boolean" },
         includePlatformProfile: { type: "boolean" },
         includeRawCapture: { type: "boolean" },
         includeSemanticTree: { type: "boolean" },
-        includeProjectedTree: { type: "boolean" },
+        includeProjectedTree: { type: "boolean", description: "Defaults to true but model-visible output is compacted. Full debug trees are stored in Clicky traces." },
         ...commonObservationProperties,
       },
     };
@@ -532,7 +534,44 @@ function validatePayload(route: ComputerUseRoute, params: unknown) {
     break;
   }
 
-  return { ok: true as const, payload };
+  return { ok: true as const, payload: normalizeComputerUsePayloadForModel(route, payload) };
+}
+
+function normalizeComputerUsePayloadForModel(route: ComputerUseRoute, payload: Record<string, unknown>) {
+  const normalized = { ...payload };
+  if (!["get_window_state", "click", "type_text", "press_key", "scroll", "set_value", "perform_secondary_action"].includes(route)) {
+    return normalized;
+  }
+
+  const explicitDebug = normalized.debug === true || normalized.debugMode === "full";
+  if (normalized.imageMode === undefined || normalized.imageMode === "base64") {
+    normalized.imageMode = "path";
+  }
+  if (normalized.includeMenuBar === undefined) {
+    normalized.includeMenuBar = false;
+  }
+
+  if (route === "get_window_state") {
+    if (normalized.webTraversal === undefined) {
+      normalized.webTraversal = "visible";
+    }
+    if (normalized.includeProjectedTree === undefined) {
+      normalized.includeProjectedTree = true;
+    }
+    if (normalized.maxNodes === undefined || !Number.isFinite(normalized.maxNodes as number)) {
+      normalized.maxNodes = explicitDebug ? 6500 : 180;
+    } else if (!explicitDebug && typeof normalized.maxNodes === "number") {
+      normalized.maxNodes = Math.max(40, Math.min(220, Math.floor(normalized.maxNodes)));
+    }
+  } else {
+    if (normalized.maxNodes === undefined || !Number.isFinite(normalized.maxNodes as number)) {
+      normalized.maxNodes = explicitDebug ? 6500 : 180;
+    } else if (!explicitDebug && typeof normalized.maxNodes === "number") {
+      normalized.maxNodes = Math.max(40, Math.min(220, Math.floor(normalized.maxNodes)));
+    }
+  }
+
+  return normalized;
 }
 
 function humanRouteLabel(route: ComputerUseRoute) {
@@ -569,7 +608,7 @@ function runtimeToolDescription(route: ComputerUseRoute) {
   case "list_windows":
     return "List live windows for an app name, bundle ID, or app identifier from list_apps.";
   case "get_window_state":
-    return "Observe one live window and return its stateToken, model-usable screenshot, AX tree, focused element, and element indices. Pass the exact stable window ID returned by list_windows.";
+    return "Observe one live window and return its stateToken, screenshot metadata, AX tree, focused element, and element indices. Pass the exact stable window ID returned by list_windows.";
   case "click":
     return "Click an observed target or screenshot coordinate. Prefer target from the latest get_window_state, such as {kind:'display_index', value: 12}.";
   case "type_text":
@@ -591,20 +630,29 @@ function runtimeToolDescription(route: ComputerUseRoute) {
   }
 }
 
-function sanitizeToolResultForText(value: unknown, depth = 0): unknown {
+function isLargeInlineMediaString(value: string) {
+  if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(value)) return true;
+  if (value.length > 500 && /^[A-Za-z0-9+/=\r\n]+$/.test(value)) return true;
+  return false;
+}
+
+function sanitizeToolResultForModel(value: unknown, depth = 0): unknown {
+  if (typeof value === "string" && isLargeInlineMediaString(value)) {
+    return `[omitted inline image ${value.length} chars]`;
+  }
   if (typeof value === "string" && value.length > 12000) {
     return `${value.slice(0, 12000)}[truncated ${value.length - 12000} chars]`;
   }
   if (depth > 7) return "[truncated-depth]";
   if (Array.isArray(value)) {
-    return value.slice(0, 300).map((item) => sanitizeToolResultForText(item, depth + 1));
+    return value.slice(0, 300).map((item) => sanitizeToolResultForModel(item, depth + 1));
   }
   if (!value || typeof value !== "object") return value;
 
   const record = value as Record<string, unknown>;
   const sanitized: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(record)) {
-    if (["imageBase64", "base64", "data"].includes(key) && typeof item === "string" && item.length > 500) {
+    if (["imageBase64", "base64", "data", "dataUrl", "image_url", "url"].includes(key) && typeof item === "string" && isLargeInlineMediaString(item)) {
       sanitized[key] = `[omitted ${item.length} chars]`;
       continue;
     }
@@ -614,44 +662,197 @@ function sanitizeToolResultForText(value: unknown, depth = 0): unknown {
         ? screenshot.image as Record<string, unknown>
         : null;
       sanitized[key] = {
-        ...sanitizeToolResultForText(screenshot, depth + 1) as Record<string, unknown>,
+        ...sanitizeToolResultForModel(screenshot, depth + 1) as Record<string, unknown>,
         image: image
           ? {
               mimeType: image.mimeType,
               width: image.width,
               height: image.height,
+              path: image.path,
+              filePath: image.filePath,
               imageBase64: typeof image.imageBase64 === "string" ? `[omitted ${image.imageBase64.length} chars]` : undefined,
             }
-          : sanitizeToolResultForText(screenshot.image, depth + 1),
+          : sanitizeToolResultForModel(screenshot.image, depth + 1),
       };
       continue;
     }
-    sanitized[key] = sanitizeToolResultForText(item, depth + 1);
+    sanitized[key] = sanitizeToolResultForModel(item, depth + 1);
   }
   return sanitized;
 }
 
 function formatToolResult(route: ComputerUseRoute, result: Record<string, unknown>) {
-  const sanitized = sanitizeToolResultForText(result);
-  const text = JSON.stringify(sanitized, null, 2);
-  return [
-    `Clicky computer-use result for ${route}.`,
-    "Use this JSON as the source of truth for the next observe-act-observe step:",
-    text,
-  ].join("\n");
+  const compact = compactToolResultForModel(route, result);
+  return JSON.stringify(compact, null, 2);
 }
 
-function screenshotDataUrl(result: Record<string, unknown>) {
-  const screenshot = result.screenshot && typeof result.screenshot === "object" && !Array.isArray(result.screenshot)
-    ? result.screenshot as Record<string, unknown>
-    : null;
-  const image = screenshot?.image && typeof screenshot.image === "object" && !Array.isArray(screenshot.image)
-    ? screenshot.image as Record<string, unknown>
-    : null;
-  const imageBase64 = image ? parseString(image.imageBase64) : null;
-  if (!imageBase64) return null;
-  const mimeType = image ? parseString(image.mimeType) ?? "image/png" : "image/png";
-  return `data:${mimeType};base64,${imageBase64}`;
+function compactToolResultForModel(route: ComputerUseRoute, result: Record<string, unknown>) {
+  const sanitized = sanitizeToolResultForModel(result) as Record<string, unknown>;
+  const base = pickDefined(sanitized, [
+    "ok",
+    "route",
+    "requestId",
+    "statusCode",
+    "classification",
+    "summary",
+    "error",
+    "failureDomain",
+    "needsApproval",
+    "needsPermissions",
+    "stateToken",
+    "preStateToken",
+    "postStateToken",
+    "contractVersion",
+  ]);
+
+  const warnings = compactStringArray(sanitized.warnings, 4, 240);
+  if (warnings.length) base.warnings = warnings;
+  const recovery = compactStringArray(sanitized.recovery, 4, 240);
+  if (recovery.length) base.recovery = recovery;
+  const notes = compactStringArray(sanitized.notes, 3, 180);
+  if (notes.length) base.notes = notes;
+
+  if (sanitized.app) base.app = compactObject(sanitized.app, ["name", "bundleID", "pid", "launchDate"]);
+  if (sanitized.window) base.window = compactObject(sanitized.window, [
+    "windowID",
+    "title",
+    "bundleID",
+    "pid",
+    "windowNumber",
+    "isFocused",
+    "isMain",
+    "isOnScreen",
+    "isMinimized",
+    "frameAppKit",
+    "resolutionStrategy",
+  ]);
+  if (Array.isArray(sanitized.apps)) base.apps = sanitized.apps.slice(0, 80).map((app) =>
+    compactObject(app, ["name", "bundleID", "pid", "isRunning", "activationPolicy"])
+  );
+  if (Array.isArray(sanitized.windows)) base.windows = sanitized.windows.slice(0, 80).map((window) =>
+    compactObject(window, [
+      "windowID",
+      "title",
+      "bundleID",
+      "pid",
+      "windowNumber",
+      "isFocused",
+      "isMain",
+      "isOnScreen",
+      "isMinimized",
+      "frameAppKit",
+    ])
+  );
+
+  if (sanitized.focusedElement) {
+    base.focusedElement = compactObject(sanitized.focusedElement, [
+      "index",
+      "displayIndex",
+      "canonicalIndex",
+      "displayRole",
+      "role",
+      "title",
+      "description",
+      "valuePreview",
+      "secondaryActions",
+    ]);
+  }
+  if (sanitized.selectionSummary) base.selectionSummary = sanitized.selectionSummary;
+  if (sanitized.screenshot) base.screenshot = compactScreenshot(sanitized.screenshot);
+  if (sanitized.target) base.target = compactObject(sanitized.target, [
+    "projectedIndex",
+    "displayIndex",
+    "canonicalIndex",
+    "nodeID",
+    "refetchFingerprint",
+    "displayRole",
+    "title",
+    "description",
+  ]);
+  if (sanitized.cursor) base.cursor = compactObject(sanitized.cursor, [
+    "moved",
+    "movement",
+    "targetPointAppKit",
+    "targetPointSource",
+    "moveDurationMs",
+    "session",
+  ]);
+  if (sanitized.verification) {
+    base.verification = compactObject(sanitized.verification, [
+      "expectedOutcome",
+      "exactValueMatch",
+      "exactSelectionMatch",
+      "targetRelocated",
+      "refreshedTargetMatchStrategy",
+      "verificationNotes",
+    ]);
+  }
+
+  if (route === "get_window_state" && sanitized.tree && typeof sanitized.tree === "object" && !Array.isArray(sanitized.tree)) {
+    const tree = sanitized.tree as Record<string, unknown>;
+    const renderedText = typeof tree.renderedText === "string" ? tree.renderedText : null;
+    base.tree = {
+      renderedText: renderedText ? truncateString(renderedText, 8000) : undefined,
+      truncated: renderedText ? renderedText.length > 8000 : undefined,
+    };
+  }
+
+  if (route !== "get_window_state" && sanitized.postActionObservation && typeof sanitized.postActionObservation === "object") {
+    const observation = sanitized.postActionObservation as Record<string, unknown>;
+    base.postActionObservation = compactObject(observation, [
+      "ok",
+      "stateToken",
+      "focusedElement",
+      "selectionSummary",
+      "screenshot",
+    ]);
+  }
+
+  return removeUndefined(base);
+}
+
+function pickDefined(record: Record<string, unknown>, keys: string[]) {
+  const picked: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (record[key] !== undefined) picked[key] = record[key];
+  }
+  return picked;
+}
+
+function compactObject(value: unknown, keys: string[]) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  return removeUndefined(pickDefined(value as Record<string, unknown>, keys));
+}
+
+function compactScreenshot(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const screenshot = value as Record<string, unknown>;
+  const compact = compactObject(screenshot, ["path", "filePath", "width", "height", "capturedAt", "displayFrame", "image"]);
+  if (compact && typeof compact === "object" && !Array.isArray(compact) && "image" in compact) {
+    const record = compact as Record<string, unknown>;
+    record.image = compactObject(record.image, ["path", "filePath", "width", "height", "mimeType"]);
+  }
+  return compact;
+}
+
+function compactStringArray(value: unknown, maxItems: number, maxChars: number) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .slice(0, maxItems)
+    .map((item) => truncateString(item, maxChars));
+}
+
+function truncateString(value: string, maxChars: number) {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}[truncated ${value.length - maxChars} chars]`;
+}
+
+function removeUndefined<T extends Record<string, unknown>>(record: T) {
+  for (const key of Object.keys(record)) {
+    if (record[key] === undefined) delete record[key];
+  }
+  return record;
 }
 
 function resultSucceeded(result: Record<string, unknown>) {
@@ -827,14 +1028,11 @@ function makeRuntimeTool(route: ComputerUseRoute, api: any, ctx: any) {
       api.logger.info(`clicky-shell: computer_use route=${route} shell=${shell.shellId}`);
       const result = await queueComputerUseRequest(shell, route, validation.payload);
       rememberCompletionProof(shell, route, result, ctx?.sessionKey);
+      const sanitizedResult = compactToolResultForModel(route, result) as Record<string, unknown>;
       const content: Record<string, string>[] = [{ type: "text", text: formatToolResult(route, result) }];
-      const screenshotUrl = screenshotDataUrl(result);
-      if (screenshotUrl) {
-        content.push({ type: "image", url: screenshotUrl });
-      }
       return {
         content,
-        structuredContent: result,
+        structuredContent: sanitizedResult,
         isError: result.ok === false,
       };
     },

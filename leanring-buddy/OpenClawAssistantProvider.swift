@@ -41,6 +41,17 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
             configurationProvider()
         }
         let userPrompt = appendFocusContext(to: request.userPrompt, focusContext: request.focusContext)
+        let openClawImages = request.imageAttachments.map { attachment in
+            OpenClawGatewayImageAttachment(
+                imageData: attachment.data,
+                label: attachment.label,
+                mimeType: attachment.mimeType ?? "image/jpeg"
+            )
+        }
+        let messageBody = buildGatewayMessageBody(
+            imageLabels: openClawImages.map(\.label),
+            userPrompt: userPrompt
+        )
 
         ClickyAgentTurnDiagnostics.logProviderRequest(
             backendLabel: backend.displayName,
@@ -54,6 +65,15 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
             agentIdentifier=\(configuration.agentIdentifier)
             """
         )
+        ClickyComputerUseDebugTrace.shared.recordOpenClawDispatch(
+            sessionKey: configuration.sessionKey,
+            shellIdentifier: configuration.shellIdentifier,
+            agentIdentifier: configuration.agentIdentifier,
+            systemPrompt: request.systemPrompt,
+            userPrompt: userPrompt,
+            imageLabels: openClawImages.map(\.label),
+            messageBody: messageBody
+        )
 
         let response = try await gatewayAgent.analyzeImageStreaming(
             gatewayURLString: configuration.gatewayURLString,
@@ -61,13 +81,7 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
             configuredAgentIdentifier: configuration.agentIdentifier,
             configuredSessionKey: configuration.sessionKey,
             shellIdentifier: configuration.shellIdentifier,
-            images: request.imageAttachments.map { attachment in
-                OpenClawGatewayImageAttachment(
-                    imageData: attachment.data,
-                    label: attachment.label,
-                    mimeType: attachment.mimeType ?? "image/jpeg"
-                )
-            },
+            images: openClawImages,
             systemPrompt: request.systemPrompt,
             userPrompt: userPrompt,
             computerUseToolHandler: computerUseToolHandler,
@@ -91,5 +105,30 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
         User request:
         \(userPrompt)
         """
+    }
+
+    private func buildGatewayMessageBody(
+        imageLabels: [String],
+        userPrompt: String
+    ) -> String {
+        var messageSections: [String] = []
+        if !imageLabels.isEmpty {
+            let formattedLabels = imageLabels.enumerated().map { index, label in
+                "attachment \(index + 1): \(label)"
+            }.joined(separator: "\n")
+            messageSections.append(
+                """
+                Attached screen captures:
+                \(formattedLabels)
+                Use the attached images as the current screen context.
+                """
+            )
+        }
+
+        let trimmedUserPrompt = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedUserPrompt.isEmpty {
+            messageSections.append(trimmedUserPrompt)
+        }
+        return messageSections.joined(separator: "\n\n")
     }
 }

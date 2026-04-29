@@ -83,7 +83,9 @@ struct ClickyComputerUseContractTests {
         }
         #expect(source.contains("preparedComputerUsePayload(route: route, payload: payload)"))
         #expect(source.contains("validateOpenClawComputerUsePayload(route: route, payload: payload)"))
-        #expect(source.contains("body[\"imageMode\"] = \"base64\""))
+        #expect(source.contains("body[\"imageMode\"] = \"path\""))
+        #expect(source.contains("preparedCompactObservationPayload"))
+        #expect(source.contains("body[\"includeMenuBar\"] = false"))
         #expect(!source.contains("clicky-operator"))
         #expect(source.contains("executeOpenClawComputerUseToolRequest"))
     }
@@ -115,7 +117,9 @@ struct ClickyComputerUseContractTests {
         #expect(source.contains("function runtimeToolParameters(route: ComputerUseRoute)"))
         #expect(source.contains("parameters: runtimeToolParameters(route)"))
         #expect(source.contains("formatToolResult(route, result)"))
-        #expect(source.contains("Use this JSON as the source of truth"))
+        #expect(source.contains("return JSON.stringify(compact, null, 2)"))
+        #expect(!source.contains("Use this JSON as the source of truth"))
+        #expect(!source.contains("Clicky computer-use result for"))
         #expect(source.contains("rememberCompletionProof(shell, route, result, ctx?.sessionKey)"))
         #expect(source.contains("validatePresentationAgainstCompletionProof(params, ctx?.sessionKey, shell)"))
         #expect(source.contains("clicky_present cannot claim completion yet"))
@@ -130,10 +134,46 @@ struct ClickyComputerUseContractTests {
         #expect(source.contains("actionSchema([\"window\", \"target\", \"value\"]"))
         #expect(source.contains("if (!hasTarget(payload, \"target\")) return missing(\"target\")"))
         #expect(!source.contains("if (!hasInteger(payload, \"elementIndex\")) return missing(\"elementIndex\")"))
-        #expect(source.contains("Defaults to base64 through Clicky"))
-        #expect(source.contains("function screenshotDataUrl(result: Record<string, unknown>)"))
-        #expect(source.contains("content.push({ type: \"image\", url: screenshotUrl })"))
+        #expect(source.contains("Defaults to path"))
+        #expect(source.contains("sanitizeToolResultForModel(result)"))
+        #expect(source.contains("compactToolResultForModel(route, result)"))
+        #expect(source.contains("normalizeComputerUsePayloadForModel(route, payload)"))
+        #expect(source.contains("structuredContent: sanitizedResult"))
+        #expect(!source.contains("function screenshotDataUrl(result: Record<string, unknown>)"))
+        #expect(!source.contains("content.push({ type: \"image\", url: screenshotUrl })"))
         #expect(!source.contains("additionalProperties: true,\n  properties: {\n    app: { type: \"string\" }"))
+    }
+
+    @Test
+    func openClawComputerUseDebugTraceCapturesTheFullLoop() throws {
+        let traceSource = try readRepositoryFile("leanring-buddy/ClickyComputerUseDebugTrace.swift")
+        let managerSource = try readRepositoryFile("leanring-buddy/CompanionManager.swift")
+        let providerSource = try readRepositoryFile("leanring-buddy/OpenClawAssistantProvider.swift")
+        let gatewaySource = try readRepositoryFile("leanring-buddy/OpenClawGatewayCompanionAgent.swift")
+
+        #expect(traceSource.contains("ComputerUseTraces"))
+        #expect(traceSource.contains("initial-turn.json"))
+        #expect(traceSource.contains("openclaw-dispatch.json"))
+        #expect(traceSource.contains("trace.jsonl"))
+        #expect(traceSource.contains("screenshots"))
+        #expect(traceSource.contains("beginToolStep"))
+        #expect(traceSource.contains("finishToolStep"))
+        #expect(managerSource.contains("ClickyComputerUseDebugTrace.shared.startRun"))
+        #expect(managerSource.contains("ClickyComputerUseDebugTrace.shared.beginToolStep"))
+        #expect(managerSource.contains("ClickyComputerUseDebugTrace.shared.finishToolStep"))
+        #expect(providerSource.contains("recordOpenClawDispatch"))
+        #expect(gatewaySource.contains("recordOpenClawFrame"))
+    }
+
+    @Test
+    func typeTextUsesTypingSemanticsAndRejectsStaleTargets() throws {
+        let source = try readRepositoryFile("Packages/BackgroundComputerUse/Sources/BackgroundComputerUse/Actions/TypeText/TypeTextRouteService.swift")
+
+        #expect(source.contains("Supplied stateToken did not match the live pre-action recapture; refusing to type"))
+        #expect(source.contains("type_text uses PID-scoped Unicode posting; use set_value for direct AX value mutation."))
+        #expect(source.contains("AXActionRuntimeSupport.postUnicodeText(text, to: pid)"))
+        #expect(!source.contains("AXUIElementSetAttributeValue(kAXValueAttribute) + AXUIElementSetAttributeValue(kAXSelectedTextRangeAttribute)"))
+        #expect(!source.contains("Using element-bound AX value write for type_text"))
     }
 
     @Test

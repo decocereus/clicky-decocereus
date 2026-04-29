@@ -1066,6 +1066,11 @@ final class OpenClawGatewayCompanionAgent {
                 )
             }
 
+            await ClickyComputerUseDebugTrace.shared.recordOpenClawFrame(
+                direction: "outbound",
+                frame: frame
+            )
+
             let frameData = try JSONSerialization.data(withJSONObject: frame)
             guard let frameJSONString = String(data: frameData, encoding: .utf8) else {
                 throw NSError(
@@ -1110,6 +1115,11 @@ final class OpenClawGatewayCompanionAgent {
                   let frameType = frame["type"] as? String else {
                 return
             }
+
+            await ClickyComputerUseDebugTrace.shared.recordOpenClawFrame(
+                direction: "inbound",
+                frame: frame
+            )
 
             if frameType == "event",
                let eventName = frame["event"] as? String {

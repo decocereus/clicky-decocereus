@@ -5,7 +5,6 @@ struct TypeTextRouteService {
     private let executionOptions: ActionExecutionOptions
     private let targetResolver: AXActionTargetResolver
     private let dispatchPrimitive = "CGEvent.keyboardSetUnicodeString + postToPid"
-    private let elementValueDispatchPrimitive = "AXUIElementSetAttributeValue(kAXValueAttribute) + AXUIElementSetAttributeValue(kAXSelectedTextRangeAttribute)"
     private let settleDelay: TimeInterval = 0.35
 
     init(executionOptions: ActionExecutionOptions = .visualCursorEnabled) {
@@ -25,6 +24,32 @@ struct TypeTextRouteService {
             liveStateToken: capture.envelope.response.stateToken
         )
         var notes: [String] = []
+        if suppliedStateTokenIsStale(supplied: request.stateToken, live: capture.envelope.response.stateToken) {
+            return response(
+                classification: .verifierAmbiguous,
+                failureDomain: .targeting,
+                summary: "Supplied stateToken did not match the live pre-action recapture; refusing to type into a potentially stale target.",
+                window: capture.envelope.response.window,
+                target: nil,
+                text: request.text,
+                focusAssistMode: focusAssistMode,
+                dispatchPrimitive: nil,
+                dispatchSucceeded: nil,
+                semanticAppropriate: nil,
+                semanticReasons: [],
+                liveElementResolution: nil,
+                preStateToken: capture.envelope.response.stateToken,
+                postStateToken: nil,
+                cursor: AXCursorTargeting.notAttempted(
+                    requested: request.cursor,
+                    reason: "Cursor movement was not attempted because the request stateToken was stale.",
+                    options: executionOptions
+                ),
+                warnings: warnings,
+                notes: notes,
+                verification: nil
+            )
+        }
 
         let candidate: AXActionCandidate?
         if let target = request.target {
@@ -149,9 +174,7 @@ struct TypeTextRouteService {
         let dispatchResult = dispatchText(
             request.text,
             expected: expected,
-            to: liveElement.element,
             pid: capture.envelope.response.window.pid,
-            warnings: &warnings,
             notes: &notes
         )
         if dispatchResult.succeeded == false {
@@ -288,49 +311,26 @@ struct TypeTextRouteService {
     private func dispatchText(
         _ text: String,
         expected: TypeTextExpectedOutcomeDTO?,
-        to element: AXUIElement,
         pid: pid_t,
-        warnings: inout [String],
         notes: inout [String]
     ) -> TextDispatchResult {
-        if let expectedValue = expected?.valueString,
-           AXActionRuntimeSupport.isAttributeSettable(element, attribute: kAXValueAttribute as CFString) {
-            notes.append("Using element-bound AX value write for type_text to avoid process-scoped same-app window routing.")
-            let valueResult = AXActionRuntimeSupport.setValue(.string(expectedValue), on: element)
-            notes.append("AX value write result: \(AXActionRuntimeSupport.rawStatusString(for: valueResult)).")
-            guard valueResult == .success else {
-                warnings.append("AX value write returned \(AXActionRuntimeSupport.rawStatusString(for: valueResult)); type_text did not fall back to PID-scoped Unicode posting for this writable target.")
-                return TextDispatchResult(succeeded: false, primitive: elementValueDispatchPrimitive)
-            }
-
-            if let selectionRange = expected?.selectionRange {
-                if AXActionRuntimeSupport.isAttributeSettable(element, attribute: kAXSelectedTextRangeAttribute as CFString) {
-                    let rangeResult = AXActionRuntimeSupport.setSelectedTextRangeResult(
-                        element,
-                        location: selectionRange.location,
-                        length: selectionRange.length
-                    )
-                    notes.append("AX caret restore result: \(AXActionRuntimeSupport.rawStatusString(for: rangeResult)).")
-                    if rangeResult != .success {
-                        warnings.append("AX caret restore returned \(AXActionRuntimeSupport.rawStatusString(for: rangeResult)).")
-                    }
-                } else {
-                    warnings.append("AX value write succeeded, but the selected text range is not writable for caret restoration.")
-                }
-            }
-
-            return TextDispatchResult(succeeded: true, primitive: elementValueDispatchPrimitive)
-        }
-
         if expected?.valueString == nil {
             notes.append("Exact inserted value could not be computed; type_text used PID-scoped Unicode posting.")
         } else {
-            notes.append("Live AX value was not writable; type_text used PID-scoped Unicode posting.")
+            notes.append("type_text uses PID-scoped Unicode posting; use set_value for direct AX value mutation.")
         }
         return TextDispatchResult(
             succeeded: AXActionRuntimeSupport.postUnicodeText(text, to: pid),
             primitive: dispatchPrimitive
         )
+    }
+
+    private func suppliedStateTokenIsStale(supplied: String?, live: String) -> Bool {
+        guard let supplied,
+              supplied.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return false
+        }
+        return supplied != live
     }
 
     private func applyFocusAssistIfRequested(

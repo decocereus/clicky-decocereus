@@ -120,6 +120,8 @@ The plugin should **not** own:
 
   There is no semantic locate/scoring tool on the model-facing surface. Agents should prefer `window` plus a canonical `target` object from the latest `get_window_state` result, with `stateToken` included when the runtime returned one for that state. Coordinates are acceptable only when grounded in a fresh screenshot/window state. `frontmost` is not the default for multi-window apps or resumed tasks. Generic `exec`, AppleScript, process, or browser automation is outside the Clicky desktop-control contract because it bypasses Clicky's policy, cursor progress, runtime logs, and post-action state.
 
+  Normal tool results are intentionally compact. The model-visible payload should include actionable fields such as `ok`, `classification`, `summary`, `window`, `stateToken`, focused element, compact element text, warnings, and recovery hints. Large raw trees, inline screenshots, debug internals, gateway frames, and before/after screenshots belong in Clicky's `ComputerUseTraces` artifacts, not in the OpenClaw session context. `get_window_state` defaults should stay cheap: visible traversal, menu bar omitted, path-based screenshot metadata, and bounded nodes. Full traversal or debug output is a targeted recovery mode, not the happy path.
+
   `clicky_present` is only the final user-facing presentation. When a session used computer-use mutations, the plugin tracks the runtime trail and rejects completion claims until the latest mutation is followed by a fresh `get_window_state` observation. Failed runtime results should be explained or recovered from, not presented as done.
 
 ## Shell Registration Payload

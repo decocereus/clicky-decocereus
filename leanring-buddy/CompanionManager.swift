@@ -4955,6 +4955,12 @@ final class CompanionManager: ObservableObject {
         requestIdentifier: String,
         actionID: String
     ) async -> [String: Any] {
+        let traceStep = await ClickyComputerUseDebugTrace.shared.beginToolStep(
+            route: route,
+            requestIdentifier: requestIdentifier,
+            actionID: actionID,
+            payload: payload
+        )
         do {
             ClickyComputerUseLog.routeStart(
                 id: actionID,
@@ -4968,18 +4974,26 @@ final class CompanionManager: ObservableObject {
                 statusCode: response.statusCode,
                 bodyPreview: ClickyComputerUseClient.bodyPreview(from: response.body)
             )
-            return routeResultDictionary(
+            let result = routeResultDictionary(
                 route: route,
                 response: response,
                 requestIdentifier: requestIdentifier
             )
+            await ClickyComputerUseDebugTrace.shared.finishToolStep(
+                step: traceStep,
+                route: route,
+                requestIdentifier: requestIdentifier,
+                actionID: actionID,
+                result: result
+            )
+            return result
         } catch {
             ClickyComputerUseLog.routeFailure(
                 id: actionID,
                 route: route,
                 error: error
             )
-            return [
+            let result: [String: Any] = [
                 "ok": false,
                 "needsApproval": false,
                 "needsPermissions": false,
@@ -4987,6 +5001,14 @@ final class CompanionManager: ObservableObject {
                 "requestId": requestIdentifier,
                 "error": error.localizedDescription,
             ]
+            await ClickyComputerUseDebugTrace.shared.finishToolStep(
+                step: traceStep,
+                route: route,
+                requestIdentifier: requestIdentifier,
+                actionID: actionID,
+                result: result
+            )
+            return result
         }
     }
 
@@ -5004,12 +5026,7 @@ final class CompanionManager: ObservableObject {
             if body["window"] == nil, let windowID = body["windowID"] {
                 body["window"] = windowID
             }
-            if body["includeMenuBar"] == nil {
-                body["includeMenuBar"] = true
-            }
-            if body["maxNodes"] == nil {
-                body["maxNodes"] = 6500
-            }
+            body = preparedCompactObservationPayload(body)
             return try await computerUseController.client.getWindowState(body)
         case "click":
             return try await computerUseController.client.click(payload)
@@ -5046,14 +5063,37 @@ final class CompanionManager: ObservableObject {
 
         if routeSupportsPostActionObservation(route) {
             if body["imageMode"] == nil {
-                body["imageMode"] = "base64"
+                body["imageMode"] = "path"
             }
-            if body["includeMenuBar"] == nil {
-                body["includeMenuBar"] = true
-            }
-            if body["maxNodes"] == nil {
-                body["maxNodes"] = 6500
-            }
+            body = preparedCompactObservationPayload(body)
+        }
+
+        return body
+    }
+
+    private func preparedCompactObservationPayload(_ payload: [String: Any]) -> [String: Any] {
+        var body = payload
+        let wantsFullDebug = (body["debug"] as? Bool == true)
+            || ((body["debugMode"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == "full")
+
+        if body["imageMode"] == nil || (body["imageMode"] as? String) == "base64" {
+            body["imageMode"] = "path"
+        }
+        if body["includeMenuBar"] == nil {
+            body["includeMenuBar"] = false
+        }
+        if body["webTraversal"] == nil {
+            body["webTraversal"] = "visible"
+        }
+        if body["includeProjectedTree"] == nil {
+            body["includeProjectedTree"] = true
+        }
+
+        let compactMaxNodes = 180
+        if let maxNodes = numericInteger(body["maxNodes"]) {
+            body["maxNodes"] = wantsFullDebug ? maxNodes : min(max(maxNodes, 40), 220)
+        } else {
+            body["maxNodes"] = wantsFullDebug ? 6500 : compactMaxNodes
         }
 
         return body
@@ -5204,6 +5244,20 @@ final class CompanionManager: ObservableObject {
             return CFGetTypeID(value) != CFBooleanGetTypeID() && value.doubleValue.isFinite
         }
         return false
+    }
+
+    private func numericInteger(_ value: Any?) -> Int? {
+        if let value = value as? Int {
+            return value
+        }
+        if let value = value as? NSNumber,
+           CFGetTypeID(value) != CFBooleanGetTypeID() {
+            return Int(value.doubleValue.rounded())
+        }
+        if let value = value as? String {
+            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
     }
 
     private func routeResultDictionary(
@@ -5656,6 +5710,14 @@ final class CompanionManager: ObservableObject {
                     labeledImages: labeledImages,
                     focusContext: focusContext
                 )
+                ClickyComputerUseDebugTrace.shared.startRun(
+                    backend: selectedAgentBackend,
+                    transcript: transcript,
+                    systemPrompt: plan.request.systemPrompt,
+                    userPrompt: plan.request.userPrompt,
+                    focusContext: focusContext,
+                    initialScreens: screenCaptures
+                )
                 logActivePersonaForRequest(
                     transcript: transcript,
                     backend: selectedAgentBackend,
@@ -5676,6 +5738,7 @@ final class CompanionManager: ObservableObject {
                     backend: selectedAgentBackend,
                     response: fullResponseText
                 )
+                ClickyComputerUseDebugTrace.shared.recordAssistantResponse(fullResponseText)
 
                 let initialAudit = auditAssistantResponse(
                     fullResponseText,
