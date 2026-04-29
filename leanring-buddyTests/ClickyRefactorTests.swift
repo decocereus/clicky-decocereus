@@ -195,6 +195,39 @@ struct ClickyRefactorTests {
     }
 
     @Test
+    func launchPresentationFormatsSharedStatusLabels() {
+        #expect(ClickyLaunchPresentation.authStatusLabel(for: .signedOut) == "Signed out")
+        #expect(ClickyLaunchPresentation.authStatusLabel(for: .signedIn(email: "hello@clicky.app")) == "hello@clicky.app")
+        #expect(ClickyLaunchPresentation.billingStatusLabel(for: .waitingForCompletion) == "Waiting for purchase")
+        #expect(ClickyLaunchPresentation.trialStatusLabel(for: .active(remainingCredits: 3)) == "3 credits left")
+        #expect(ClickyLaunchPresentation.isSignedIn(.signedIn(email: "hello@clicky.app")))
+        #expect(!ClickyLaunchPresentation.isSignedIn(.failed(message: "Nope")))
+        #expect(ClickyLaunchPresentation.hasUnlimitedAccess(.unlocked))
+        #expect(!ClickyLaunchPresentation.hasUnlimitedAccess(.paywalled))
+    }
+
+    @Test
+    func launchPresentationDerivesAccountNameAndInitials() {
+        let localUserName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedFallbackName = localUserName.isEmpty ? "Grace Hopper" : localUserName
+
+        #expect(
+            ClickyLaunchPresentation.displayName(
+                profileName: "  Ada Lovelace  ",
+                authState: .signedIn(email: "ignored@clicky.app")
+            ) == "Ada Lovelace"
+        )
+        #expect(
+            ClickyLaunchPresentation.displayName(
+                profileName: "",
+                authState: .signedIn(email: "grace_hopper@clicky.app")
+            ) == expectedFallbackName
+        )
+        #expect(ClickyLaunchPresentation.initials(for: "Ada Lovelace") == "AL")
+        #expect(ClickyLaunchPresentation.initials(for: "Clicky") == "CL")
+    }
+
+    @Test
     func launchTurnAuthorizationMapsPromptModes() {
         #expect(LaunchAssistantTurnAuthorization.standard.promptMode == .standard)
         #expect(LaunchAssistantTurnAuthorization(

@@ -57,11 +57,7 @@ struct CompanionPanelView: View {
     }
 
     private var isClickyLaunchSignedIn: Bool {
-        if case .signedIn = clickyLaunchAuthState {
-            return true
-        }
-
-        return false
+        ClickyLaunchPresentation.isSignedIn(clickyLaunchAuthState)
     }
 
     private var activeClickyPersonaLabel: String {
@@ -77,28 +73,11 @@ struct CompanionPanelView: View {
     }
 
     private var hasUnlimitedClickyLaunchAccess: Bool {
-        if case .unlocked = launchAccessController.clickyLaunchTrialState {
-            return true
-        }
-
-        return false
+        ClickyLaunchPresentation.hasUnlimitedAccess(launchAccessController.clickyLaunchTrialState)
     }
 
     private var clickyLaunchTrialStatusLabel: String {
-        switch launchAccessController.clickyLaunchTrialState {
-        case .inactive:
-            return "Inactive"
-        case let .active(remainingCredits):
-            return "\(remainingCredits) credits left"
-        case .armed:
-            return "Paywall armed"
-        case .paywalled:
-            return "Paywall active"
-        case .unlocked:
-            return "Unlocked"
-        case let .failed(message):
-            return message
-        }
+        ClickyLaunchPresentation.trialStatusLabel(for: launchAccessController.clickyLaunchTrialState)
     }
 
     private var panelScreen: CompanionPanelScreen {

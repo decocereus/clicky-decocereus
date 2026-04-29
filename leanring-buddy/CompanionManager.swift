@@ -14,133 +14,6 @@ import OSLog
 import ScreenCaptureKit
 import SwiftUI
 
-enum CompanionVoiceState {
-    case idle
-    case listening
-    case transcribing
-    case thinking
-    case responding
-}
-
-enum OpenClawConnectionStatus {
-    case idle
-    case testing
-    case connected(summary: String)
-    case failed(message: String)
-}
-
-enum CodexRuntimeStatus {
-    case idle
-    case checking
-    case ready(summary: String)
-    case failed(message: String)
-}
-
-enum ClickyOpenClawPluginStatus {
-    case notConfigured
-    case disabled
-    case enabled
-}
-
-enum ClickyShellRegistrationStatus {
-    case idle
-    case registering
-    case registered(summary: String)
-    case failed(message: String)
-}
-
-enum ClickyPersonaScopeMode: String, CaseIterable {
-    case useOpenClawIdentity
-    case overrideInClicky
-}
-
-enum ElevenLabsVoiceFetchStatus: Equatable {
-    case idle
-    case loading
-    case loaded
-    case failed(message: String)
-}
-
-enum ClickySpeechOutputMode {
-    case system
-    case elevenLabsBYO(ElevenLabsDirectConfiguration)
-}
-
-enum ClickySpeechPreviewStatus: Equatable {
-    case idle
-    case previewing
-    case succeeded(message: String)
-    case failed(message: String)
-}
-
-enum ClickyLaunchAuthState: Equatable {
-    case signedOut
-    case restoring
-    case signingIn
-    case signedIn(email: String)
-    case failed(message: String)
-}
-
-enum ClickyLaunchBillingState: Equatable {
-    case idle
-    case openingCheckout
-    case waitingForCompletion
-    case canceled
-    case completed
-    case failed(message: String)
-}
-
-enum ClickyLaunchTrialState: Equatable {
-    case inactive
-    case active(remainingCredits: Int)
-    case armed
-    case paywalled
-    case unlocked
-    case failed(message: String)
-}
-
-enum ElevenLabsVoiceImportStatus: Equatable {
-    case idle
-    case importing
-    case succeeded(message: String)
-    case failed(message: String)
-}
-
-struct ClickySpeechRouting {
-    let selectedProvider: ClickySpeechProviderMode
-    let outputMode: ClickySpeechOutputMode
-    let selectedVoiceID: String
-    let selectedVoiceName: String
-    let configurationFallbackMessage: String?
-
-    var selectedProviderDisplayName: String {
-        selectedProvider.displayName
-    }
-
-    var resolvedProviderDisplayName: String {
-        switch outputMode {
-        case .system:
-            return "System Speech"
-        case .elevenLabsBYO:
-            return "ElevenLabs"
-        }
-    }
-
-    var didFallbackToSystem: Bool {
-        selectedProvider == .elevenLabsBYO && configurationFallbackMessage != nil
-    }
-
-    var selectedVoiceNameLabel: String {
-        let trimmedName = selectedVoiceName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedName.isEmpty ? "No ElevenLabs voice selected" : trimmedName
-    }
-
-    var selectedVoiceIDLabel: String {
-        let trimmedVoiceID = selectedVoiceID.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedVoiceID.isEmpty ? "No voice id selected" : trimmedVoiceID
-    }
-}
-
 @MainActor
 final class CompanionManager: ObservableObject {
     let surfaceController = ClickySurfaceController()
@@ -1065,108 +938,30 @@ final class CompanionManager: ObservableObject {
     }
 
     var clickyLaunchAuthStatusLabel: String {
-        switch clickyLaunchAuthState {
-        case .signedOut:
-            return "Signed out"
-        case .restoring:
-            return "Restoring session"
-        case .signingIn:
-            return "Waiting for browser sign-in"
-        case let .signedIn(email):
-            return email
-        case let .failed(message):
-            return message
-        }
+        ClickyLaunchPresentation.authStatusLabel(for: clickyLaunchAuthState)
     }
 
     var clickyLaunchBillingStatusLabel: String {
-        switch clickyLaunchBillingState {
-        case .idle:
-            return "Idle"
-        case .openingCheckout:
-            return "Opening checkout"
-        case .waitingForCompletion:
-            return "Waiting for purchase"
-        case .canceled:
-            return "Checkout canceled"
-        case .completed:
-            return "Checkout completed"
-        case let .failed(message):
-            return message
-        }
+        ClickyLaunchPresentation.billingStatusLabel(for: clickyLaunchBillingState)
     }
 
     var clickyLaunchTrialStatusLabel: String {
-        switch clickyLaunchTrialState {
-        case .inactive:
-            return "Inactive"
-        case let .active(remainingCredits):
-            return "\(remainingCredits) credits left"
-        case .armed:
-            return "Paywall armed"
-        case .paywalled:
-            return "Paywall active"
-        case .unlocked:
-            return "Unlocked"
-        case let .failed(message):
-            return message
-        }
+        ClickyLaunchPresentation.trialStatusLabel(for: clickyLaunchTrialState)
     }
 
     var isClickyLaunchSignedIn: Bool {
-        if case .signedIn = clickyLaunchAuthState {
-            return true
-        }
-
-        return false
+        ClickyLaunchPresentation.isSignedIn(clickyLaunchAuthState)
     }
 
     var clickyLaunchDisplayName: String {
-        let profileName = clickyLaunchProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !profileName.isEmpty {
-            return profileName
-        }
-
-        let fullUserName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
-        if !fullUserName.isEmpty {
-            return fullUserName
-        }
-
-        guard case let .signedIn(email) = clickyLaunchAuthState else {
-            return "Clicky User"
-        }
-
-        let localPart = email.split(separator: "@").first.map(String.init) ?? ""
-        let normalizedLocalPart = localPart
-            .replacingOccurrences(of: ".", with: " ")
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(of: "-", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if normalizedLocalPart.isEmpty {
-            return "Clicky User"
-        }
-
-        return normalizedLocalPart
-            .split(separator: " ")
-            .map { fragment in
-                let lowercased = fragment.lowercased()
-                return lowercased.prefix(1).uppercased() + lowercased.dropFirst()
-            }
-            .joined(separator: " ")
+        ClickyLaunchPresentation.displayName(
+            profileName: clickyLaunchProfileName,
+            authState: clickyLaunchAuthState
+        )
     }
 
     var clickyLaunchDisplayInitials: String {
-        let words = clickyLaunchDisplayName
-            .split(whereSeparator: { $0.isWhitespace || $0 == "-" || $0 == "_" })
-            .map(String.init)
-
-        if words.count >= 2 {
-            return String(words.prefix(2).compactMap(\.first)).uppercased()
-        }
-
-        let compactName = clickyLaunchDisplayName.replacingOccurrences(of: " ", with: "")
-        return String(compactName.prefix(2)).uppercased()
+        ClickyLaunchPresentation.initials(for: clickyLaunchDisplayName)
     }
 
     var hasUnlimitedClickyLaunchAccess: Bool {
