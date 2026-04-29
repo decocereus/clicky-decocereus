@@ -535,8 +535,12 @@ struct TypeTextRouteService {
             return nil
         }
 
-        let string = value as NSString
-        let nsRange = NSRange(location: range.location, length: range.length)
+        let normalizedValue = placeholderOnlyTextValue(value) ? "" : value
+        let string = normalizedValue as NSString
+        let normalizedRange = placeholderOnlyTextValue(value)
+            ? TypeTextSelectionRangeDTO(location: 0, length: 0)
+            : range
+        let nsRange = NSRange(location: normalizedRange.location, length: normalizedRange.length)
         guard nsRange.location >= 0,
               nsRange.length >= 0,
               nsRange.location + nsRange.length <= string.length else {
@@ -554,6 +558,10 @@ struct TypeTextRouteService {
             valueString: replaced,
             selectionRange: caret
         )
+    }
+
+    private func placeholderOnlyTextValue(_ value: String) -> Bool {
+        value.isEmpty == false && value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func projectedTextState(from target: AXActionTargetSnapshot?) -> TypeTextObservedStateDTO? {

@@ -172,6 +172,7 @@ struct ClickyComputerUseContractTests {
         #expect(source.contains("Supplied stateToken did not match the live pre-action recapture; refusing to type"))
         #expect(source.contains("type_text uses PID-scoped Unicode posting; use set_value for direct AX value mutation."))
         #expect(source.contains("AXActionRuntimeSupport.postUnicodeText(text, to: pid)"))
+        #expect(source.contains("placeholderOnlyTextValue"))
         #expect(!source.contains("AXUIElementSetAttributeValue(kAXValueAttribute) + AXUIElementSetAttributeValue(kAXSelectedTextRangeAttribute)"))
         #expect(!source.contains("Using element-bound AX value write for type_text"))
     }
