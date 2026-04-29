@@ -7,6 +7,7 @@
 
 import Combine
 import Foundation
+import os
 
 @MainActor
 final class ClickyLaunchAccessController: ObservableObject {

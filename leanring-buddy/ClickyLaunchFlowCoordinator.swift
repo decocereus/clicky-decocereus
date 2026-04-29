@@ -7,6 +7,7 @@
 
 import AppKit
 import Foundation
+import os
 
 @MainActor
 final class ClickyLaunchFlowCoordinator {

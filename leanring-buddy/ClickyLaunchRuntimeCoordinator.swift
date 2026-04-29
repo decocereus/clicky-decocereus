@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import os
 
 @MainActor
 final class ClickyLaunchRuntimeCoordinator {
