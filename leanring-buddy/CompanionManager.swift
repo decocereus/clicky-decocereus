@@ -246,7 +246,7 @@ final class CompanionManager: ObservableObject {
     private lazy var onboardingVideoController = ClickyOnboardingVideoController(
         surfaceController: surfaceController,
         performDemoInteraction: { [weak self] in
-            self?.performOnboardingDemoInteraction()
+            self?.onboardingDemoController.perform()
         }
     )
     private lazy var launchSessionService = ClickyLaunchSessionService(
@@ -340,6 +340,20 @@ final class CompanionManager: ObservableObject {
     )
     private lazy var tutorialPlaybackCoordinator = ClickyTutorialPlaybackCoordinator(
         tutorialController: tutorialController
+    )
+    private lazy var tutorialImportVoiceIntentCoordinator = ClickyTutorialImportVoiceIntentCoordinator(
+        tutorialController: tutorialController,
+        surfaceController: surfaceController,
+        playSpeech: { [weak self] text, purpose in
+            guard let self else {
+                return ClickySpeechPlaybackOutcome(
+                    finalProviderDisplayName: "Unavailable",
+                    fallbackMessage: "Companion manager was released.",
+                    encounteredElevenLabsFailure: false
+                )
+            }
+            return await self.playSpeechText(text, purpose: purpose)
+        }
     )
     lazy var speechProviderCoordinator = ClickySpeechProviderCoordinator(
         preferences: preferences,
@@ -469,10 +483,10 @@ final class CompanionManager: ObservableObject {
         gatewayAgent: openClawGatewayCompanionAgent,
         ttsClient: elevenLabsTTSClient,
         handleTutorialImportIntent: { [weak self] transcript in
-            await self?.handleTutorialImportIntentIfNeeded(for: transcript) ?? false
+            await self?.tutorialImportVoiceIntentCoordinator.handleIntentIfNeeded(for: transcript) ?? false
         },
         handleTutorialModeTurn: { [weak self] transcript in
-            await self?.handleTutorialModeTurnIfNeeded(for: transcript) ?? false
+            await self?.tutorialModeCoordinator.handleTurnIfNeeded(for: transcript) ?? false
         },
         hasCompletedOnboarding: { [weak self] in
             self?.hasCompletedOnboarding == true
@@ -964,35 +978,6 @@ final class CompanionManager: ObservableObject {
         )
     }
 
-    @MainActor
-    private func handleTutorialModeTurnIfNeeded(for transcript: String) async -> Bool {
-        await tutorialModeCoordinator.handleTurnIfNeeded(for: transcript)
-    }
-
-    @MainActor
-    private func handleTutorialImportIntentIfNeeded(for transcript: String) async -> Bool {
-        let normalizedTranscript = transcript
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        guard ClickyTutorialModeIntentMatcher.isImportIntent(normalizedTranscript) else {
-            return false
-        }
-
-        tutorialController.tutorialImportStatusMessage = "Open the companion menu and paste the YouTube URL to begin."
-        NotificationCenter.default.post(name: .clickyShowPanel, object: nil)
-        surfaceController.voiceState = .responding
-        _ = await playSpeechText(
-            "open the companion menu and paste the youtube url to begin. once it's there, hit start learning and i'll guide you through it.",
-            purpose: .systemMessage
-        )
-        return true
-    }
-
-    /// If the cursor is in transient mode (user toggled "Show Clicky" off),
-    /// waits for TTS playback and any pointing animation to finish, then
-    /// fades out the overlay after a 1-second pause. Cancelled automatically
-    /// if the user starts another push-to-talk interaction.
     private func scheduleTransientHideIfNeeded() {
         voiceSessionCoordinator.scheduleTransientHideIfNeeded()
     }
@@ -1009,12 +994,4 @@ final class CompanionManager: ObservableObject {
         onboardingVideoController.tearDownVideo()
     }
 
-    // MARK: - Onboarding Demo Interaction
-
-    /// Captures a screenshot and asks Claude to find something interesting to
-    /// point at, then triggers the buddy's flight animation. Used during
-    /// onboarding to demo the pointing feature while the intro video plays.
-    func performOnboardingDemoInteraction() {
-        onboardingDemoController.perform()
-    }
 }
