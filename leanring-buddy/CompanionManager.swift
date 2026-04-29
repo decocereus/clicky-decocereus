@@ -217,6 +217,22 @@ final class CompanionManager: ObservableObject {
     private lazy var pointingSequenceController = ClickyPointingSequenceController(
         surfaceController: surfaceController
     )
+    private lazy var managedPointingPlaybackCoordinator = ClickyManagedPointingPlaybackCoordinator(
+        pointingSequenceController: pointingSequenceController,
+        playSpeech: { [weak self] text, purpose in
+            guard let self else {
+                return ClickySpeechPlaybackOutcome(
+                    finalProviderDisplayName: "Unavailable",
+                    fallbackMessage: "Companion manager was released.",
+                    encounteredElevenLabsFailure: false
+                )
+            }
+            return await self.playSpeechText(text, purpose: purpose)
+        },
+        waitForSpeechPlaybackToFinish: { [weak self] in
+            await self?.elevenLabsTTSClient.waitUntilPlaybackFinishes()
+        }
+    )
     private lazy var onboardingDemoController = ClickyOnboardingDemoController(
         claudeAPI: claudeAPI,
         shouldRun: { [weak self] in
@@ -390,7 +406,7 @@ final class CompanionManager: ObservableObject {
             return await self.playSpeechText(text, purpose: purpose)
         },
         playManagedPointSequence: { [weak self] introText, responsePoints, resolvedTargets in
-            await self?.playManagedPointSequence(
+            await self?.managedPointingPlaybackCoordinator.play(
                 introText: introText,
                 responsePoints: responsePoints,
                 resolvedTargets: resolvedTargets
@@ -823,69 +839,6 @@ final class CompanionManager: ObservableObject {
 
     func notifyManagedPointTargetArrived() {
         pointingSequenceController.notifyTargetArrived()
-    }
-
-    private func waitForManagedPointTargetArrival() async {
-        await pointingSequenceController.waitForTargetArrival()
-    }
-
-    private func requestManagedPointSequenceReturn() {
-        pointingSequenceController.requestManagedSequenceReturn()
-    }
-
-    private func waitForSpeechPlaybackToFinishIfNeeded() async {
-        await elevenLabsTTSClient.waitUntilPlaybackFinishes()
-    }
-
-    private func playManagedPointSequence(
-        introText: String,
-        responsePoints: [ClickyAssistantResponsePoint],
-        resolvedTargets: [QueuedPointingTarget]
-    ) async {
-        let narrationSteps = ClickyPointingCoordinator.managedPointNarrationSteps(from: responsePoints)
-        guard !narrationSteps.isEmpty, narrationSteps.count == resolvedTargets.count else {
-            return
-        }
-
-        let hasExplicitPerPointNarration = responsePoints.allSatisfy { responsePoint in
-            let trimmedExplanation = responsePoint.explanation?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return !trimmedExplanation.isEmpty
-        }
-
-        if hasExplicitPerPointNarration,
-           !introText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let playbackOutcome = await playSpeechText(
-                introText,
-                purpose: .assistantResponse
-            )
-            if playbackOutcome.finalProviderDisplayName == "Unavailable" {
-                return
-            }
-            await waitForSpeechPlaybackToFinishIfNeeded()
-        }
-
-        pointingSequenceController.beginManagedSequence()
-        queueDetectedElementTargets(resolvedTargets)
-
-        for (index, narrationStep) in narrationSteps.enumerated() {
-            await waitForManagedPointTargetArrival()
-
-            let playbackOutcome = await playSpeechText(
-                narrationStep.spokenText,
-                purpose: .assistantResponse
-            )
-            if playbackOutcome.finalProviderDisplayName == "Unavailable" {
-                requestManagedPointSequenceReturn()
-                return
-            }
-            await waitForSpeechPlaybackToFinishIfNeeded()
-
-            if index < narrationSteps.count - 1 {
-                advanceDetectedElementLocation()
-            } else {
-                requestManagedPointSequenceReturn()
-            }
-        }
     }
 
     func startTutorialImportFromPanel() {
