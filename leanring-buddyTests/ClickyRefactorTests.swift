@@ -604,6 +604,97 @@ struct ClickyRefactorTests {
         #expect(!baseInstructions.contains("also follow these clicky-only tone notes"))
         #expect(customInstructions.contains("also follow these clicky-only tone notes: more concise"))
     }
+
+    @Test
+    func launchRuntimeCoordinatorQuietRefreshRulesMatchBillingState() {
+        let inactiveSession = ClickyAuthSessionSnapshot(
+            sessionToken: "token",
+            userID: "user",
+            email: "user@example.com",
+            name: "",
+            image: "",
+            entitlement: ClickyLaunchEntitlementSnapshot(
+                productKey: "clicky",
+                status: "inactive",
+                hasAccess: false,
+                gracePeriodEndsAt: nil
+            ),
+            trial: ClickyLaunchTrialSnapshot(
+                status: "inactive",
+                initialCredits: 0,
+                remainingCredits: 0,
+                setupCompletedAt: nil,
+                trialActivatedAt: nil,
+                lastCreditConsumedAt: nil,
+                welcomePromptDeliveredAt: nil,
+                paywallActivatedAt: nil
+            )
+        )
+        let activeSession = ClickyAuthSessionSnapshot(
+            sessionToken: "token",
+            userID: "user",
+            email: "user@example.com",
+            name: "",
+            image: "",
+            entitlement: ClickyLaunchEntitlementSnapshot(
+                productKey: "clicky",
+                status: "active",
+                hasAccess: true,
+                gracePeriodEndsAt: nil
+            ),
+            trial: ClickyLaunchTrialSnapshot(
+                status: "inactive",
+                initialCredits: 0,
+                remainingCredits: 0,
+                setupCompletedAt: nil,
+                trialActivatedAt: nil,
+                lastCreditConsumedAt: nil,
+                welcomePromptDeliveredAt: nil,
+                paywallActivatedAt: nil
+            )
+        )
+
+        #expect(
+            ClickyLaunchRuntimeCoordinator.shouldAttemptQuietEntitlementRefresh(
+                storedSession: activeSession,
+                trialState: .inactive,
+                billingState: .idle
+            )
+        )
+        #expect(
+            ClickyLaunchRuntimeCoordinator.shouldAttemptQuietEntitlementRefresh(
+                storedSession: inactiveSession,
+                trialState: .paywalled,
+                billingState: .idle
+            )
+        )
+        #expect(
+            ClickyLaunchRuntimeCoordinator.shouldAttemptQuietEntitlementRefresh(
+                storedSession: inactiveSession,
+                trialState: .inactive,
+                billingState: .waitingForCompletion
+            )
+        )
+        #expect(
+            !ClickyLaunchRuntimeCoordinator.shouldAttemptQuietEntitlementRefresh(
+                storedSession: inactiveSession,
+                trialState: .inactive,
+                billingState: .idle
+            )
+        )
+        #expect(
+            ClickyLaunchRuntimeCoordinator.quietEntitlementSyncMode(
+                storedSession: activeSession,
+                billingState: .idle
+            ) == .refresh
+        )
+        #expect(
+            ClickyLaunchRuntimeCoordinator.quietEntitlementSyncMode(
+                storedSession: inactiveSession,
+                billingState: .idle
+            ) == .restore
+        )
+    }
 }
 
 private final class FakeOpenClawShellGateway: ClickyOpenClawShellGateway {

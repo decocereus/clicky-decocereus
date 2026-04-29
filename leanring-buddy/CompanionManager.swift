@@ -337,6 +337,13 @@ final class CompanionManager: ObservableObject {
         accessController: launchAccessController,
         sessionService: launchSessionService
     )
+    private lazy var launchRuntimeCoordinator = ClickyLaunchRuntimeCoordinator(
+        accessController: launchAccessController,
+        sessionService: launchSessionService,
+        backendClientProvider: { [weak self] in
+            self?.clickyBackendAuthClient ?? ClickyBackendAuthClient(baseURL: CompanionRuntimeConfiguration.defaultBackendBaseURL)
+        }
+    )
     private lazy var launchBlockedTurnPresenter = ClickyLaunchBlockedTurnPresenter(
         cancelActiveAssistantRequest: { [weak self] in
             self?.openClawGatewayCompanionAgent.cancelActiveRequest()
@@ -569,8 +576,6 @@ final class CompanionManager: ObservableObject {
     /// speaks again so a new response can begin immediately.
     private var currentResponseTask: Task<Void, Never>?
 
-    private var quietLaunchEntitlementRefreshTask: Task<Void, Never>?
-    private var lastQuietLaunchEntitlementRefreshAt: Date?
     private var preferencesObjectWillChangeCancellable: AnyCancellable?
     private var backendRoutingObjectWillChangeCancellable: AnyCancellable?
     private var launchAccessObjectWillChangeCancellable: AnyCancellable?
@@ -1545,7 +1550,7 @@ final class CompanionManager: ObservableObject {
             )
         }
 
-        restoreClickyLaunchSessionIfPossible()
+        launchRuntimeCoordinator.restoreSessionIfPossible()
         refreshAllPermissions()
         permissionCoordinator.startPolling()
         voiceSessionCoordinator.start()
@@ -1793,8 +1798,7 @@ final class CompanionManager: ObservableObject {
         overlayWindowManager.hideOverlay()
         stopTutorialPlayback()
         voiceSessionCoordinator.cancelTransientHide()
-        quietLaunchEntitlementRefreshTask?.cancel()
-        quietLaunchEntitlementRefreshTask = nil
+        launchRuntimeCoordinator.stop()
         openClawShellLifecycleController.stop()
         onboardingMusicController.stop()
 
@@ -1808,119 +1812,18 @@ final class CompanionManager: ObservableObject {
         ClickyBackendAuthClient(baseURL: clickyBackendBaseURL)
     }
 
-    private func shouldAttemptQuietLaunchEntitlementRefresh(
-        for storedSession: ClickyAuthSessionSnapshot
-    ) -> Bool {
-        if ClickyLaunchAccessController.entitlementHasEffectiveAccess(storedSession.entitlement) {
-            return true
-        }
-
-        if clickyLaunchTrialState == .paywalled {
-            return true
-        }
-
-        switch clickyLaunchBillingState {
-        case .waitingForCompletion, .completed:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func quietLaunchEntitlementSyncMode(
-        for storedSession: ClickyAuthSessionSnapshot
-    ) -> ClickyLaunchEntitlementSyncMode {
-        if ClickyLaunchAccessController.entitlementHasEffectiveAccess(storedSession.entitlement) {
-            return .refresh
-        }
-
-        switch clickyLaunchBillingState {
-        case .waitingForCompletion, .completed:
-            return .refresh
-        default:
-            return .restore
-        }
-    }
-
     func handleApplicationDidBecomeActive() {
-        refreshClickyLaunchEntitlementQuietlyIfNeeded(reason: "app_became_active")
+        launchRuntimeCoordinator.handleApplicationDidBecomeActive()
     }
 
     func refreshClickyLaunchEntitlementQuietlyIfNeeded(
         reason: String,
         minimumInterval: TimeInterval = 90
     ) {
-        guard let storedSession = ClickyAuthSessionStore.load() else {
-            return
-        }
-
-        guard shouldAttemptQuietLaunchEntitlementRefresh(for: storedSession) else {
-            return
-        }
-
-        if let lastQuietLaunchEntitlementRefreshAt,
-           Date().timeIntervalSince(lastQuietLaunchEntitlementRefreshAt) < minimumInterval {
-            return
-        }
-
-        if quietLaunchEntitlementRefreshTask != nil {
-            return
-        }
-
-        lastQuietLaunchEntitlementRefreshAt = Date()
-        ClickyUnifiedTelemetry.billing.debug(
-            "Quiet entitlement refresh scheduled reason=\(reason, privacy: .public)"
+        launchRuntimeCoordinator.refreshEntitlementQuietlyIfNeeded(
+            reason: reason,
+            minimumInterval: minimumInterval
         )
-        ClickyLogger.debug(.app, "Scheduling quiet launch entitlement refresh reason=\(reason)")
-
-        quietLaunchEntitlementRefreshTask = Task { @MainActor in
-            defer {
-                quietLaunchEntitlementRefreshTask = nil
-            }
-
-            do {
-                let syncMode = quietLaunchEntitlementSyncMode(for: storedSession)
-                let refreshedSnapshot = try await launchSessionService.synchronizeSessionSnapshot(
-                    sessionToken: storedSession.sessionToken,
-                    fallbackUserID: storedSession.userID,
-                    fallbackEmail: storedSession.email,
-                    entitlementSyncMode: syncMode
-                )
-
-                try launchAccessController.persistSessionSnapshot(refreshedSnapshot, reason: "quiet-entitlement-refresh")
-                if refreshedSnapshot.entitlement.hasAccess {
-                    launchAccessController.setBillingState(.completed, reason: "quiet-entitlement-refresh")
-                }
-                ClickyUnifiedTelemetry.billing.debug(
-                    "Quiet entitlement refresh completed reason=\(reason, privacy: .public) access=\(refreshedSnapshot.entitlement.hasAccess ? "true" : "false", privacy: .public) status=\(refreshedSnapshot.entitlement.status, privacy: .public)"
-                )
-                ClickyLogger.debug(
-                    .app,
-                    "Quiet launch entitlement refresh succeeded reason=\(reason) access=\(refreshedSnapshot.entitlement.hasAccess)"
-                )
-            } catch {
-                if ClickyLaunchAccessController.shouldClearStoredSession(after: error) {
-                    ClickyAuthSessionStore.clear()
-                    launchAccessController.clearSessionState(reason: "quiet-entitlement-refresh-invalid-session")
-                    ClickyUnifiedTelemetry.billing.error(
-                        "Quiet entitlement refresh cleared invalid session reason=\(reason, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
-                    )
-                    ClickyLogger.error(
-                        .app,
-                        "Quiet launch entitlement refresh cleared invalid session reason=\(reason) error=\(error.localizedDescription)"
-                    )
-                    return
-                }
-
-                ClickyUnifiedTelemetry.billing.debug(
-                    "Quiet entitlement refresh failed reason=\(reason, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
-                )
-                ClickyLogger.debug(
-                    .app,
-                    "Quiet launch entitlement refresh failed reason=\(reason) error=\(error.localizedDescription)"
-                )
-            }
-        }
     }
 
     private func presentLaunchSignInRequiredState(openStudio: Bool) {
@@ -1947,139 +1850,19 @@ final class CompanionManager: ObservableObject {
     }
 
     func refreshClickyLaunchTrialState() {
-        guard let storedSession = ClickyAuthSessionStore.load() else {
-            launchAccessController.setTrialState(.inactive, reason: "trial-refresh-no-session")
-            return
-        }
-
-        ClickyUnifiedTelemetry.billing.info("Launch trial refresh requested")
-        Task { @MainActor in
-            do {
-                let trialPayload = try await clickyBackendAuthClient.fetchCurrentTrial(sessionToken: storedSession.sessionToken)
-                let updatedTrial = ClickyLaunchAccessController.makeTrialSnapshot(from: trialPayload.trial)
-                let refreshedSnapshot = ClickyLaunchAccessController.updatedSessionSnapshot(
-                    from: storedSession,
-                    trial: updatedTrial
-                )
-
-                try launchAccessController.persistSessionSnapshot(refreshedSnapshot, reason: "trial-refresh")
-                ClickyUnifiedTelemetry.billing.info(
-                    "Launch trial refresh completed status=\(updatedTrial.status, privacy: .public) remainingCredits=\(String(updatedTrial.remainingCredits), privacy: .public)"
-                )
-                ClickyLogger.notice(.app, "Launch trial state refreshed status=\(updatedTrial.status) remaining=\(updatedTrial.remainingCredits)")
-            } catch {
-                launchAccessController.setTrialState(.failed(message: error.localizedDescription), reason: "trial-refresh-failed")
-                ClickyUnifiedTelemetry.billing.error(
-                    "Launch trial refresh failed error=\(error.localizedDescription, privacy: .public)"
-                )
-                ClickyLogger.error(.app, "Failed to refresh launch trial state error=\(error.localizedDescription)")
-            }
-        }
+        launchRuntimeCoordinator.refreshTrialState()
     }
 
     func activateClickyLaunchTrial() {
-        guard let storedSession = ClickyAuthSessionStore.load() else {
-            launchAccessController.setTrialState(.failed(message: "Sign in before activating the trial."), reason: "trial-activate-blocked-no-session")
-            ClickyUnifiedTelemetry.billing.info("Launch trial activation blocked reason=no-session")
-            return
-        }
-
-        Task { @MainActor in
-            do {
-                _ = try await launchSessionService.activateTrial(for: storedSession)
-            } catch {
-                launchAccessController.setTrialState(.failed(message: error.localizedDescription), reason: "trial-activate-failed")
-                ClickyUnifiedTelemetry.billing.error(
-                    "Launch trial activation failed error=\(error.localizedDescription, privacy: .public)"
-                )
-                ClickyLogger.error(.app, "Failed to activate launch trial error=\(error.localizedDescription)")
-            }
-        }
+        launchRuntimeCoordinator.activateTrial()
     }
 
     func consumeClickyLaunchTrialCredit() {
-        guard let storedSession = ClickyAuthSessionStore.load() else {
-            launchAccessController.setTrialState(.failed(message: "Sign in before consuming trial credits."), reason: "trial-consume-blocked-no-session")
-            ClickyUnifiedTelemetry.billing.info("Launch trial consume blocked reason=no-session")
-            return
-        }
-
-        Task { @MainActor in
-            do {
-                _ = try await launchSessionService.consumeTrialCredit(for: storedSession)
-            } catch {
-                launchAccessController.setTrialState(.failed(message: error.localizedDescription), reason: "trial-consume-failed")
-                ClickyUnifiedTelemetry.billing.error(
-                    "Launch trial consume failed error=\(error.localizedDescription, privacy: .public)"
-                )
-                ClickyLogger.error(.app, "Failed to consume launch trial credit error=\(error.localizedDescription)")
-            }
-        }
+        launchRuntimeCoordinator.consumeTrialCredit()
     }
 
     func activateClickyLaunchPaywall() {
-        guard let storedSession = ClickyAuthSessionStore.load() else {
-            launchAccessController.setTrialState(.failed(message: "Sign in before activating the paywall."), reason: "paywall-activate-blocked-no-session")
-            ClickyUnifiedTelemetry.billing.info("Launch paywall activation blocked reason=no-session")
-            return
-        }
-
-        Task { @MainActor in
-            do {
-                _ = try await launchSessionService.activatePaywall(for: storedSession)
-            } catch {
-                launchAccessController.setTrialState(.failed(message: error.localizedDescription), reason: "paywall-activate-failed")
-                ClickyUnifiedTelemetry.billing.error(
-                    "Launch paywall activation failed error=\(error.localizedDescription, privacy: .public)"
-                )
-                ClickyLogger.error(.app, "Failed to activate launch paywall error=\(error.localizedDescription)")
-            }
-        }
-    }
-
-    private func restoreClickyLaunchSessionIfPossible() {
-        guard let storedSession = ClickyAuthSessionStore.load() else {
-            launchAccessController.clearSessionState(reason: "restore-no-session")
-            ClickyUnifiedTelemetry.launchAuth.info("Launch auth restore skipped reason=no-stored-session")
-            return
-        }
-
-        launchAccessController.setAuthState(.restoring, reason: "restore-started")
-        ClickyUnifiedTelemetry.launchAuth.info("Launch auth restore started source=stored-session")
-
-        Task { @MainActor in
-            do {
-                let refreshedSnapshot = try await launchSessionService.synchronizeSessionSnapshot(
-                    sessionToken: storedSession.sessionToken,
-                    fallbackUserID: storedSession.userID,
-                    fallbackEmail: storedSession.email,
-                    entitlementSyncMode: .refresh
-                )
-
-                try launchAccessController.persistSessionSnapshot(refreshedSnapshot, reason: "stored-session-restore")
-                ClickyUnifiedTelemetry.launchAuth.info("Launch auth restore completed source=stored-session result=refreshed")
-                ClickyLogger.notice(.app, "Restored Clicky launch auth session")
-            } catch {
-                if ClickyLaunchAccessController.shouldClearStoredSession(after: error) {
-                    ClickyAuthSessionStore.clear()
-                    launchAccessController.clearSessionState(reason: "restore-invalid-session")
-                    ClickyUnifiedTelemetry.launchAuth.error(
-                        "Launch auth restore cleared invalid stored session error=\(error.localizedDescription, privacy: .public)"
-                    )
-                    ClickyLogger.error(.app, "Failed to restore Clicky launch auth session error=\(error.localizedDescription)")
-                    return
-                }
-
-                launchAccessController.restoreCachedSessionState(storedSession, reason: "restore-cached-fallback")
-                ClickyUnifiedTelemetry.launchAuth.debug(
-                    "Launch auth restore failed; using cached session error=\(error.localizedDescription, privacy: .public)"
-                )
-                ClickyLogger.debug(
-                    .app,
-                    "Failed to refresh Clicky launch session; continuing with cached state error=\(error.localizedDescription)"
-                )
-            }
-        }
+        launchRuntimeCoordinator.activatePaywall()
     }
 
     func refreshAllPermissions() {
