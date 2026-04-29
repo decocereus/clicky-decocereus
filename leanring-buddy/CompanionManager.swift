@@ -274,6 +274,22 @@ final class CompanionManager: ObservableObject {
             self?.scheduleTransientHideIfNeeded()
         }
     )
+    private lazy var launchPreflightCoordinator = ClickyLaunchPreflightCoordinator(
+        launchTurnGate: launchTurnGate,
+        blockedTurnPresenter: launchBlockedTurnPresenter,
+        authStateProvider: { [weak self] in
+            self?.launchAccessController.clickyLaunchAuthState ?? .signedOut
+        },
+        hasCompletedOnboarding: { [weak self] in
+            self?.hasCompletedOnboarding == true
+        },
+        allPermissionsGranted: { [weak self] in
+            self?.allPermissionsGranted == true
+        },
+        isOnboardingVideoVisible: { [weak self] in
+            self?.surfaceController.showOnboardingVideo == true
+        }
+    )
     private lazy var tutorialPlaybackCoordinator = ClickyTutorialPlaybackCoordinator(
         tutorialController: tutorialController
     )
@@ -463,7 +479,7 @@ final class CompanionManager: ObservableObject {
             self?.isClickyCursorEnabled == true
         },
         canBeginPushToTalk: { [weak self] in
-            self?.preparePushToTalkSessionIfAllowed() ?? false
+            self?.launchPreflightCoordinator.canBeginPushToTalkSession() ?? false
         },
         isResponseTaskActive: { [weak self] in
             self?.assistantTurnTaskController.isActive == true
@@ -977,29 +993,6 @@ final class CompanionManager: ObservableObject {
         )
     }
 
-    private func presentLaunchSignInRequiredState(openStudio: Bool) {
-        launchBlockedTurnPresenter.presentSignInRequired(
-            authState: launchAccessController.clickyLaunchAuthState,
-            openStudio: openStudio
-        )
-    }
-
-    private func presentLaunchAccessRecoveryState(
-        openStudio: Bool,
-        message: String,
-        logReason: String
-    ) {
-        launchBlockedTurnPresenter.presentAccessRecovery(
-            openStudio: openStudio,
-            message: message,
-            logReason: logReason
-        )
-    }
-
-    private func presentLaunchPaywallLockedState(openStudio: Bool) {
-        launchBlockedTurnPresenter.presentPaywallLocked(openStudio: openStudio)
-    }
-
     func refreshClickyLaunchTrialState() {
         launchRuntimeCoordinator.refreshTrialState()
     }
@@ -1033,40 +1026,6 @@ final class CompanionManager: ObservableObject {
     /// Once granted/denied the status sticks and polling picks it up.
     private func promptForMicrophoneIfNotDetermined() {
         permissionCoordinator.promptForMicrophoneIfNotDetermined()
-    }
-
-    private func preparePushToTalkSessionIfAllowed() -> Bool {
-        guard !surfaceController.showOnboardingVideo else { return false }
-
-        if requiresLaunchRepurchaseForCompanionUse {
-            presentLaunchAccessRecoveryState(
-                openStudio: true,
-                message: "your launch pass is no longer active. open studio to buy again or restore access if this looks wrong.",
-                logReason: "launch entitlement requires repurchase"
-            )
-            return false
-        }
-
-        if requiresLaunchEntitlementRefreshForCompanionUse {
-            presentLaunchAccessRecoveryState(
-                openStudio: true,
-                message: "your cached access expired and clicky needs to refresh it. open studio and run refresh access before starting a new assisted turn.",
-                logReason: "launch entitlement grace expired"
-            )
-            return false
-        }
-
-        if requiresLaunchSignInForCompanionUse {
-            presentLaunchSignInRequiredState(openStudio: true)
-            return false
-        }
-
-        if isClickyLaunchPaywallActive {
-            presentLaunchPaywallLockedState(openStudio: true)
-            return false
-        }
-
-        return true
     }
 
     private func dismissOnboardingPromptIfNeeded() {
