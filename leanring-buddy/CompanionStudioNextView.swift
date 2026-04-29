@@ -1385,7 +1385,7 @@ private struct CompanionStudioCompanionScene: View {
         case .codex:
             HStack(spacing: 10) {
                 Button {
-                    companionManager.refreshCodexRuntimeStatus()
+                    companionManager.codexRuntimeCoordinator.refreshRuntimeStatus()
                 } label: {
                     Label("Check Codex", systemImage: "bolt.horizontal.circle")
                         .font(ClickyTypography.body(size: 13, weight: .semibold))
@@ -1397,9 +1397,9 @@ private struct CompanionStudioCompanionScene: View {
                 if case .failed = codexRuntimeStatus {
                     Button {
                         if backendRoutingController.codexExecutablePath == nil {
-                            companionManager.openCodexInstallPage()
+                            companionManager.codexRuntimeCoordinator.openInstallPage()
                         } else {
-                            companionManager.startCodexLoginInTerminal()
+                            companionManager.codexRuntimeCoordinator.startLoginInTerminal()
                         }
                     } label: {
                         Text(backendRoutingController.codexExecutablePath == nil ? "Install Codex" : "Sign In")
@@ -1411,7 +1411,7 @@ private struct CompanionStudioCompanionScene: View {
             }
         case .openClaw:
             Button {
-                companionManager.testOpenClawConnection()
+                companionManager.openClawStudioCoordinator.testConnection()
             } label: {
                 Label("Check Connection", systemImage: "bolt.horizontal.circle")
                     .font(ClickyTypography.body(size: 13, weight: .semibold))

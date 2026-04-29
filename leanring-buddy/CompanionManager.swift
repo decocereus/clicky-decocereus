@@ -101,10 +101,10 @@ final class CompanionManager: ObservableObject {
         claudeAPI: claudeAPI,
         openClawShellLifecycleController: openClawShellLifecycleController,
         refreshOpenClawAgentIdentity: { [weak self] in
-            self?.refreshOpenClawAgentIdentity()
+            self?.openClawStudioCoordinator.refreshAgentIdentity()
         },
         refreshCodexRuntimeStatus: { [weak self] in
-            self?.refreshCodexRuntimeStatus()
+            self?.codexRuntimeCoordinator.refreshRuntimeStatus()
         }
     )
 
@@ -136,7 +136,7 @@ final class CompanionManager: ObservableObject {
     private lazy var codexAssistantProvider: CodexAssistantProvider = {
         CodexAssistantProvider(runtimeClient: codexRuntimeClient)
     }()
-    private lazy var codexRuntimeCoordinator = ClickyCodexRuntimeCoordinator(
+    lazy var codexRuntimeCoordinator = ClickyCodexRuntimeCoordinator(
         backendRoutingController: backendRoutingController,
         runtimeClient: codexRuntimeClient
     )
@@ -736,54 +736,6 @@ final class CompanionManager: ObservableObject {
         purpose: ClickySpeechPlaybackPurpose
     ) async -> ClickySpeechPlaybackOutcome {
         await speechPlaybackCoordinator.play(text, purpose: purpose)
-    }
-
-    func testOpenClawConnection() {
-        openClawStudioCoordinator.testConnection()
-    }
-
-    func refreshCodexRuntimeStatus() {
-        codexRuntimeCoordinator.refreshRuntimeStatus()
-    }
-
-    var codexRuntimeStatusLabel: String {
-        codexRuntimeCoordinator.statusLabel
-    }
-
-    var codexRuntimeSummaryCopy: String {
-        codexRuntimeCoordinator.summaryCopy
-    }
-
-    var codexReadinessChipLabels: [String] {
-        codexRuntimeCoordinator.readinessChipLabels
-    }
-
-    var codexConfiguredModelLabel: String {
-        codexRuntimeCoordinator.configuredModelLabel
-    }
-
-    var codexAccountLabel: String {
-        codexRuntimeCoordinator.accountLabel
-    }
-
-    func openCodexInstallPage() {
-        codexRuntimeCoordinator.openInstallPage()
-    }
-
-    func startCodexLoginInTerminal() {
-        codexRuntimeCoordinator.startLoginInTerminal()
-    }
-
-    func registerClickyShellNow() {
-        openClawStudioCoordinator.registerShellNow()
-    }
-
-    func refreshClickyShellStatusNow() {
-        openClawStudioCoordinator.refreshShellStatusNow()
-    }
-
-    func refreshOpenClawAgentIdentity() {
-        openClawStudioCoordinator.refreshAgentIdentity()
     }
 
     /// User preference for whether the Clicky cursor should be shown.
