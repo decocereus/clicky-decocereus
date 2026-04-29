@@ -389,6 +389,23 @@ final class CompanionManager: ObservableObject {
             self?.personaPromptCoordinator.logAgentResponse(response, backend: backend)
         }
     )
+    private lazy var assistantTurnTaskController = ClickyAssistantTurnTaskController(
+        assistantTurnCoordinator: assistantTurnCoordinator,
+        gatewayAgent: openClawGatewayCompanionAgent,
+        ttsClient: elevenLabsTTSClient,
+        handleTutorialImportIntent: { [weak self] transcript in
+            await self?.handleTutorialImportIntentIfNeeded(for: transcript) ?? false
+        },
+        handleTutorialModeTurn: { [weak self] transcript in
+            await self?.handleTutorialModeTurnIfNeeded(for: transcript) ?? false
+        },
+        hasCompletedOnboarding: { [weak self] in
+            self?.hasCompletedOnboarding == true
+        },
+        allPermissionsGranted: { [weak self] in
+            self?.allPermissionsGranted == true
+        }
+    )
     private lazy var tutorialLessonCompiler = ClickyTutorialLessonCompiler(
         assistantTurnExecutor: assistantTurnExecutor,
         selectedBackendProvider: { [weak self] in
@@ -438,10 +455,10 @@ final class CompanionManager: ObservableObject {
             self?.preparePushToTalkSessionIfAllowed() ?? false
         },
         isResponseTaskActive: { [weak self] in
-            self?.currentResponseTask != nil
+            self?.assistantTurnTaskController.isActive == true
         },
         cancelActiveResponse: { [weak self] in
-            self?.currentResponseTask?.cancel()
+            self?.assistantTurnTaskController.cancel()
         },
         cancelActiveAssistantRequest: { [weak self] in
             self?.openClawGatewayCompanionAgent.cancelActiveRequest()
@@ -469,13 +486,9 @@ final class CompanionManager: ObservableObject {
         },
         submitTranscript: { [weak self] finalTranscript in
             self?.lastTranscript = finalTranscript
-            self?.sendTranscriptToSelectedAgentWithScreenshot(transcript: finalTranscript)
+            self?.submitTranscriptToSelectedAgent(finalTranscript)
         }
     )
-
-    /// The currently running AI response task, if any. Cancelled when the user
-    /// speaks again so a new response can begin immediately.
-    private var currentResponseTask: Task<Void, Never>?
 
     private var preferencesObjectWillChangeCancellable: AnyCancellable?
     private var backendRoutingObjectWillChangeCancellable: AnyCancellable?
@@ -1530,8 +1543,7 @@ final class CompanionManager: ObservableObject {
         openClawShellLifecycleController.stop()
         onboardingMusicController.stop()
 
-        currentResponseTask?.cancel()
-        currentResponseTask = nil
+        assistantTurnTaskController.stop()
         voiceSessionCoordinator.stop()
         permissionCoordinator.stopPolling()
     }
@@ -1664,33 +1676,16 @@ final class CompanionManager: ObservableObject {
     /// the spinner/processing state until TTS audio begins playing.
     /// The assistant response should be a structured object with spoken text
     /// plus ordered point targets for the cursor overlay.
-    private func sendTranscriptToSelectedAgentWithScreenshot(
-        transcript: String,
+    private func submitTranscriptToSelectedAgent(
+        _ transcript: String,
         historyTranscriptOverride: String? = nil,
         skipsPreflightIntentHandlers: Bool = false
     ) {
-        currentResponseTask?.cancel()
-        openClawGatewayCompanionAgent.cancelActiveRequest()
-        elevenLabsTTSClient.stopPlayback()
-
-        currentResponseTask = Task {
-            if !skipsPreflightIntentHandlers {
-                if await handleTutorialImportIntentIfNeeded(for: transcript) {
-                    return
-                }
-
-                if await handleTutorialModeTurnIfNeeded(for: transcript) {
-                    return
-                }
-            }
-
-            await assistantTurnCoordinator.runTurn(
-                transcript: transcript,
-                historyTranscriptOverride: historyTranscriptOverride,
-                hasCompletedOnboarding: hasCompletedOnboarding,
-                allPermissionsGranted: allPermissionsGranted
-            )
-        }
+        assistantTurnTaskController.submitTranscript(
+            transcript,
+            historyTranscriptOverride: historyTranscriptOverride,
+            skipsPreflightIntentHandlers: skipsPreflightIntentHandlers
+        )
     }
 
     @MainActor
