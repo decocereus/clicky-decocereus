@@ -125,7 +125,7 @@ struct ClickyAssistantResponseRepairer {
 
             let repairRequest = assistantTurnBuilder.buildRequest(
                 systemPrompt: repairSystemPrompt,
-                userPrompt: transcript,
+                userPrompt: repairPrompt,
                 conversationHistory: conversationHistory,
                 labeledImages: labeledImages.map { labeledImage in
                     ClickyAssistantLabeledImage(

@@ -7,6 +7,24 @@ import Foundation
 import Testing
 @testable import leanring_buddy
 
+private final class CapturingAssistantProvider: ClickyAssistantProvider {
+    let backend: CompanionAgentBackend = .claude
+    let responseText: String
+    private(set) var lastUserPrompt: String?
+
+    init(responseText: String) {
+        self.responseText = responseText
+    }
+
+    func sendTurn(
+        _ request: ClickyAssistantTurnRequest,
+        onTextChunk: @MainActor @escaping @Sendable (String) -> Void
+    ) async throws -> ClickyAssistantTurnResponse {
+        lastUserPrompt = request.userPrompt
+        return ClickyAssistantTurnResponse(text: responseText, duration: 0)
+    }
+}
+
 struct ClickyRefactorTests {
     @Test
     func responseContractPromptAdvertisesAllPresentationModes() {
@@ -85,6 +103,33 @@ struct ClickyRefactorTests {
 
         #expect(audit.needsRepair)
         #expect(audit.issues.contains("response omitted per-point explanation for a narrated walkthrough"))
+    }
+
+    @Test
+    func assistantResponseRepairerSendsRepairPromptToBackend() async throws {
+        let provider = CapturingAssistantProvider(
+            responseText: #"{"mode":"answer","spokenText":"Use the Save button.","points":[]}"#
+        )
+        let registry = ClickyAssistantProviderRegistry(providers: [provider])
+        let repairer = ClickyAssistantResponseRepairer(
+            assistantTurnExecutor: ClickyAssistantTurnExecutor(providerRegistry: registry)
+        )
+
+        let repairedResponse = try await repairer.repairIfNeeded(
+            backend: .claude,
+            originalResponseText: "Use the Save button.",
+            transcript: "show me the save button",
+            baseSystemPrompt: "Base prompt",
+            labeledImages: [],
+            focusContext: nil,
+            conversationHistory: [],
+            audit: ClickyAssistantResponseAudit(issues: ["response was not a single json object"])
+        )
+
+        #expect(repairedResponse.structuredResponse.spokenText == "Use the Save button.")
+        #expect(provider.lastUserPrompt?.contains("repair context:") == true)
+        #expect(provider.lastUserPrompt?.contains("invalid previous reply:") == true)
+        #expect(provider.lastUserPrompt != "show me the save button")
     }
 
     @Test
