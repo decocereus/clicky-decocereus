@@ -6,19 +6,7 @@
   "contracts": {
     "tools": [
       "clicky_status",
-      "clicky_present",
-      "list_apps",
-      "list_windows",
-      "get_window_state",
-      "click",
-      "type_text",
-      "press_key",
-      "scroll",
-      "set_value",
-      "perform_secondary_action",
-      "drag",
-      "resize",
-      "set_window_frame"
+      "clicky_present"
     ]
   },
   "uiHints": {

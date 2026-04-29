@@ -31,129 +31,10 @@ private class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-private struct ComputerUseApprovalHUDView: View {
-    let companionManager: CompanionManager
-    @ObservedObject private var computerUseController: ClickyComputerUseController
-    @Environment(\.clickyTheme) private var theme
-
-    init(companionManager: CompanionManager) {
-        self.companionManager = companionManager
-        _computerUseController = ObservedObject(wrappedValue: companionManager.computerUseController)
-    }
-
-    private var pendingAction: ClickyComputerUsePendingAction? {
-        guard let action = computerUseController.pendingAction,
-              case .pending = action.status else {
-            return nil
-        }
-        return action
-    }
-
-    var body: some View {
-        if let pendingAction {
-            let review = ClickyComputerUseActionPolicy.review(
-                toolName: pendingAction.toolName,
-                rawPayload: pendingAction.rawPayload,
-                originalUserRequest: pendingAction.originalUserRequest
-            )
-
-            HStack(spacing: 12) {
-                Image(systemName: "cursorarrow.click")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(theme.primary)
-                    .frame(width: 34, height: 34)
-                    .background(
-                        Circle()
-                            .fill(theme.primary.opacity(0.13))
-                    )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title(for: pendingAction.toolName))
-                        .font(ClickyTypography.body(size: 13, weight: .semibold))
-                        .foregroundColor(theme.contentSurfaceTheme.textPrimary)
-
-                    Text(review.summary)
-                        .font(ClickyTypography.body(size: 11))
-                        .foregroundColor(theme.contentSurfaceTheme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-                Spacer(minLength: 0)
-
-                HStack(spacing: 8) {
-                    Button(action: companionManager.cancelPendingComputerUseAction) {
-                        Text("Deny")
-                            .frame(width: 54)
-                    }
-                    .modifier(ClickySecondaryGlassButtonStyle())
-                    .pointerCursor()
-
-                    Button(action: companionManager.approvePendingComputerUseAction) {
-                        Text("Approve")
-                            .frame(width: 72)
-                    }
-                    .modifier(ClickyProminentActionStyle())
-                    .pointerCursor()
-                }
-            }
-            .padding(10)
-            .background(approvalBackground)
-            .shadow(color: Color.black.opacity(0.12), radius: 18, y: 8)
-            .padding(8)
-        }
-    }
-
-    @ViewBuilder
-    private var approvalBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        if #available(macOS 26.0, *) {
-            Color.clear
-                .glassEffect(.regular.interactive(), in: shape)
-                .overlay(
-                    shape.stroke(Color.white.opacity(0.28), lineWidth: 0.8)
-                )
-        } else {
-            shape
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    shape.fill(theme.contentSurfaceTheme.card.opacity(0.78))
-                )
-                .overlay(
-                    shape.stroke(theme.contentSurfaceTheme.border.opacity(0.72), lineWidth: 0.8)
-                )
-        }
-    }
-
-    private func title(for toolName: ClickyComputerUseToolName) -> String {
-        switch toolName {
-        case .listApps, .listWindows:
-            return "Clicky wants to inspect"
-        case .click:
-            return "Clicky wants to click"
-        case .typeText, .setValue:
-            return "Clicky wants to type"
-        case .pressKey:
-            return "Clicky wants to press a key"
-        case .scroll:
-            return "Clicky wants to scroll"
-        case .drag:
-            return "Clicky wants to drag"
-        case .resize, .setWindowFrame:
-            return "Clicky wants to move a window"
-        case .performSecondaryAction:
-            return "Clicky wants to use a control"
-        case .getWindowState:
-            return "Clicky wants to inspect"
-        }
-    }
-}
-
 @MainActor
 final class MenuBarPanelManager: NSObject {
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
-    private var computerUseApprovalPanel: NSPanel?
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
     private var openStudioObserver: NSObjectProtocol?
@@ -171,11 +52,9 @@ final class MenuBarPanelManager: NSObject {
     private let surfaceController: ClickySurfaceController
     private let launchAccessController: ClickyLaunchAccessController
     private let backendRoutingController: ClickyBackendRoutingController
-    private let computerUseController: ClickyComputerUseController
     private weak var studioWindowPresenter: CompanionAppDelegate?
     private let panelWidth: CGFloat = 360
     private let panelHeight: CGFloat = 380
-    private let approvalPanelWidth: CGFloat = 360
 
     init(companionManager: CompanionManager, studioWindowPresenter: CompanionAppDelegate) {
         self.companionManager = companionManager
@@ -183,12 +62,10 @@ final class MenuBarPanelManager: NSObject {
         self.surfaceController = companionManager.surfaceController
         self.launchAccessController = companionManager.launchAccessController
         self.backendRoutingController = companionManager.backendRoutingController
-        self.computerUseController = companionManager.computerUseController
         self.studioWindowPresenter = studioWindowPresenter
         super.init()
         createStatusItem()
         bindMenuBarIconState()
-        bindComputerUseApprovalHUD()
         updateMenuBarIconState()
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
@@ -379,24 +256,6 @@ final class MenuBarPanelManager: NSObject {
             .store(in: &stateCancellables)
     }
 
-    private func bindComputerUseApprovalHUD() {
-        computerUseController.$pendingAction
-            .sink { [weak self] action in
-                self?.syncComputerUseApprovalHUD(with: action)
-            }
-            .store(in: &stateCancellables)
-    }
-
-    private func syncComputerUseApprovalHUD(with action: ClickyComputerUsePendingAction?) {
-        guard let action,
-              case .pending = action.status else {
-            hideComputerUseApprovalHUD(animated: true)
-            return
-        }
-
-        showComputerUseApprovalHUD(for: action)
-    }
-
     private func updateMenuBarIconState() {
         let input = ClickyMenuBarIconStateInput(
             hasCompletedOnboarding: preferences.hasCompletedOnboarding,
@@ -545,121 +404,6 @@ final class MenuBarPanelManager: NSObject {
         }
 
         studioWindowPresenter.showStudioWindow(source: source)
-    }
-
-    private func showComputerUseApprovalHUD(for action: ClickyComputerUsePendingAction) {
-        if computerUseApprovalPanel == nil {
-            createComputerUseApprovalPanel()
-        }
-
-        guard let computerUseApprovalPanel else { return }
-        positionComputerUseApprovalPanel()
-
-        if !computerUseApprovalPanel.isVisible {
-            prepareApprovalHUDForOpenAnimation(computerUseApprovalPanel)
-            computerUseApprovalPanel.makeKeyAndOrderFront(nil)
-            computerUseApprovalPanel.orderFrontRegardless()
-            animateApprovalHUDOpen(computerUseApprovalPanel)
-        }
-
-        ClickyUnifiedTelemetry.windowing.debug(
-            "Computer-use approval HUD presented tool=\(action.toolName.rawValue, privacy: .public)"
-        )
-    }
-
-    private func createComputerUseApprovalPanel() {
-        let approvalView = ComputerUseApprovalHUDView(companionManager: companionManager)
-            .frame(width: approvalPanelWidth)
-
-        let hostingView = NSHostingView(rootView: approvalView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: approvalPanelWidth, height: 86)
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = .clear
-
-        let approvalPanel = KeyablePanel(
-            contentRect: NSRect(x: 0, y: 0, width: approvalPanelWidth, height: 86),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-
-        approvalPanel.isFloatingPanel = true
-        approvalPanel.level = .floating
-        approvalPanel.isOpaque = false
-        approvalPanel.backgroundColor = .clear
-        approvalPanel.hasShadow = false
-        approvalPanel.hidesOnDeactivate = false
-        approvalPanel.isExcludedFromWindowsMenu = true
-        approvalPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        approvalPanel.isMovableByWindowBackground = false
-        approvalPanel.titleVisibility = .hidden
-        approvalPanel.titlebarAppearsTransparent = true
-        approvalPanel.contentView = hostingView
-        computerUseApprovalPanel = approvalPanel
-    }
-
-    private func positionComputerUseApprovalPanel() {
-        guard let computerUseApprovalPanel else { return }
-
-        let fittingSize = computerUseApprovalPanel.contentView?.fittingSize
-            ?? CGSize(width: approvalPanelWidth, height: 86)
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
-            ?? NSScreen.main
-        let visibleFrame = screen?.visibleFrame
-            ?? CGRect(x: 0, y: 0, width: approvalPanelWidth, height: fittingSize.height)
-        let width = approvalPanelWidth
-        let height = fittingSize.height
-        let originX = visibleFrame.midX - (width / 2)
-        let originY = visibleFrame.maxY - height - 8
-
-        computerUseApprovalPanel.setFrame(
-            NSRect(x: originX, y: originY, width: width, height: height),
-            display: true
-        )
-    }
-
-    private func prepareApprovalHUDForOpenAnimation(_ panel: NSPanel) {
-        panel.alphaValue = 0
-        panel.contentView?.wantsLayer = true
-        panel.contentView?.layer?.transform = CATransform3DMakeScale(0.98, 0.98, 1)
-    }
-
-    private func animateApprovalHUDOpen(_ panel: NSPanel) {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().alphaValue = 1
-        }
-
-        let scaleAnimation = CABasicAnimation(keyPath: "transform.scale")
-        scaleAnimation.fromValue = 0.98
-        scaleAnimation.toValue = 1.0
-        scaleAnimation.duration = 0.18
-        scaleAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        panel.contentView?.layer?.add(scaleAnimation, forKey: "clicky-approval-hud-open-scale")
-        panel.contentView?.layer?.transform = CATransform3DIdentity
-    }
-
-    private func hideComputerUseApprovalHUD(animated: Bool) {
-        guard let panel = computerUseApprovalPanel,
-              panel.isVisible else { return }
-
-        guard animated else {
-            panel.orderOut(nil)
-            panel.alphaValue = 1
-            return
-        }
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.14
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.completionHandler = {
-                panel.orderOut(nil)
-                panel.alphaValue = 1
-                panel.contentView?.layer?.transform = CATransform3DIdentity
-            }
-            panel.animator().alphaValue = 0
-        }
     }
 
     @objc private func statusItemClicked() {

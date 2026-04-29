@@ -86,13 +86,6 @@ struct NavigationBubbleSizePreferenceKey: PreferenceKey {
     }
 }
 
-struct ComputerUseBubbleSizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
 /// The buddy's behavioral mode. Controls whether it follows the cursor,
 /// is flying toward a detected UI element, or is pointing at an element.
 enum BuddyNavigationMode: Equatable {
@@ -170,7 +163,6 @@ struct BlueCursorView: View {
     @State private var navigationBubbleText: String = ""
     @State private var navigationBubbleOpacity: Double = 0.0
     @State private var navigationBubbleSize: CGSize = .zero
-    @State private var computerUseBubbleSize: CGSize = .zero
 
     /// The cursor position at the moment navigation started, used to detect
     /// if the user moves the cursor enough to cancel the navigation.
@@ -333,36 +325,6 @@ struct BlueCursorView: View {
                     }
             }
 
-            if buddyIsVisibleOnThisScreen,
-               surfaceController.isComputerUseActive,
-               let computerUseStatusText = surfaceController.computerUseStatusText,
-               !computerUseStatusText.isEmpty,
-               buddyNavigationMode != .pointingAtTarget {
-                Text(computerUseStatusText)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Color(red: 0.04, green: 0.13, blue: 0.18))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(computerUseAccentColor)
-                            .shadow(color: computerUseAccentColor.opacity(0.6), radius: 10, x: 0, y: 0)
-                    )
-                    .fixedSize()
-                    .overlay(
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(key: ComputerUseBubbleSizePreferenceKey.self, value: geo.size)
-                        }
-                    )
-                    .position(x: cursorPosition.x + 10 + (computerUseBubbleSize.width / 2), y: cursorPosition.y + 18)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                    .onPreferenceChange(ComputerUseBubbleSizePreferenceKey.self) { newSize in
-                        computerUseBubbleSize = newSize
-                    }
-            }
-
             // Blue triangle cursor — shown only when idle.
             // All cursor treatments stay in the view tree
             // permanently and cross-fade via opacity so SwiftUI doesn't remove/re-insert
@@ -374,7 +336,7 @@ struct BlueCursorView: View {
             personaCursorIdleView
                 .opacity(
                     buddyIsVisibleOnThisScreen
-                        && (surfaceController.isComputerUseActive || surfaceController.voiceState == .idle || buddyNavigationMode != .followingCursor)
+                        && (surfaceController.voiceState == .idle || buddyNavigationMode != .followingCursor)
                         ? cursorOpacity
                         : 0
                 )
@@ -396,7 +358,6 @@ struct BlueCursorView: View {
                 .opacity(
                     buddyIsVisibleOnThisScreen
                         && buddyNavigationMode == .followingCursor
-                        && !surfaceController.isComputerUseActive
                         && surfaceController.voiceState == .listening
                         ? cursorOpacity
                         : 0
@@ -410,7 +371,6 @@ struct BlueCursorView: View {
                 .opacity(
                     buddyIsVisibleOnThisScreen
                         && buddyNavigationMode == .followingCursor
-                        && !surfaceController.isComputerUseActive
                         && surfaceController.voiceState == .transcribing
                         ? cursorOpacity
                         : 0
@@ -424,7 +384,6 @@ struct BlueCursorView: View {
                 .opacity(
                     buddyIsVisibleOnThisScreen
                         && buddyNavigationMode == .followingCursor
-                        && !surfaceController.isComputerUseActive
                         && surfaceController.voiceState == .thinking
                         ? cursorOpacity
                         : 0
@@ -438,7 +397,6 @@ struct BlueCursorView: View {
                 .opacity(
                     buddyIsVisibleOnThisScreen
                         && buddyNavigationMode == .followingCursor
-                        && !surfaceController.isComputerUseActive
                         && surfaceController.voiceState == .responding
                         ? cursorOpacity
                         : 0
@@ -577,28 +535,15 @@ struct BlueCursorView: View {
     }
 
     private var cursorAccentColor: Color {
-        if surfaceController.isComputerUseActive {
-            return computerUseAccentColor
-        }
         return activeTheme.primary
     }
 
     private var cursorSecondaryColor: Color {
-        if surfaceController.isComputerUseActive {
-            return Color(red: 0.56, green: 0.64, blue: 1.0)
-        }
         return activeTheme.ring
     }
 
     private var cursorSoftGlowColor: Color {
-        if surfaceController.isComputerUseActive {
-            return Color(red: 0.88, green: 1.0, blue: 1.0)
-        }
         return activeTheme.glowB
-    }
-
-    private var computerUseAccentColor: Color {
-        Color(red: 0.31, green: 0.91, blue: 0.93)
     }
 
     @ViewBuilder

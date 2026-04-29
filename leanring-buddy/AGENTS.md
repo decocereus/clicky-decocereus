@@ -2,10 +2,6 @@
 
 # Swift Engineering Excellence Framework
 
-## Clicky Computer Use Source Of Truth
-
-Clicky's computer-use runtime is vendored at `Packages/BackgroundComputerUse`, and the canonical upstream repository is [`actuallyepic/background-computer-use`](https://github.com/actuallyepic/background-computer-use). Treat upstream route semantics, API flow, permission model, and cursor contract as the source of truth. If app-target code, plugin schemas, docs, or tests drift from upstream, reconcile them back to upstream unless the deviation is intentionally documented at the integration boundary.
-
 <primary_directive>
 You are an ELITE Swift engineer. Your code exhibits MASTERY through SIMPLICITY.
 Clarify only when a decision would materially change architecture, UX, launch behavior, or verification cost. Otherwise, make the smallest safe assumption, state it, and keep moving.
@@ -177,13 +173,11 @@ Apply these rules to every Swift/SwiftUI task in this target.
 - Preserve the existing state ownership style within the file or feature you are editing unless there is a clear benefit to changing it. Prefer the simplest SwiftUI-native state model that fits new local code.
 - The assistant request path should stay provider-agnostic: build one canonical Clicky turn contract, then map it through one adapter file per backend. Do not reintroduce provider-specific request assembly inside `CompanionManager`.
 - The normal assistant response path should use one structured response contract with spoken text plus ordered point targets. Do not depend on backend-specific inline tag syntax in the main companion flow.
-- Computer use is app-owned for runtime/permissions/Studio policy and model-owned for planning. The vendored runtime lives at `../Packages/BackgroundComputerUse`; Clicky starts and observes it through `ClickyComputerUseController` and executes OpenClaw tool calls through `ClickyComputerUseClient`. OpenClaw exposes runtime-shaped tools named `list_apps`, `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`, `scroll`, `set_value`, `perform_secondary_action`, `drag`, `resize`, and `set_window_frame`. Do not add prefixed compatibility aliases, semantic locate/scoring tools, or final-JSON computer-use envelopes back to the model-facing path. Studio's computer-use permission level is the user-facing safety switch: Auto Approved, Review, or Blocked.
 - For OpenClaw-backed Clicky turns, prefer the plugin-exposed `clicky_present` tool to choose the presentation mode, then have the agent emit the exact structured JSON envelope returned by that tool as the final assistant message. Keep raw structured JSON without the tool only as fallback during migration.
 - The canonical turn contract now includes focus context in addition to screenshots. Preserve that shared path for future providers instead of adding backend-specific cursor/focus hacks.
 - For OpenClaw, keep Clicky runtime/system instructions on the plugin-owned prompt-injection path. Do not concatenate them into the raw user `message` payload sent through Gateway.
 - Repo override: do **not** use terminal `xcodebuild` here. Preserve TCC permissions by preferring Xcode.app for build/run unless the user explicitly accepts the tradeoff.
 - The Codex app `Run` action is wired to `./script/build_and_run.sh`, which uses Xcode AppleScript automation rather than terminal `xcodebuild`.
-- To validate the vendored computer-use package without touching the app bundle, run `swift test` from `../Packages/BackgroundComputerUse`.
 - Do **not** automatically reinstall the local `clicky-shell` OpenClaw plugin or restart the OpenClaw Gateway while iterating on the macOS app. Only do that when the user explicitly asks for it, or explicitly agrees to a verification step that requires it.
 - Launch/commercialization work should assume a direct-download website, a real free taste inside the Mac app, an in-app paywall, Polar-hosted checkout launched from the app, and backend-backed auth plus entitlement restore.
 - Repo-wide website work should preserve the current landing-page design and treat the web companion as an additive Clicky shell layer with per-visitor OpenClaw sessions, a semantic target registry for pointing, and a generated site-layout reference image instead of browser screen-share prompts. See `docs/web-companion-prd.md` and `docs/web-openclaw-session-architecture.md`.

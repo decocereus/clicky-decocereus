@@ -13,8 +13,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Studio Window Host**: custom AppKit-managed `NSWindow` hosting SwiftUI content so Clicky can control the real outer shell, keep native traffic lights, and avoid Settings-scene chrome regressions
 - **State Pattern**: Prefer the simplest state ownership model that fits the surrounding feature. Preserve existing patterns in-place, use SwiftUI-native state by default, and only introduce additional view-model-style abstraction when the feature genuinely needs it.
 - **Agent Backends**: Clicky now uses a provider-agnostic assistant turn contract with backend-specific adapter files. Claude currently routes through the Cloudflare Worker proxy, and OpenClaw Gateway routes over WebSocket with image attachments and Gateway session routing. Future direct providers such as OpenAI/Codex should plug into the same contract rather than adding ad hoc logic in the main manager.
-- **Computer Use Runtime**: Clicky vendors `BackgroundComputerUse` in `Packages/BackgroundComputerUse` as a local Swift package. The upstream source of truth is [`actuallyepic/background-computer-use`](https://github.com/actuallyepic/background-computer-use); when Clicky's vendored package, plugin schema, docs, or tests disagree with upstream route semantics, upstream wins unless the deviation is deliberately documented. The package exposes a linkable `BackgroundComputerUse` library plus a `BackgroundComputerUseCLI` wrapper for standalone development. Clicky owns startup, macOS permission onboarding, Studio diagnostics, Studio policy, local runtime execution, and cursor/user-facing status through `ClickyComputerUseController` and `ClickyComputerUseClient`. Studio exposes one computer-use permission level: Auto Approved, Review, or Blocked. Auto Approved treats granted macOS permissions as consent for routine computer use; Review pauses sensitive final actions; Blocked disables computer use.
-- **OpenClaw Plugin Direction**: The repo includes a native OpenClaw plugin in `plugins/openclaw-clicky-shell` and a contract doc in `docs/clicky-openclaw-integration-contract.md`. OpenClaw computer use is model-owned: the plugin exposes runtime-shaped tools named `list_apps`, `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`, `scroll`, `set_value`, `perform_secondary_action`, `drag`, `resize`, and `set_window_frame`. The plugin queues those tool calls, Clicky polls the Gateway during the active run, executes through the local runtime, and returns the runtime result directly to the tool call. Do not add prefixed compatibility aliases or semantic locate/scoring tools back to the model-facing surface.
+- **OpenClaw Plugin Direction**: The repo includes a native OpenClaw plugin in `plugins/openclaw-clicky-shell` and a contract doc in `docs/clicky-openclaw-integration-contract.md`. The plugin handles shell registration, status, prompt-context injection, and the `clicky_present` presentation tool. It should not expose desktop-operation tools unless a new implementation is deliberately designed and documented.
 - **OpenClaw Prompt Hygiene**: Clicky runtime/system instructions for OpenClaw must flow through the `clicky-shell` plugin's prompt-injection path, not by being concatenated into the raw user `message` payload
 - **OpenClaw Presentation Path**: For OpenClaw-backed Clicky turns, prefer the plugin-exposed `clicky_present` tool to choose the presentation mode, then have the agent emit the exact structured JSON envelope returned by that tool as the final assistant message. Keep raw structured JSON without the tool only as fallback during migration.
 - **Web Companion Direction**: The marketing site should keep its current landing-page design and add the companion as a layered shell experience. Use per-visitor OpenClaw sessions/threads with curated section context, a semantic target registry for pointing, and a generated site-layout reference image rather than unrestricted DOM access or browser screen-share prompts. See `docs/web-companion-prd.md` and `docs/web-openclaw-session-architecture.md`
@@ -65,15 +64,6 @@ Prefer Xcode.app as the primary build/run loop in this repo.
 If the user wants Codex app Run button support or tighter build/run automation, propose a repo-safe path first and explicitly call out any TCC tradeoffs before wiring shell-based automation.
 
 The Codex app `Run` action is wired through `.codex/environments/environment.toml` to `./script/build_and_run.sh`, which tells Xcode to build and run the `leanring-buddy` scheme via AppleScript so TCC-sensitive permissions stay intact.
-
-The vendored computer-use package can be validated separately with:
-
-```bash
-cd Packages/BackgroundComputerUse
-swift test
-```
-
-This SwiftPM package validation is allowed because it does not build/run the Clicky app bundle or disturb Clicky's TCC grants.
 
 ## Code Style & Conventions
 

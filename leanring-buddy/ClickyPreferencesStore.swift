@@ -8,36 +8,6 @@
 import Combine
 import Foundation
 
-enum ClickyComputerUsePermissionLevel: String, CaseIterable, Hashable, Identifiable, Sendable {
-    case autoApproved = "autoApproved"
-    case review = "review"
-    case blocked = "blocked"
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .autoApproved:
-            return "Auto Approved"
-        case .review:
-            return "Review"
-        case .blocked:
-            return "Blocked"
-        }
-    }
-
-    var studioDescription: String {
-        switch self {
-        case .autoApproved:
-            return "Clicky can operate directly after macOS permissions are granted."
-        case .review:
-            return "Clicky asks before running desktop actions."
-        case .blocked:
-            return "Computer use is off, even if macOS permissions are granted."
-        }
-    }
-}
-
 @MainActor
 final class ClickyPreferencesStore: ObservableObject {
     private enum Key {
@@ -61,8 +31,6 @@ final class ClickyPreferencesStore: ObservableObject {
         static let elevenLabsSelectedVoiceName = "elevenLabsSelectedVoiceName"
         static let clickyThemePreset = "clickyThemePreset"
         static let isClickyCursorEnabled = "isClickyCursorEnabled"
-        static let computerUseRunsRoutineActionsDirectly = "computerUseRunsRoutineActionsDirectly"
-        static let computerUsePermissionLevel = "computerUsePermissionLevel"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
     }
 
@@ -148,10 +116,6 @@ final class ClickyPreferencesStore: ObservableObject {
         didSet { defaults.set(isClickyCursorEnabled, forKey: Key.isClickyCursorEnabled) }
     }
 
-    @Published var computerUsePermissionLevel: ClickyComputerUsePermissionLevel {
-        didSet { defaults.set(computerUsePermissionLevel.rawValue, forKey: Key.computerUsePermissionLevel) }
-    }
-
     @Published var hasCompletedOnboarding: Bool {
         didSet { defaults.set(hasCompletedOnboarding, forKey: Key.hasCompletedOnboarding) }
     }
@@ -194,28 +158,7 @@ final class ClickyPreferencesStore: ObservableObject {
         isClickyCursorEnabled = defaults.object(forKey: Key.isClickyCursorEnabled) == nil
             ? true
             : defaults.bool(forKey: Key.isClickyCursorEnabled)
-        computerUsePermissionLevel = Self.resolvedInitialComputerUsePermissionLevel(defaults: defaults)
         hasCompletedOnboarding = defaults.bool(forKey: Key.hasCompletedOnboarding)
-    }
-
-    private static func resolvedInitialComputerUsePermissionLevel(
-        defaults: UserDefaults
-    ) -> ClickyComputerUsePermissionLevel {
-        if let storedValue = defaults.string(forKey: Key.computerUsePermissionLevel),
-           let storedLevel = ClickyComputerUsePermissionLevel(rawValue: storedValue) {
-            return storedLevel
-        }
-
-        if defaults.object(forKey: Key.computerUseRunsRoutineActionsDirectly) != nil {
-            let migratedLevel: ClickyComputerUsePermissionLevel = defaults.bool(forKey: Key.computerUseRunsRoutineActionsDirectly)
-                ? .autoApproved
-                : .review
-            defaults.set(migratedLevel.rawValue, forKey: Key.computerUsePermissionLevel)
-            return migratedLevel
-        }
-
-        defaults.set(ClickyComputerUsePermissionLevel.autoApproved.rawValue, forKey: Key.computerUsePermissionLevel)
-        return .autoApproved
     }
 
     private static func resolvedInitialClickyBackendBaseURL(defaults: UserDefaults) -> String {

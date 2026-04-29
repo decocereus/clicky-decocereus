@@ -13,7 +13,6 @@ enum ClickyLogCategory: String {
     case app
     case audio
     case agent
-    case computerUse = "ComputerUse"
     case turns
     case gateway
     case plugin

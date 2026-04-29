@@ -22,9 +22,6 @@ final class ClickySurfaceController: ObservableObject {
     @Published var detectedElementDisplayFrame: CGRect?
     @Published var detectedElementBubbleText: String?
     @Published var managedPointSequenceReturnToken: Int = 0
-    @Published var isComputerUseActive: Bool = false
-    @Published var computerUseStatusText: String?
-    @Published var computerUsePulseToken: Int = 0
     @Published var onboardingVideoPlayer: AVPlayer?
     @Published var showOnboardingVideo: Bool = false
     @Published var onboardingVideoOpacity: Double = 0.0

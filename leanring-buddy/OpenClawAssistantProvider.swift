@@ -20,17 +20,14 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
 
     private let gatewayAgent: OpenClawGatewayCompanionAgent
     private let configurationProvider: @MainActor @Sendable () -> OpenClawAssistantProviderConfiguration
-    private let computerUseToolHandler: @MainActor @Sendable (OpenClawComputerUseToolRequest) async -> [String: Any]
     private let focusContextFormatter = ClickyAssistantFocusContextFormatter()
 
     init(
         gatewayAgent: OpenClawGatewayCompanionAgent,
-        configurationProvider: @escaping @MainActor @Sendable () -> OpenClawAssistantProviderConfiguration,
-        computerUseToolHandler: @escaping @MainActor @Sendable (OpenClawComputerUseToolRequest) async -> [String: Any]
+        configurationProvider: @escaping @MainActor @Sendable () -> OpenClawAssistantProviderConfiguration
     ) {
         self.gatewayAgent = gatewayAgent
         self.configurationProvider = configurationProvider
-        self.computerUseToolHandler = computerUseToolHandler
     }
 
     func sendTurn(
@@ -65,16 +62,6 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
             agentIdentifier=\(configuration.agentIdentifier)
             """
         )
-        ClickyComputerUseDebugTrace.shared.recordOpenClawDispatch(
-            sessionKey: configuration.sessionKey,
-            shellIdentifier: configuration.shellIdentifier,
-            agentIdentifier: configuration.agentIdentifier,
-            systemPrompt: request.systemPrompt,
-            userPrompt: userPrompt,
-            imageLabels: openClawImages.map(\.label),
-            messageBody: messageBody
-        )
-
         let response = try await gatewayAgent.analyzeImageStreaming(
             gatewayURLString: configuration.gatewayURLString,
             explicitGatewayAuthToken: configuration.gatewayAuthToken,
@@ -84,7 +71,6 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
             images: openClawImages,
             systemPrompt: request.systemPrompt,
             userPrompt: userPrompt,
-            computerUseToolHandler: computerUseToolHandler,
             onTextChunk: onTextChunk
         )
 

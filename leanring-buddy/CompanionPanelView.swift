@@ -14,7 +14,6 @@ struct CompanionPanelView: View {
     let companionManager: CompanionManager
     @ObservedObject private var preferences: ClickyPreferencesStore
     @ObservedObject private var surfaceController: ClickySurfaceController
-    @ObservedObject private var computerUseController: ClickyComputerUseController
     @ObservedObject private var launchAccessController: ClickyLaunchAccessController
     @ObservedObject private var tutorialController: ClickyTutorialController
 
@@ -30,7 +29,6 @@ struct CompanionPanelView: View {
         self.companionManager = companionManager
         _preferences = ObservedObject(wrappedValue: companionManager.preferences)
         _surfaceController = ObservedObject(wrappedValue: companionManager.surfaceController)
-        _computerUseController = ObservedObject(wrappedValue: companionManager.computerUseController)
         _launchAccessController = ObservedObject(wrappedValue: companionManager.launchAccessController)
         _tutorialController = ObservedObject(wrappedValue: companionManager.tutorialController)
     }
@@ -407,12 +405,6 @@ struct CompanionPanelView: View {
 
     private var panelBody: some View {
         return VStack(alignment: .leading, spacing: 12) {
-            if let pendingAction = computerUseController.pendingAction {
-                pendingComputerUseActionCard(pendingAction)
-                    .panelGlassMotionID("computer-use-action-\(pendingAction.id.uuidString)", namespace: panelMotionNamespace)
-                    .transition(panelCardTransition)
-            }
-
             Group {
                 primaryContentCard
                     .panelGlassMotionID("primary-card-\(panelScreenKey)", namespace: panelMotionNamespace)
@@ -424,7 +416,6 @@ struct CompanionPanelView: View {
             }
         }
         .animation(panelCardAnimation, value: panelScreenKey)
-        .animation(panelCardAnimation, value: computerUseController.pendingAction?.id)
         .animation(panelCardAnimation, value: permissionRows.count)
         .animation(panelCardAnimation, value: showsSignInWhyCopy)
     }
@@ -561,90 +552,6 @@ struct CompanionPanelView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .modifier(ClickyPanelContentCardStyle(tone: tone, padding: 18))
-    }
-
-    private func pendingComputerUseActionCard(_ action: ClickyComputerUsePendingAction) -> some View {
-        let review = ClickyComputerUseActionPolicy.review(
-            toolName: action.toolName,
-            rawPayload: action.rawPayload,
-            originalUserRequest: action.originalUserRequest
-        )
-
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 10) {
-                Image(systemName: "cursorarrow.click")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(theme.primary)
-                    .frame(width: 30, height: 30)
-                    .background(
-                        Circle()
-                            .fill(theme.primary.opacity(0.12))
-                    )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(pendingComputerUseTitle(for: action.toolName))
-                        .font(ClickyTypography.body(size: 13, weight: .semibold))
-                        .foregroundColor(contentTheme.textPrimary)
-
-                    Text(review.summary)
-                        .font(ClickyTypography.body(size: 11))
-                        .foregroundColor(contentTheme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-                Spacer(minLength: 0)
-            }
-
-            if case .pending = action.status {
-                HStack(spacing: 10) {
-                    Button(action: companionManager.approvePendingComputerUseAction) {
-                        Text("Approve")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .modifier(ClickyProminentActionStyle())
-                    .pointerCursor()
-
-                    Button(action: companionManager.cancelPendingComputerUseAction) {
-                        Text("Deny")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .modifier(ClickySecondaryGlassButtonStyle())
-                    .pointerCursor()
-                }
-            } else {
-                Button(action: companionManager.clearPendingComputerUseAction) {
-                    Text("Dismiss")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-            }
-        }
-        .modifier(ClickyPanelContentCardStyle(tone: .regular, padding: 16))
-    }
-
-    private func pendingComputerUseTitle(for toolName: ClickyComputerUseToolName) -> String {
-        switch toolName {
-        case .listApps, .listWindows:
-            return "Clicky wants to inspect"
-        case .click:
-            return "Clicky wants to click"
-        case .typeText, .setValue:
-            return "Clicky wants to type"
-        case .pressKey:
-            return "Clicky wants to press a key"
-        case .scroll:
-            return "Clicky wants to scroll"
-        case .drag:
-            return "Clicky wants to drag"
-        case .resize, .setWindowFrame:
-            return "Clicky wants to move a window"
-        case .performSecondaryAction:
-            return "Clicky wants to use a control"
-        case .getWindowState:
-            return "Clicky wants to inspect"
-        }
     }
 
     private var activeHeroCard: some View {
@@ -1306,7 +1213,6 @@ struct CompanionPanelView: View {
                     secondaryAction: {
                         WindowPositionManager.revealAppInFinder()
                         WindowPositionManager.openAccessibilitySettings()
-                        computerUseController.refreshRuntimeStatus()
                     }
                 ).withState(rowState(for: .accessibility, isGranted: false))
             )
@@ -1615,13 +1521,11 @@ struct CompanionPanelView: View {
 
     private func requestAccessibilityPermission() {
         _ = WindowPositionManager.requestAccessibilityPermission()
-        computerUseController.refreshRuntimeStatus()
         companionManager.refreshAllPermissions()
     }
 
     private func requestScreenRecordingPermission() {
         _ = WindowPositionManager.requestScreenRecordingPermission()
-        computerUseController.refreshRuntimeStatus()
         companionManager.refreshAllPermissions()
     }
 

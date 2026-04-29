@@ -10,16 +10,12 @@ Native OpenClaw plugin scaffold for connecting OpenClaw to the Clicky desktop sh
 - registers a simple `/clicky` command
 - registers a `clicky_status` tool
 - registers a `clicky_present` tool as the preferred presentation-mode surface for Clicky turns
-- registers runtime-shaped computer-use tools: `list_apps`, `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`, `scroll`, `set_value`, `perform_secondary_action`, `drag`, `resize`, and `set_window_frame`
-- queues computer-use tool calls for the connected Clicky shell, waits for Clicky to execute them through `BackgroundComputerUse`, and returns compact runtime JSON directly to the model
 - accepts real shell registrations
 - tracks shell heartbeat freshness in memory
 - reports shell status and session binding state
 - syncs per-turn Clicky prompt context through plugin-owned gateway methods
 - appends prompt context for fresh, bound Clicky shells during prompt build without exposing it in raw user message payloads
-- teaches an observe-act-observe loop where the model owns window choice, element choice, sequencing, and recovery
-- keeps desktop control on the Clicky runtime path; generic `exec`, AppleScript, process, or browser automation is not part of the Clicky desktop-control contract
-- treats `clicky_present` as final presentation only; completion claims after runtime mutations require a fresh post-action `get_window_state`
+- explicitly tells OpenClaw that desktop action tools are not available
 
 ## What it will do next
 
@@ -44,6 +40,6 @@ openclaw gateway restart
 
 ## Notes
 
-This is still intentionally conservative. It is no longer a placeholder-only scaffold, but it is also not yet the final trust layer. The transport and identity contract is documented in:
+This is intentionally conservative. The prior desktop-action queue/polling path has been removed; the plugin currently owns shell registration, prompt context, status, and `clicky_present` only. The transport and identity contract is documented in:
 
 - `docs/clicky-openclaw-integration-contract.md`
