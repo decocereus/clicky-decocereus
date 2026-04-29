@@ -899,7 +899,7 @@ struct BlueCursorView: View {
     /// Transitions to pointing mode — shows a speech bubble with a bouncy
     /// scale-in entrance and variable-speed character streaming.
     private func startPointingAtElement() {
-        companionManager.pauseTutorialPlaybackForPointing()
+        companionManager.tutorialPlaybackCoordinator.pauseForPointing()
         buddyNavigationMode = .pointingAtTarget
 
         // Rotate back to default pointer angle now that we've arrived
@@ -917,10 +917,10 @@ struct BlueCursorView: View {
             ?? navigationPointerPhrases.randomElement()
             ?? "right here!"
 
-        companionManager.notifyManagedPointTargetArrived()
+        companionManager.pointingSequenceController.notifyTargetArrived()
 
         streamNavigationBubbleCharacter(phrase: pointerPhrase, characterIndex: 0) {
-            guard !self.companionManager.isManagingPointSequence else {
+            guard !self.companionManager.pointingSequenceController.isManagedSequenceActive else {
                 return
             }
 
@@ -930,8 +930,8 @@ struct BlueCursorView: View {
                 self.navigationBubbleOpacity = 0.0
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     guard self.buddyNavigationMode == .pointingAtTarget else { return }
-                    if self.companionManager.hasPendingDetectedElementTargets {
-                        self.companionManager.advanceDetectedElementLocation()
+                    if self.companionManager.pointingSequenceController.hasPendingTargets {
+                        self.companionManager.pointingSequenceController.advance()
                     } else {
                         self.startFlyingBackToCursor()
                     }
@@ -1009,9 +1009,9 @@ struct BlueCursorView: View {
         buddyNavigationMode = .followingCursor
         isReturningToCursor = false
         triangleRotationDegrees = -35.0
-        companionManager.clearDetectedElementLocation()
+        companionManager.pointingSequenceController.clear()
         sequenceReturnPosition = nil
-        companionManager.resumeTutorialPlaybackAfterPointingIfNeeded()
+        companionManager.tutorialPlaybackCoordinator.resumeAfterPointingIfNeeded()
     }
 
     /// Returns the buddy to normal cursor-following mode after navigation completes.
@@ -1025,16 +1025,16 @@ struct BlueCursorView: View {
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
         navigationBubbleScale = 1.0
-        if companionManager.isManagingPointSequence {
-            companionManager.resumeTutorialPlaybackAfterPointingIfNeeded()
+        if companionManager.pointingSequenceController.isManagedSequenceActive {
+            companionManager.tutorialPlaybackCoordinator.resumeAfterPointingIfNeeded()
             return
         }
 
-        companionManager.advanceDetectedElementLocation()
-        if !companionManager.hasPendingDetectedElementTargets {
+        companionManager.pointingSequenceController.advance()
+        if !companionManager.pointingSequenceController.hasPendingTargets {
             sequenceReturnPosition = nil
         }
-        companionManager.resumeTutorialPlaybackAfterPointingIfNeeded()
+        companionManager.tutorialPlaybackCoordinator.resumeAfterPointingIfNeeded()
     }
 
     // MARK: - Welcome Animation

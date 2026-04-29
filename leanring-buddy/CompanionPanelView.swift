@@ -1582,7 +1582,7 @@ struct CompanionPanelView: View {
 
     private func exitTutorialFlow() {
         if tutorialController.tutorialPlaybackState?.isVisible == true {
-            companionManager.stopTutorialPlayback()
+            companionManager.tutorialPlaybackCoordinator.stopPlayback()
         }
 
         withAnimation(panelCardAnimation) {

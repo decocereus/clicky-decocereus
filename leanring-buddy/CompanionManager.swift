@@ -214,7 +214,7 @@ final class CompanionManager: ObservableObject {
 
     /// Conversation history so Claude remembers prior exchanges within a session.
     /// Each entry is the user's transcript and Claude's response.
-    private lazy var pointingSequenceController = ClickyPointingSequenceController(
+    lazy var pointingSequenceController = ClickyPointingSequenceController(
         surfaceController: surfaceController
     )
     private lazy var managedPointingPlaybackCoordinator = ClickyManagedPointingPlaybackCoordinator(
@@ -553,7 +553,7 @@ final class CompanionManager: ObservableObject {
             self?.openClawGatewayCompanionAgent.cancelActiveRequest()
         },
         clearDetectedElementLocation: { [weak self] in
-            self?.clearDetectedElementLocation()
+            self?.pointingSequenceController.clear()
         },
         detectedElementScreenLocation: { [weak self] in
             self?.surfaceController.detectedElementScreenLocation
@@ -568,7 +568,7 @@ final class CompanionManager: ObservableObject {
             self?.tutorialController.tutorialPlaybackState?.isVisible == true
         },
         handleTutorialPlaybackKeyboardCommand: { [weak self] command in
-            self?.handleTutorialPlaybackKeyboardCommand(command)
+            self?.tutorialPlaybackCoordinator.handleKeyboardCommand(command)
         },
         dismissOnboardingPrompt: { [weak self] in
             self?.onboardingVideoController.dismissPromptIfNeeded()
@@ -649,66 +649,12 @@ final class CompanionManager: ObservableObject {
         lifecycleCoordinator.start()
     }
 
-    func clearDetectedElementLocation() {
-        pointingSequenceController.clear()
-    }
-
-    func advanceDetectedElementLocation() {
-        pointingSequenceController.advance()
-    }
-
     private func queueDetectedElementTargets(_ targets: [QueuedPointingTarget]) {
         pointingSequenceController.queue(targets)
     }
 
-    var hasPendingDetectedElementTargets: Bool {
-        pointingSequenceController.hasPendingTargets
-    }
-
-    var isManagingPointSequence: Bool {
-        pointingSequenceController.isManagedSequenceActive
-    }
-
-    func notifyManagedPointTargetArrived() {
-        pointingSequenceController.notifyTargetArrived()
-    }
-
-    func startTutorialPlayback(
-        sourceURL: String,
-        embedURL: String,
-        step: TutorialLessonStep? = nil,
-        bubbleText: String? = nil,
-        promptTimestampSeconds: Int? = nil,
-        autoPlay: Bool = true
-    ) {
-        tutorialPlaybackCoordinator.startPlayback(
-            sourceURL: sourceURL,
-            embedURL: embedURL,
-            step: step,
-            bubbleText: bubbleText ?? "Space play/pause  Left back 10s  Right forward 10s  Esc close",
-            promptTimestampSeconds: promptTimestampSeconds,
-            autoPlay: autoPlay
-        )
-    }
-
-    func updateTutorialPlaybackBubble(_ text: String?) {
-        tutorialPlaybackCoordinator.updateBubble(text)
-    }
-
-    func pauseTutorialPlaybackForPointing() {
-        tutorialPlaybackCoordinator.pauseForPointing()
-    }
-
-    func resumeTutorialPlaybackAfterPointingIfNeeded() {
-        tutorialPlaybackCoordinator.resumeAfterPointingIfNeeded()
-    }
-
     func stopTutorialPlayback() {
         tutorialPlaybackCoordinator.stopPlayback()
-    }
-
-    func handleTutorialPlaybackKeyboardCommand(_ command: TutorialPlaybackCommand) {
-        tutorialPlaybackCoordinator.handleKeyboardCommand(command)
     }
 
     func stop() {
