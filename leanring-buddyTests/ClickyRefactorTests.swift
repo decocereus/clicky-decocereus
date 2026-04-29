@@ -4,8 +4,9 @@
 //
 
 import Foundation
+import CoreGraphics
 import Testing
-@testable import leanring_buddy
+@testable import Clicky
 
 private final class CapturingAssistantProvider: ClickyAssistantProvider {
     let backend: CompanionAgentBackend = .claude
@@ -25,6 +26,7 @@ private final class CapturingAssistantProvider: ClickyAssistantProvider {
     }
 }
 
+@MainActor
 struct ClickyRefactorTests {
     @Test
     func responseContractPromptAdvertisesAllPresentationModes() {
@@ -102,13 +104,13 @@ struct ClickyRefactorTests {
         )
 
         #expect(audit.needsRepair)
-        #expect(audit.issues.contains("response omitted per-point explanation for a narrated walkthrough"))
+        #expect(audit.issues.contains("point 1 was missing an explanation"))
     }
 
     @Test
     func assistantResponseRepairerSendsRepairPromptToBackend() async throws {
         let provider = CapturingAssistantProvider(
-            responseText: #"{"mode":"answer","spokenText":"Use the Save button.","points":[]}"#
+            responseText: #"{"mode":"point","spokenText":"Use the Save button.","points":[{"x":100,"y":120,"label":"Save button","bubbleText":"Save","explanation":"This saves your work."}]}"#
         )
         let registry = ClickyAssistantProviderRegistry(providers: [provider])
         let repairer = ClickyAssistantResponseRepairer(
