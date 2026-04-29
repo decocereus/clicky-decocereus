@@ -1960,7 +1960,7 @@ private struct CompanionStudioSupportScene: View {
             return nil
         }
 
-        if !companionManager.hasStoredElevenLabsAPIKey {
+        if !companionManager.speechProviderCoordinator.hasStoredElevenLabsAPIKey {
             return "ElevenLabs is selected, but Clicky is speaking with System Speech for now. Add your ElevenLabs API key. Clicky stores it only in Keychain on this Mac."
         }
 
@@ -2056,7 +2056,7 @@ private struct CompanionStudioProviderPopover: View {
             return nil
         }
 
-        if !companionManager.hasStoredElevenLabsAPIKey {
+        if !companionManager.speechProviderCoordinator.hasStoredElevenLabsAPIKey {
             return "ElevenLabs is selected, but Clicky is speaking with System Speech for now. Add your ElevenLabs API key. Clicky stores it only in Keychain on this Mac."
         }
 
@@ -2078,7 +2078,7 @@ private struct CompanionStudioProviderPopover: View {
     }
 
     private var hasStoredElevenLabsAPIKey: Bool {
-        companionManager.hasStoredElevenLabsAPIKey
+        companionManager.speechProviderCoordinator.hasStoredElevenLabsAPIKey
     }
 
     private var elevenLabsStatusLabel: String {
@@ -2167,7 +2167,7 @@ private struct CompanionStudioProviderPopover: View {
                         .font(ClickyTypography.body(size: 13, weight: .semibold))
                         .foregroundColor(palette.cardPrimaryText)
 
-                    CompanionStudioElevenLabsAPIKeyField(companionManager: companionManager)
+                    CompanionStudioElevenLabsAPIKeyField(speechProviderController: speechProviderController)
                         .textFieldStyle(.roundedBorder)
 
                     HStack(spacing: 10) {
@@ -2258,7 +2258,7 @@ private struct CompanionStudioProviderPopover: View {
 
                         if isImportVoiceExpanded {
                             VStack(alignment: .leading, spacing: 8) {
-                                CompanionStudioElevenLabsVoiceIDField(companionManager: companionManager)
+                                CompanionStudioElevenLabsVoiceIDField(speechProviderController: speechProviderController)
                                     .textFieldStyle(.roundedBorder)
 
                                 Button {

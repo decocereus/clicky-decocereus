@@ -266,7 +266,7 @@ final class CompanionManager: ObservableObject {
     private lazy var tutorialPlaybackCoordinator = ClickyTutorialPlaybackCoordinator(
         tutorialController: tutorialController
     )
-    private lazy var speechProviderCoordinator = ClickySpeechProviderCoordinator(
+    lazy var speechProviderCoordinator = ClickySpeechProviderCoordinator(
         preferences: preferences,
         controller: speechProviderController,
         stopPlayback: { [weak self] in
@@ -297,7 +297,7 @@ final class CompanionManager: ObservableObject {
                     configurationFallbackMessage: nil
                 )
             }
-            return self.effectiveSpeechRouting
+            return self.speechProviderCoordinator.effectiveSpeechRouting
         },
         voicePresetProvider: { [weak self] in
             self?.effectiveClickyVoicePreset ?? .balanced
@@ -326,9 +326,9 @@ final class CompanionManager: ObservableObject {
             return ClickyPersonaPromptSnapshot(
                 selectedBackend: self.selectedAgentBackend,
                 selectedModel: self.selectedModel,
-                codexConfiguredModelName: self.codexConfiguredModelName,
+                codexConfiguredModelName: self.backendRoutingController.codexConfiguredModelName,
                 openClawAgentIdentifier: self.openClawAgentIdentifier,
-                inferredOpenClawAgentIdentifier: self.inferredOpenClawAgentIdentifier,
+                inferredOpenClawAgentIdentifier: self.backendRoutingController.inferredOpenClawAgentIdentifier,
                 effectiveOpenClawAgentName: self.effectiveOpenClawAgentName,
                 personaScopeMode: self.clickyPersonaScopeMode,
                 personaOverrideName: self.clickyPersonaOverrideName,
@@ -476,7 +476,7 @@ final class CompanionManager: ObservableObject {
             self.surfaceController.isOverlayVisible = true
         },
         isTutorialPlaybackVisible: { [weak self] in
-            self?.tutorialPlaybackState?.isVisible == true
+            self?.tutorialController.tutorialPlaybackState?.isVisible == true
         },
         handleTutorialPlaybackKeyboardCommand: { [weak self] command in
             self?.handleTutorialPlaybackKeyboardCommand(command)
@@ -526,51 +526,6 @@ final class CompanionManager: ObservableObject {
         permissionCoordinator.allPermissionsGranted
     }
 
-    var tutorialPlaybackState: TutorialPlaybackBindingState? {
-        get { tutorialController.tutorialPlaybackState }
-        set { tutorialController.tutorialPlaybackState = newValue }
-    }
-
-    var tutorialPlaybackBubbleOpacity: Double {
-        get { tutorialController.tutorialPlaybackBubbleOpacity }
-        set { tutorialController.tutorialPlaybackBubbleOpacity = newValue }
-    }
-
-    var tutorialPlaybackLastCommand: TutorialPlaybackCommand? {
-        get { tutorialController.tutorialPlaybackLastCommand }
-        set { tutorialController.tutorialPlaybackLastCommand = newValue }
-    }
-
-    var tutorialPlaybackCommandNonce: Int {
-        get { tutorialController.tutorialPlaybackCommandNonce }
-        set { tutorialController.tutorialPlaybackCommandNonce = newValue }
-    }
-
-    var tutorialImportURLDraft: String {
-        get { tutorialController.tutorialImportURLDraft }
-        set { tutorialController.tutorialImportURLDraft = newValue }
-    }
-
-    var currentTutorialImportDraft: TutorialImportDraft? {
-        get { tutorialController.currentTutorialImportDraft }
-        set { tutorialController.currentTutorialImportDraft = newValue }
-    }
-
-    var tutorialSessionState: TutorialSessionState? {
-        get { tutorialController.tutorialSessionState }
-        set { tutorialController.tutorialSessionState = newValue }
-    }
-
-    var isTutorialImportRunning: Bool {
-        get { tutorialController.isTutorialImportRunning }
-        set { tutorialController.isTutorialImportRunning = newValue }
-    }
-
-    var tutorialImportStatusMessage: String? {
-        get { tutorialController.tutorialImportStatusMessage }
-        set { tutorialController.tutorialImportStatusMessage = newValue }
-    }
-
     /// The Claude model used for voice responses. Persisted to UserDefaults.
     var selectedModel: String {
         get { preferences.selectedModel }
@@ -611,81 +566,6 @@ final class CompanionManager: ObservableObject {
     var openClawSessionKey: String {
         get { preferences.openClawSessionKey }
         set { preferences.openClawSessionKey = newValue }
-    }
-
-    var openClawConnectionStatus: OpenClawConnectionStatus {
-        get { backendRoutingController.openClawConnectionStatus }
-        set { backendRoutingController.openClawConnectionStatus = newValue }
-    }
-
-    var codexRuntimeStatus: CodexRuntimeStatus {
-        get { backendRoutingController.codexRuntimeStatus }
-        set { backendRoutingController.codexRuntimeStatus = newValue }
-    }
-
-    var clickyShellRegistrationStatus: ClickyShellRegistrationStatus {
-        get { backendRoutingController.clickyShellRegistrationStatus }
-        set { backendRoutingController.clickyShellRegistrationStatus = newValue }
-    }
-
-    var clickyShellServerFreshnessState: String? {
-        get { backendRoutingController.clickyShellServerFreshnessState }
-        set { backendRoutingController.clickyShellServerFreshnessState = newValue }
-    }
-
-    var clickyShellServerStatusSummary: String? {
-        get { backendRoutingController.clickyShellServerStatusSummary }
-        set { backendRoutingController.clickyShellServerStatusSummary = newValue }
-    }
-
-    var clickyShellServerSessionBindingState: String? {
-        get { backendRoutingController.clickyShellServerSessionBindingState }
-        set { backendRoutingController.clickyShellServerSessionBindingState = newValue }
-    }
-
-    var clickyShellServerSessionKey: String? {
-        get { backendRoutingController.clickyShellServerSessionKey }
-        set { backendRoutingController.clickyShellServerSessionKey = newValue }
-    }
-
-    var clickyShellServerTrustState: String? {
-        get { backendRoutingController.clickyShellServerTrustState }
-        set { backendRoutingController.clickyShellServerTrustState = newValue }
-    }
-
-    var inferredOpenClawAgentIdentityAvatar: String? {
-        get { backendRoutingController.inferredOpenClawAgentIdentityAvatar }
-        set { backendRoutingController.inferredOpenClawAgentIdentityAvatar = newValue }
-    }
-
-    var inferredOpenClawAgentIdentityName: String? {
-        get { backendRoutingController.inferredOpenClawAgentIdentityName }
-        set { backendRoutingController.inferredOpenClawAgentIdentityName = newValue }
-    }
-
-    var inferredOpenClawAgentIdentityEmoji: String? {
-        get { backendRoutingController.inferredOpenClawAgentIdentityEmoji }
-        set { backendRoutingController.inferredOpenClawAgentIdentityEmoji = newValue }
-    }
-
-    var inferredOpenClawAgentIdentifier: String? {
-        get { backendRoutingController.inferredOpenClawAgentIdentifier }
-        set { backendRoutingController.inferredOpenClawAgentIdentifier = newValue }
-    }
-
-    var codexConfiguredModelName: String? {
-        get { backendRoutingController.codexConfiguredModelName }
-        set { backendRoutingController.codexConfiguredModelName = newValue }
-    }
-
-    var codexExecutablePath: String? {
-        get { backendRoutingController.codexExecutablePath }
-        set { backendRoutingController.codexExecutablePath = newValue }
-    }
-
-    var codexAuthModeLabel: String? {
-        get { backendRoutingController.codexAuthModeLabel }
-        set { backendRoutingController.codexAuthModeLabel = newValue }
     }
 
     var clickyPersonaScopeMode: ClickyPersonaScopeMode {
@@ -752,55 +632,6 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    var elevenLabsAPIKeyDraft: String {
-        get { speechProviderController.elevenLabsAPIKeyDraft }
-        set { speechProviderController.elevenLabsAPIKeyDraft = newValue }
-    }
-
-    var elevenLabsImportVoiceIDDraft: String {
-        get { speechProviderController.elevenLabsImportVoiceIDDraft }
-        set { speechProviderController.elevenLabsImportVoiceIDDraft = newValue }
-    }
-
-    var elevenLabsAvailableVoices: [ElevenLabsVoiceOption] {
-        get { speechProviderController.elevenLabsAvailableVoices }
-        set { speechProviderController.elevenLabsAvailableVoices = newValue }
-    }
-
-    var elevenLabsVoiceFetchStatus: ElevenLabsVoiceFetchStatus {
-        get { speechProviderController.elevenLabsVoiceFetchStatus }
-        set { speechProviderController.elevenLabsVoiceFetchStatus = newValue }
-    }
-
-    var elevenLabsVoiceImportStatus: ElevenLabsVoiceImportStatus {
-        get { speechProviderController.elevenLabsVoiceImportStatus }
-        set { speechProviderController.elevenLabsVoiceImportStatus = newValue }
-    }
-
-    var speechPreviewStatus: ClickySpeechPreviewStatus {
-        get { speechProviderController.speechPreviewStatus }
-        set { speechProviderController.speechPreviewStatus = newValue }
-    }
-
-    var lastSpeechFallbackMessage: String? {
-        get { speechProviderController.lastSpeechFallbackMessage }
-        set { speechProviderController.lastSpeechFallbackMessage = newValue }
-    }
-
-    var isElevenLabsCreditExhausted: Bool {
-        get { speechProviderController.isElevenLabsCreditExhausted }
-        set { speechProviderController.isElevenLabsCreditExhausted = newValue }
-    }
-
-    var isElevenLabsAPIKeyRejected: Bool {
-        get { speechProviderController.isElevenLabsAPIKeyRejected }
-        set { speechProviderController.isElevenLabsAPIKeyRejected = newValue }
-    }
-
-    var isElevenLabsBackendVoiceUnavailable: Bool {
-        get { speechProviderController.isElevenLabsBackendVoiceUnavailable }
-        set { speechProviderController.isElevenLabsBackendVoiceUnavailable = newValue }
-    }
     var clickyLaunchAuthState: ClickyLaunchAuthState {
         get { launchAccessController.clickyLaunchAuthState }
         set { launchAccessController.clickyLaunchAuthState = newValue }
@@ -909,10 +740,6 @@ final class CompanionManager: ObservableObject {
         launchTurnGate.isPaywallActive()
     }
 
-    var hasStoredElevenLabsAPIKey: Bool {
-        speechProviderCoordinator.hasStoredElevenLabsAPIKey
-    }
-
     var activeClickyPersonaDefinition: ClickyPersonaDefinition {
         clickyPersonaPreset.definition
     }
@@ -1009,30 +836,6 @@ final class CompanionManager: ObservableObject {
         settingsMutationCoordinator.setOpenClawSessionKey(sessionKey)
     }
 
-    var effectiveVoiceOutputDisplayName: String {
-        speechProviderCoordinator.effectiveVoiceOutputDisplayName
-    }
-
-    var effectiveSpeechRouting: ClickySpeechRouting {
-        speechProviderCoordinator.effectiveSpeechRouting
-    }
-
-    var speechFallbackSummary: String? {
-        speechProviderCoordinator.speechFallbackSummary
-    }
-
-    var speechPreviewStatusLabel: String {
-        speechProviderCoordinator.speechPreviewStatusLabel
-    }
-
-    var speechPreviewStatusMessage: String? {
-        speechProviderCoordinator.speechPreviewStatusMessage
-    }
-
-    var isSpeechPreviewInFlight: Bool {
-        speechProviderCoordinator.isSpeechPreviewInFlight
-    }
-
     var openClawGatewayAuthSummary: String {
         openClawStudioCoordinator.gatewayAuthSummary
     }
@@ -1119,25 +922,6 @@ final class CompanionManager: ObservableObject {
 
     var selectedAssistantModelIdentityLabel: String {
         personaPromptCoordinator.selectedAssistantModelIdentityLabel
-    }
-
-    var elevenLabsStatusLabel: String {
-        switch elevenLabsVoiceFetchStatus {
-        case .idle:
-            return hasStoredElevenLabsAPIKey ? "Ready to load voices" : "API key needed"
-        case .loading:
-            return "Loading voices"
-        case .loaded:
-            return elevenLabsAvailableVoices.isEmpty
-                ? "No voices available"
-                : "\(elevenLabsAvailableVoices.count) voices available"
-        case .failed(let message):
-            return message
-        }
-    }
-
-    var effectiveSpeechOutputMode: ClickySpeechOutputMode {
-        effectiveSpeechRouting.outputMode
     }
 
     private func playSpeechText(
@@ -1603,7 +1387,7 @@ final class CompanionManager: ObservableObject {
             return false
         }
 
-        tutorialImportStatusMessage = "Open the companion menu and paste the YouTube URL to begin."
+        tutorialController.tutorialImportStatusMessage = "Open the companion menu and paste the YouTube URL to begin."
         NotificationCenter.default.post(name: .clickyShowPanel, object: nil)
         surfaceController.voiceState = .responding
         _ = await playSpeechText(

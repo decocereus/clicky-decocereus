@@ -54,20 +54,20 @@ struct CompanionStudioAdvancedToneEditor: View {
 }
 
 struct CompanionStudioElevenLabsAPIKeyField: View {
-    @ObservedObject var companionManager: CompanionManager
+    @ObservedObject var speechProviderController: ClickySpeechProviderController
 
     var body: some View {
-        SecureField("ElevenLabs API key", text: $companionManager.elevenLabsAPIKeyDraft)
+        SecureField("ElevenLabs API key", text: $speechProviderController.elevenLabsAPIKeyDraft)
             .textFieldStyle(.plain)
             .font(ClickyTypography.body(size: 13))
     }
 }
 
 struct CompanionStudioElevenLabsVoiceIDField: View {
-    @ObservedObject var companionManager: CompanionManager
+    @ObservedObject var speechProviderController: ClickySpeechProviderController
 
     var body: some View {
-        TextField("Voice ID", text: $companionManager.elevenLabsImportVoiceIDDraft)
+        TextField("Voice ID", text: $speechProviderController.elevenLabsImportVoiceIDDraft)
             .textFieldStyle(.plain)
             .font(ClickyTypography.body(size: 13))
     }
