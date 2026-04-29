@@ -252,10 +252,26 @@ final class CompanionManager: ObservableObject {
         },
         onScreenContentGranted: { [weak self] in
             guard let self else { return }
-            self.showOverlayIfReady()
+            self.surfaceLifecycleCoordinator.showOverlayIfReady()
         }
     )
     private let onboardingMusicController = ClickyOnboardingMusicController()
+    private lazy var surfaceLifecycleCoordinator = ClickySurfaceLifecycleCoordinator(
+        preferences: preferences,
+        surfaceController: surfaceController,
+        overlayWindowManager: overlayWindowManager,
+        onboardingMusicController: onboardingMusicController,
+        allPermissionsGrantedProvider: { [weak self] in
+            self?.allPermissionsGranted == true
+        },
+        cancelTransientHide: { [weak self] in
+            self?.voiceSessionCoordinator.cancelTransientHide()
+        },
+        showOverlay: { [weak self] in
+            guard let self else { return }
+            self.overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+        }
+    )
 
     private let assistantSystemPromptPlanner = ClickyAssistantSystemPromptPlanner()
     private let assistantFocusContextProvider = ClickyAssistantFocusContextProvider()
@@ -1516,21 +1532,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func setClickyCursorEnabled(_ enabled: Bool) {
-        guard isClickyCursorEnabled != enabled else { return }
-        isClickyCursorEnabled = enabled
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.voiceSessionCoordinator.cancelTransientHide()
-
-            if enabled {
-                self.overlayWindowManager.hasShownOverlayBefore = true
-                self.overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-                self.isOverlayVisible = true
-            } else {
-                self.overlayWindowManager.hideOverlay()
-                self.isOverlayVisible = false
-            }
-        }
+        surfaceLifecycleCoordinator.setCursorEnabled(enabled)
     }
 
     /// Whether the user has completed onboarding at least once. Persisted
@@ -1578,24 +1580,11 @@ final class CompanionManager: ObservableObject {
         // still granted, show the cursor overlay immediately. If permissions
         // were revoked (e.g. signing change), don't show the cursor — the
         // panel will show the permissions UI instead.
-        showOverlayIfReady()
+        surfaceLifecycleCoordinator.showOverlayIfReady()
 
         ClickyUnifiedTelemetry.lifecycle.info(
             "Companion start completed backend=\(self.selectedAgentBackend.displayName, privacy: .public) permissions=\(self.allPermissionsGranted ? "ready" : "needs-attention", privacy: .public) onboarding=\(self.hasCompletedOnboarding ? "complete" : "pending", privacy: .public) overlay=\(self.isOverlayVisible ? "shown" : "hidden", privacy: .public)"
         )
-    }
-
-    private func showOverlayIfReady() {
-        guard hasCompletedOnboarding,
-              allPermissionsGranted,
-              isClickyCursorEnabled,
-              !isOverlayVisible else {
-            return
-        }
-
-        overlayWindowManager.hasShownOverlayBefore = true
-        overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-        isOverlayVisible = true
     }
 
     /// Called by BlueCursorView after the buddy finishes its pointing
@@ -1603,34 +1592,14 @@ final class CompanionManager: ObservableObject {
     /// Triggers the onboarding sequence — dismisses the panel and restarts
     /// the overlay so the welcome animation and intro video play.
     func triggerOnboarding() {
-        // Post notification so the panel manager can dismiss the panel
-        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
-
-        // Mark onboarding as completed so the Start button won't appear
-        // again on future launches — the cursor will auto-show instead
-        hasCompletedOnboarding = true
-
-        ClickyAnalytics.trackOnboardingStarted()
-
-        onboardingMusicController.start()
-
-        // Show the overlay for the first time — isFirstAppearance triggers
-        // the welcome animation and onboarding video
-        overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-        isOverlayVisible = true
+        surfaceLifecycleCoordinator.triggerOnboarding()
     }
 
     /// Replays the onboarding experience from the "Watch Onboarding Again"
     /// footer link. Same flow as triggerOnboarding but the cursor overlay
     /// is already visible so we just restart the welcome animation and video.
     func replayOnboarding() {
-        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
-        ClickyAnalytics.trackOnboardingReplayed()
-        onboardingMusicController.start()
-        // Tear down any existing overlays and recreate with isFirstAppearance = true
-        overlayWindowManager.hasShownOverlayBefore = false
-        overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-        isOverlayVisible = true
+        surfaceLifecycleCoordinator.replayOnboarding()
     }
 
     func clearDetectedElementLocation() {
