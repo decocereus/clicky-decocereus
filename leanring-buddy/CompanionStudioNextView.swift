@@ -417,7 +417,7 @@ private struct CompanionStudioLaunchAuthScene: View {
             .padding(.vertical, 6)
         case .signedOut, .failed:
             Button {
-                companionManager.startClickyLaunchSignIn()
+                companionManager.launchFlowCoordinator.startSignIn()
             } label: {
                 Label("Continue With Google", systemImage: "person.crop.circle.badge.plus")
                     .font(ClickyTypography.body(size: 13, weight: .semibold))
@@ -934,21 +934,21 @@ private struct CompanionStudioCompanionScene: View {
                                         title: "Claude",
                                         isSelected: selectedAgentBackend == .claude
                                     ) {
-                                        companionManager.setSelectedAgentBackend(.claude)
+                                        companionManager.settingsMutationCoordinator.setSelectedBackend(.claude)
                                     }
 
                                     assistantModeButton(
                                         title: "Codex",
                                         isSelected: selectedAgentBackend == .codex
                                     ) {
-                                        companionManager.setSelectedAgentBackend(.codex)
+                                        companionManager.settingsMutationCoordinator.setSelectedBackend(.codex)
                                     }
 
                                     assistantModeButton(
                                         title: "OpenClaw",
                                         isSelected: selectedAgentBackend == .openClaw
                                     ) {
-                                        companionManager.setSelectedAgentBackend(.openClaw)
+                                        companionManager.settingsMutationCoordinator.setSelectedBackend(.openClaw)
                                     }
                                 }
                             )
@@ -1276,7 +1276,7 @@ private struct CompanionStudioCompanionScene: View {
                 return
             }
 
-            companionManager.refreshClickyLaunchEntitlementQuietlyIfNeeded(
+            companionManager.launchRuntimeCoordinator.refreshEntitlementQuietlyIfNeeded(
                 reason: "studio-access-card",
                 minimumInterval: 15
             )
@@ -1536,7 +1536,7 @@ private struct CompanionStudioCompanionScene: View {
     private var accessPrimaryAction: some View {
         if launchAccess.requiresSignInForCompanionUse {
             Button {
-                companionManager.startClickyLaunchSignIn()
+                companionManager.launchFlowCoordinator.startSignIn()
             } label: {
                 Label("Sign In", systemImage: "person.crop.circle.badge.plus")
                     .font(ClickyTypography.body(size: 13, weight: .semibold))
@@ -1546,7 +1546,7 @@ private struct CompanionStudioCompanionScene: View {
             .pointerCursor()
         } else if launchAccess.isPaywallActive {
             Button {
-                companionManager.startClickyLaunchCheckout()
+                companionManager.launchFlowCoordinator.startCheckout()
             } label: {
                 Label("Unlock Clicky", systemImage: "creditcard")
                     .font(ClickyTypography.body(size: 13, weight: .semibold))
@@ -1561,7 +1561,7 @@ private struct CompanionStudioCompanionScene: View {
     private var accessSecondaryActions: some View {
         if launchAccess.isSignedIn {
             Button {
-                companionManager.signOutClickyLaunchSession()
+                companionManager.launchFlowCoordinator.signOut()
             } label: {
                 Text("Sign Out")
                     .font(ClickyTypography.body(size: 12, weight: .semibold))
@@ -1701,7 +1701,7 @@ private struct CompanionStudioProfileScene: View {
                     return
                 }
 
-                companionManager.refreshClickyLaunchEntitlementQuietlyIfNeeded(
+                companionManager.launchRuntimeCoordinator.refreshEntitlementQuietlyIfNeeded(
                     reason: "studio-profile-scene",
                     minimumInterval: 15
                 )
@@ -1884,7 +1884,7 @@ private struct CompanionStudioProfileScene: View {
     private var profilePrimaryAction: some View {
         if requiresLaunchSignInForCompanionUse {
             Button {
-                companionManager.startClickyLaunchSignIn()
+                companionManager.launchFlowCoordinator.startSignIn()
             } label: {
                 Label("Sign In", systemImage: "person.crop.circle.badge.plus")
                     .font(ClickyTypography.body(size: 13, weight: .semibold))
@@ -1894,7 +1894,7 @@ private struct CompanionStudioProfileScene: View {
             .pointerCursor()
         } else if isClickyLaunchPaywallActive {
             Button {
-                companionManager.startClickyLaunchCheckout()
+                companionManager.launchFlowCoordinator.startCheckout()
             } label: {
                 Label("Unlock Clicky", systemImage: "creditcard")
                     .font(ClickyTypography.body(size: 13, weight: .semibold))
@@ -1909,7 +1909,7 @@ private struct CompanionStudioProfileScene: View {
     private var profileSecondaryActions: some View {
         if isClickyLaunchSignedIn {
             Button {
-                companionManager.signOutClickyLaunchSession()
+                companionManager.launchFlowCoordinator.signOut()
             } label: {
                 Text("Sign Out")
                     .font(ClickyTypography.body(size: 12, weight: .semibold))
@@ -2112,14 +2112,14 @@ private struct CompanionStudioProviderPopover: View {
                     title: "System",
                     isSelected: preferences.clickySpeechProviderMode == .system
                 ) {
-                    companionManager.setClickySpeechProviderMode(.system)
+                    companionManager.speechProviderCoordinator.setProviderMode(.system)
                 }
 
                 providerModeButton(
                     title: "ElevenLabs",
                     isSelected: preferences.clickySpeechProviderMode == .elevenLabsBYO
                 ) {
-                    companionManager.setClickySpeechProviderMode(.elevenLabsBYO)
+                    companionManager.speechProviderCoordinator.setProviderMode(.elevenLabsBYO)
                 }
             }
 
@@ -2172,7 +2172,7 @@ private struct CompanionStudioProviderPopover: View {
 
                     HStack(spacing: 10) {
                         Button {
-                            companionManager.saveElevenLabsAPIKey()
+                            companionManager.speechProviderCoordinator.saveAPIKey()
                         } label: {
                             Label(hasStoredElevenLabsAPIKey ? "Update API Key" : "Save API Key", systemImage: "key.horizontal")
                                 .font(ClickyTypography.body(size: 13, weight: .semibold))
@@ -2182,7 +2182,7 @@ private struct CompanionStudioProviderPopover: View {
 
                         if hasStoredElevenLabsAPIKey {
                             Button {
-                                companionManager.deleteElevenLabsAPIKey()
+                                companionManager.speechProviderCoordinator.deleteAPIKey()
                             } label: {
                                 Label("Delete API Key", systemImage: "trash")
                                     .font(ClickyTypography.body(size: 13, weight: .semibold))
@@ -2206,8 +2206,8 @@ private struct CompanionStudioProviderPopover: View {
                                 VStack(alignment: .leading, spacing: 8) {
                                     ForEach(speechProviderController.elevenLabsAvailableVoices) { voice in
                                         Button {
-                                            companionManager.selectElevenLabsVoice(voice)
-                                            companionManager.previewCurrentSpeechOutput()
+                                            companionManager.speechProviderCoordinator.selectVoice(voice)
+                                            companionManager.speechProviderCoordinator.previewCurrentOutput()
                                         } label: {
                                             HStack {
                                                 VStack(alignment: .leading, spacing: 2) {
@@ -2262,7 +2262,7 @@ private struct CompanionStudioProviderPopover: View {
                                     .textFieldStyle(.roundedBorder)
 
                                 Button {
-                                    companionManager.importElevenLabsVoiceByID()
+                                    companionManager.speechProviderCoordinator.importVoiceByID()
                                 } label: {
                                     Label("Import Voice", systemImage: "square.and.arrow.down")
                                         .font(ClickyTypography.body(size: 13, weight: .semibold))
@@ -2298,13 +2298,13 @@ private struct CompanionStudioProviderPopover: View {
             if preferences.clickySpeechProviderMode == .elevenLabsBYO &&
                 hasStoredElevenLabsAPIKey &&
                 speechProviderController.elevenLabsAvailableVoices.isEmpty {
-                companionManager.refreshElevenLabsVoices()
+                companionManager.speechProviderCoordinator.refreshVoices()
             }
         }
         .onChange(of: preferences.clickySpeechProviderMode) { _, newValue in
             guard newValue == .elevenLabsBYO else { return }
             if hasStoredElevenLabsAPIKey && speechProviderController.elevenLabsAvailableVoices.isEmpty {
-                companionManager.refreshElevenLabsVoices()
+                companionManager.speechProviderCoordinator.refreshVoices()
             }
         }
     }
@@ -2421,7 +2421,7 @@ private struct CompanionStudioPersonaPresetPopover: View {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(ClickyPersonaPreset.allCases) { preset in
                     Button {
-                        companionManager.setClickyPersonaPreset(preset)
+                        companionManager.settingsMutationCoordinator.setPersonaPreset(preset)
                     } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {

@@ -95,7 +95,7 @@ final class CompanionManager: ObservableObject {
             self?.preferences.selectedAgentBackend ?? .claude
         }
     )
-    private lazy var settingsMutationCoordinator = ClickySettingsMutationCoordinator(
+    lazy var settingsMutationCoordinator = ClickySettingsMutationCoordinator(
         preferences: preferences,
         backendRoutingController: backendRoutingController,
         claudeAPI: claudeAPI,
@@ -260,12 +260,12 @@ final class CompanionManager: ObservableObject {
     private lazy var launchPostTurnRecorder = ClickyLaunchPostTurnRecorder(
         sessionService: launchSessionService
     )
-    private lazy var launchFlowCoordinator = ClickyLaunchFlowCoordinator(
+    lazy var launchFlowCoordinator = ClickyLaunchFlowCoordinator(
         authClient: clickyBackendAuthClient,
         accessController: launchAccessController,
         sessionService: launchSessionService
     )
-    private lazy var launchRuntimeCoordinator = ClickyLaunchRuntimeCoordinator(
+    lazy var launchRuntimeCoordinator = ClickyLaunchRuntimeCoordinator(
         accessController: launchAccessController,
         sessionService: launchSessionService,
         backendClientProvider: { [weak self] in
@@ -623,86 +623,6 @@ final class CompanionManager: ObservableObject {
         permissionCoordinator.allPermissionsGranted
     }
 
-    func setClickyPersonaPreset(_ preset: ClickyPersonaPreset) {
-        settingsMutationCoordinator.setPersonaPreset(preset)
-    }
-
-    func saveElevenLabsAPIKey() {
-        speechProviderCoordinator.saveAPIKey()
-    }
-
-    func deleteElevenLabsAPIKey() {
-        speechProviderCoordinator.deleteAPIKey()
-    }
-
-    func refreshElevenLabsVoices() {
-        speechProviderCoordinator.refreshVoices()
-    }
-
-    func selectElevenLabsVoice(_ voice: ElevenLabsVoiceOption) {
-        speechProviderCoordinator.selectVoice(voice)
-    }
-
-    func importElevenLabsVoiceByID() {
-        speechProviderCoordinator.importVoiceByID()
-    }
-
-    func previewCurrentSpeechOutput() {
-        speechProviderCoordinator.previewCurrentOutput()
-    }
-
-    func setSelectedModel(_ model: String) {
-        settingsMutationCoordinator.setSelectedModel(model)
-    }
-
-    func startClickyLaunchSignIn() {
-        launchFlowCoordinator.startSignIn()
-    }
-
-    func signOutClickyLaunchSession() {
-        launchFlowCoordinator.signOut()
-    }
-
-    func startClickyLaunchCheckout() {
-        launchFlowCoordinator.startCheckout()
-    }
-
-    func refreshClickyLaunchEntitlement() {
-        launchFlowCoordinator.refreshEntitlement()
-    }
-
-    func restoreClickyLaunchAccess() {
-        launchFlowCoordinator.restoreAccess()
-    }
-
-    func handleClickyLaunchCallback(url: URL) {
-        launchFlowCoordinator.handleCallback(url: url)
-    }
-
-    func setSelectedAgentBackend(_ selectedAgentBackend: CompanionAgentBackend) {
-        settingsMutationCoordinator.setSelectedBackend(selectedAgentBackend)
-    }
-
-    func setClickySpeechProviderMode(_ mode: ClickySpeechProviderMode) {
-        speechProviderCoordinator.setProviderMode(mode)
-    }
-
-    func setOpenClawGatewayURL(_ gatewayURL: String) {
-        settingsMutationCoordinator.setOpenClawGatewayURL(gatewayURL)
-    }
-
-    func setOpenClawAgentIdentifier(_ agentIdentifier: String) {
-        settingsMutationCoordinator.setOpenClawAgentIdentifier(agentIdentifier)
-    }
-
-    func setOpenClawGatewayAuthToken(_ authToken: String) {
-        settingsMutationCoordinator.setOpenClawGatewayAuthToken(authToken)
-    }
-
-    func setOpenClawSessionKey(_ sessionKey: String) {
-        settingsMutationCoordinator.setOpenClawSessionKey(sessionKey)
-    }
-
     private func playSpeechText(
         _ text: String,
         purpose: ClickySpeechPlaybackPurpose
@@ -820,32 +740,6 @@ final class CompanionManager: ObservableObject {
 
     func handleApplicationDidBecomeActive() {
         launchRuntimeCoordinator.handleApplicationDidBecomeActive()
-    }
-
-    func refreshClickyLaunchEntitlementQuietlyIfNeeded(
-        reason: String,
-        minimumInterval: TimeInterval = 90
-    ) {
-        launchRuntimeCoordinator.refreshEntitlementQuietlyIfNeeded(
-            reason: reason,
-            minimumInterval: minimumInterval
-        )
-    }
-
-    func refreshClickyLaunchTrialState() {
-        launchRuntimeCoordinator.refreshTrialState()
-    }
-
-    func activateClickyLaunchTrial() {
-        launchRuntimeCoordinator.activateTrial()
-    }
-
-    func consumeClickyLaunchTrialCredit() {
-        launchRuntimeCoordinator.consumeTrialCredit()
-    }
-
-    func activateClickyLaunchPaywall() {
-        launchRuntimeCoordinator.activatePaywall()
     }
 
     func refreshAllPermissions() {

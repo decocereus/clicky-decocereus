@@ -1054,7 +1054,7 @@ struct CompanionPanelView: View {
 
             HStack(spacing: 10) {
                 Button(action: {
-                    companionManager.startClickyLaunchCheckout()
+                    companionManager.launchFlowCoordinator.startCheckout()
                 }) {
                     Text("Pay Now")
                         .frame(maxWidth: .infinity)
@@ -1063,7 +1063,7 @@ struct CompanionPanelView: View {
                 .pointerCursor()
 
                 Button(action: {
-                    companionManager.signOutClickyLaunchSession()
+                    companionManager.launchFlowCoordinator.signOut()
                 }) {
                     Text("Sign Out")
                         .frame(maxWidth: .infinity)
@@ -1537,7 +1537,7 @@ struct CompanionPanelView: View {
         case .restoring, .signingIn:
             break
         case .signedOut, .failed:
-            companionManager.startClickyLaunchSignIn()
+            companionManager.launchFlowCoordinator.startSignIn()
         }
     }
 
@@ -1598,7 +1598,7 @@ struct CompanionPanelView: View {
     private var companionBackendButtons: some View {
         CompanionPanelBackendButtons(
             selectedBackend: preferences.selectedAgentBackend,
-            setSelectedBackend: companionManager.setSelectedAgentBackend
+            setSelectedBackend: companionManager.settingsMutationCoordinator.setSelectedBackend
         )
     }
 

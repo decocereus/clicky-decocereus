@@ -121,7 +121,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            companionManager.handleClickyLaunchCallback(url: url)
+            companionManager.launchFlowCoordinator.handleCallback(url: url)
         }
     }
 
