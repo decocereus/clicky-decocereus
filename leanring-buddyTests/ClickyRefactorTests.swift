@@ -181,17 +181,37 @@ struct ClickyRefactorTests {
 
     @Test
     @MainActor
-    func launchAuthPendingTracksLaunchAccessControllerState() {
-        let manager = CompanionManager()
+    func launchTurnGateRequiresSignInOnlyAfterSetupIsReady() {
+        let accessController = ClickyLaunchAccessController()
+        let sessionService = ClickyLaunchSessionService(
+            client: ClickyBackendAuthClient(baseURL: "https://clicky.example"),
+            accessController: accessController
+        )
+        let gate = ClickyLaunchTurnGate(
+            accessController: accessController,
+            sessionService: sessionService
+        )
 
-        manager.launchAccessController.clickyLaunchAuthState = .restoring
-        #expect(manager.isClickyLaunchAuthPending)
+        accessController.clickyLaunchAuthState = .signedOut
 
-        manager.launchAccessController.clickyLaunchAuthState = .signingIn
-        #expect(manager.isClickyLaunchAuthPending)
+        #expect(!gate.requiresSignInForCompanionUse(
+            hasCompletedOnboarding: false,
+            allPermissionsGranted: true
+        ))
+        #expect(!gate.requiresSignInForCompanionUse(
+            hasCompletedOnboarding: true,
+            allPermissionsGranted: false
+        ))
+        #expect(gate.requiresSignInForCompanionUse(
+            hasCompletedOnboarding: true,
+            allPermissionsGranted: true
+        ))
 
-        manager.launchAccessController.clickyLaunchAuthState = .failed(message: "Oops")
-        #expect(!manager.isClickyLaunchAuthPending)
+        accessController.clickyLaunchAuthState = .signedIn(email: "user@example.com")
+        #expect(!gate.requiresSignInForCompanionUse(
+            hasCompletedOnboarding: true,
+            allPermissionsGranted: true
+        ))
     }
 
     @Test
@@ -295,6 +315,36 @@ struct ClickyRefactorTests {
         #expect(ClickyTutorialModeIntentMatcher.shouldStopTutorialMode("stop tutorial"))
         #expect(ClickyTutorialModeIntentMatcher.isImportIntent("help me with a youtube tutorial"))
         #expect(!ClickyTutorialModeIntentMatcher.isImportIntent("what is the weather"))
+    }
+
+    @Test
+    @MainActor
+    func tutorialImportVoiceIntentPromptsPanelAndSpeech() async {
+        let tutorialController = ClickyTutorialController()
+        let surfaceController = ClickySurfaceController()
+        var spokenText: String?
+        let coordinator = ClickyTutorialImportVoiceIntentCoordinator(
+            tutorialController: tutorialController,
+            surfaceController: surfaceController,
+            playSpeech: { text, purpose in
+                spokenText = "\(purpose):\(text)"
+                return ClickySpeechPlaybackOutcome(
+                    finalProviderDisplayName: "System Speech",
+                    fallbackMessage: nil,
+                    encounteredElevenLabsFailure: false
+                )
+            }
+        )
+
+        let ignored = await coordinator.handleIntentIfNeeded(for: "what is the weather")
+        #expect(!ignored)
+        #expect(spokenText == nil)
+
+        let handled = await coordinator.handleIntentIfNeeded(for: "help me learn this youtube tutorial")
+        #expect(handled)
+        #expect(tutorialController.tutorialImportStatusMessage == "Open the companion menu and paste the YouTube URL to begin.")
+        #expect(surfaceController.voiceState == .responding)
+        #expect(spokenText?.contains("open the companion menu") == true)
     }
 
     @Test
