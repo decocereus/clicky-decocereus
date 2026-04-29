@@ -131,15 +131,6 @@ final class ClickyPermissionCoordinator {
         }
     }
 
-    func promptForMicrophoneIfNotDetermined() {
-        guard AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined else { return }
-        AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-            Task { @MainActor [weak self] in
-                self?.surfaceController.hasMicrophonePermission = granted
-            }
-        }
-    }
-
     func startPolling() {
         permissionPollingTimer?.invalidate()
         permissionPollingTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in

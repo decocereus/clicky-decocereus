@@ -143,8 +143,8 @@ final class CompanionManager: ObservableObject {
     private lazy var permissionCoordinator = ClickyPermissionCoordinator(
         surfaceController: surfaceController,
         shortcutMonitor: globalPushToTalkShortcutMonitor,
-        onRequestingScreenContentChanged: { [weak self] isRequesting in
-            self?.isRequestingScreenContent = isRequesting
+        onRequestingScreenContentChanged: { [weak self] _ in
+            self?.objectWillChange.send()
         },
         onScreenContentGranted: { [weak self] in
             guard let self else { return }
@@ -540,7 +540,9 @@ final class CompanionManager: ObservableObject {
     private var surfaceObjectWillChangeCancellable: AnyCancellable?
     private var speechProviderObjectWillChangeCancellable: AnyCancellable?
 
-    @Published private(set) var isRequestingScreenContent = false
+    var isRequestingScreenContent: Bool {
+        permissionCoordinator.isScreenContentRequestInFlight
+    }
 
     private static func currentOpenClawPluginStatus() -> ClickyOpenClawPluginStatus {
         ClickyOpenClawStudioCoordinator.pluginStatus(
@@ -865,12 +867,6 @@ final class CompanionManager: ObservableObject {
         tutorialImportCoordinator.retryImportFromPanel()
     }
 
-    private func compileTutorialLessonDraft(
-        evidenceBundle: TutorialEvidenceBundle
-    ) async throws -> TutorialLessonDraft {
-        try await tutorialLessonCompiler.compile(evidenceBundle: evidenceBundle)
-    }
-
     func startTutorialPlayback(
         sourceURL: String,
         embedURL: String,
@@ -887,10 +883,6 @@ final class CompanionManager: ObservableObject {
             promptTimestampSeconds: promptTimestampSeconds,
             autoPlay: autoPlay
         )
-    }
-
-    private func updateTutorialPlaybackState(step: TutorialLessonStep, isPlaying: Bool) {
-        tutorialPlaybackCoordinator.updatePlaybackState(step: step, isPlaying: isPlaying)
     }
 
     func updateTutorialPlaybackBubble(_ text: String?) {
@@ -971,14 +963,6 @@ final class CompanionManager: ObservableObject {
     /// so they're never asked again during onboarding.
     func requestScreenContentPermission() {
         permissionCoordinator.requestScreenContentPermission()
-    }
-
-    // MARK: - Private
-
-    /// Triggers the system microphone prompt if the user has never been asked.
-    /// Once granted/denied the status sticks and polling picks it up.
-    private func promptForMicrophoneIfNotDetermined() {
-        permissionCoordinator.promptForMicrophoneIfNotDetermined()
     }
 
     // MARK: - AI Response Pipeline
