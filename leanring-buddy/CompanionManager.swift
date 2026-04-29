@@ -211,6 +211,18 @@ final class CompanionManager: ObservableObject {
             self?.selectedAgentBackend ?? .claude
         }
     )
+    private lazy var settingsMutationCoordinator = ClickySettingsMutationCoordinator(
+        preferences: preferences,
+        backendRoutingController: backendRoutingController,
+        claudeAPI: claudeAPI,
+        openClawShellLifecycleController: openClawShellLifecycleController,
+        refreshOpenClawAgentIdentity: { [weak self] in
+            self?.refreshOpenClawAgentIdentity()
+        },
+        refreshCodexRuntimeStatus: { [weak self] in
+            self?.refreshCodexRuntimeStatus()
+        }
+    )
 
     private lazy var openClawAssistantProvider: OpenClawAssistantProvider = {
         OpenClawAssistantProvider(
@@ -1210,10 +1222,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func setClickyPersonaPreset(_ preset: ClickyPersonaPreset) {
-        clickyPersonaPreset = preset
-        clickyThemePreset = preset.definition.defaultThemePreset
-        clickyVoicePreset = preset.definition.defaultVoicePreset
-        clickyCursorStyle = preset.definition.defaultCursorStyle
+        settingsMutationCoordinator.setPersonaPreset(preset)
     }
 
     func saveElevenLabsAPIKey() {
@@ -1241,12 +1250,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func setSelectedModel(_ model: String) {
-        guard selectedModel != model else { return }
-        selectedModel = model
-        UserDefaults.standard.set(model, forKey: "selectedClaudeModel")
-        Task { @MainActor [weak self] in
-            self?.claudeAPI.model = model
-        }
+        settingsMutationCoordinator.setSelectedModel(model)
     }
 
     func startClickyLaunchSignIn() {
@@ -1274,14 +1278,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func setSelectedAgentBackend(_ selectedAgentBackend: CompanionAgentBackend) {
-        guard self.selectedAgentBackend != selectedAgentBackend else { return }
-        self.selectedAgentBackend = selectedAgentBackend
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.openClawShellLifecycleController.refreshLifecycle()
-            self.refreshOpenClawAgentIdentity()
-            self.refreshCodexRuntimeStatus()
-        }
+        settingsMutationCoordinator.setSelectedBackend(selectedAgentBackend)
     }
 
     func setClickySpeechProviderMode(_ mode: ClickySpeechProviderMode) {
@@ -1289,52 +1286,19 @@ final class CompanionManager: ObservableObject {
     }
 
     func setOpenClawGatewayURL(_ gatewayURL: String) {
-        guard openClawGatewayURL != gatewayURL else { return }
-        openClawGatewayURL = gatewayURL
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.openClawConnectionStatus = .idle
-            self.openClawShellLifecycleController.refreshLifecycle()
-            self.refreshOpenClawAgentIdentity()
-        }
+        settingsMutationCoordinator.setOpenClawGatewayURL(gatewayURL)
     }
 
     func setOpenClawAgentIdentifier(_ agentIdentifier: String) {
-        guard openClawAgentIdentifier != agentIdentifier else { return }
-        openClawAgentIdentifier = agentIdentifier
-
-        Task { @MainActor [weak self] in
-            self?.refreshOpenClawAgentIdentity()
-        }
+        settingsMutationCoordinator.setOpenClawAgentIdentifier(agentIdentifier)
     }
 
     func setOpenClawGatewayAuthToken(_ authToken: String) {
-        guard openClawGatewayAuthToken != authToken else { return }
-        openClawGatewayAuthToken = authToken
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.openClawConnectionStatus = .idle
-            self.openClawShellLifecycleController.refreshLifecycle()
-            self.refreshOpenClawAgentIdentity()
-        }
+        settingsMutationCoordinator.setOpenClawGatewayAuthToken(authToken)
     }
 
     func setOpenClawSessionKey(_ sessionKey: String) {
-        guard openClawSessionKey != sessionKey else { return }
-        openClawSessionKey = sessionKey
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.openClawConnectionStatus = .idle
-            if case .registered = self.clickyShellRegistrationStatus {
-                self.openClawShellLifecycleController.bindSession()
-            } else {
-                self.openClawShellLifecycleController.refreshLifecycle()
-            }
-            self.refreshOpenClawAgentIdentity()
-        }
+        settingsMutationCoordinator.setOpenClawSessionKey(sessionKey)
     }
 
     var effectiveVoiceOutputDisplayName: String {
