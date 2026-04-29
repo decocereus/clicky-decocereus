@@ -17,4 +17,5 @@ enum ClickyUnifiedTelemetry {
     static let voiceRouting = Logger(subsystem: subsystem, category: "VoiceRouting")
     static let launchAuth = Logger(subsystem: subsystem, category: "LaunchAuth")
     static let billing = Logger(subsystem: subsystem, category: "Billing")
+    static let computerUse = Logger(subsystem: subsystem, category: "ComputerUse")
 }

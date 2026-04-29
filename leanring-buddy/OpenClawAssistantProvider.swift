@@ -20,14 +20,17 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
 
     private let gatewayAgent: OpenClawGatewayCompanionAgent
     private let configurationProvider: @MainActor @Sendable () -> OpenClawAssistantProviderConfiguration
+    private let computerUseToolHandler: @MainActor @Sendable (OpenClawComputerUseToolRequest) async -> [String: Any]
     private let focusContextFormatter = ClickyAssistantFocusContextFormatter()
 
     init(
         gatewayAgent: OpenClawGatewayCompanionAgent,
-        configurationProvider: @escaping @MainActor @Sendable () -> OpenClawAssistantProviderConfiguration
+        configurationProvider: @escaping @MainActor @Sendable () -> OpenClawAssistantProviderConfiguration,
+        computerUseToolHandler: @escaping @MainActor @Sendable (OpenClawComputerUseToolRequest) async -> [String: Any]
     ) {
         self.gatewayAgent = gatewayAgent
         self.configurationProvider = configurationProvider
+        self.computerUseToolHandler = computerUseToolHandler
     }
 
     func sendTurn(
@@ -67,6 +70,7 @@ final class OpenClawAssistantProvider: ClickyAssistantProvider {
             },
             systemPrompt: request.systemPrompt,
             userPrompt: userPrompt,
+            computerUseToolHandler: computerUseToolHandler,
             onTextChunk: onTextChunk
         )
 

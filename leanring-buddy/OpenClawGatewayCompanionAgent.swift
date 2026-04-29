@@ -53,6 +53,13 @@ struct OpenClawAgentIdentitySnapshot {
     let name: String?
 }
 
+struct OpenClawComputerUseToolRequest: @unchecked Sendable {
+    let requestIdentifier: String
+    let route: String
+    let payload: [String: Any]
+    let statusText: String?
+}
+
 private struct OpenClawGatewayDeviceIdentity {
     let deviceIdentifier: String
     let publicKeyRawBase64URL: String
@@ -223,6 +230,7 @@ final class OpenClawGatewayCompanionAgent {
         images: [OpenClawGatewayImageAttachment],
         systemPrompt: String,
         userPrompt: String,
+        computerUseToolHandler: (@MainActor @Sendable (OpenClawComputerUseToolRequest) async -> [String: Any])? = nil,
         onTextChunk: @MainActor @escaping @Sendable (String) -> Void
     ) async throws -> (text: String, duration: TimeInterval) {
         activeSession?.cancel()
@@ -241,6 +249,7 @@ final class OpenClawGatewayCompanionAgent {
             images: images,
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
+            computerUseToolHandler: computerUseToolHandler,
             onTextChunk: onTextChunk
         )
 
@@ -456,12 +465,14 @@ final class OpenClawGatewayCompanionAgent {
         private let images: [OpenClawGatewayImageAttachment]
         private let systemPrompt: String
         private let userPrompt: String
+        private let computerUseToolHandler: (@MainActor @Sendable (OpenClawComputerUseToolRequest) async -> [String: Any])?
         private let onTextChunk: @MainActor @Sendable (String) -> Void
         private let state = OpenClawGatewayCompanionAgentSessionState()
         private let deviceIdentity = OpenClawGatewayDeviceIdentity.makeEphemeral()
 
         private var webSocketTask: URLSessionWebSocketTask?
         private var receiveLoopTask: Task<Void, Never>?
+        private var computerUsePollingTask: Task<Void, Never>?
 
         init(
             urlSession: URLSession,
@@ -473,6 +484,7 @@ final class OpenClawGatewayCompanionAgent {
             images: [OpenClawGatewayImageAttachment],
             systemPrompt: String,
             userPrompt: String,
+            computerUseToolHandler: (@MainActor @Sendable (OpenClawComputerUseToolRequest) async -> [String: Any])? = nil,
             onTextChunk: @MainActor @escaping @Sendable (String) -> Void
         ) throws {
             self.urlSession = urlSession
@@ -491,12 +503,15 @@ final class OpenClawGatewayCompanionAgent {
             self.images = images
             self.systemPrompt = systemPrompt
             self.userPrompt = userPrompt
+            self.computerUseToolHandler = computerUseToolHandler
             self.onTextChunk = onTextChunk
         }
 
         func cancel() {
             receiveLoopTask?.cancel()
             receiveLoopTask = nil
+            computerUsePollingTask?.cancel()
+            computerUsePollingTask = nil
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             webSocketTask = nil
 
@@ -511,24 +526,28 @@ final class OpenClawGatewayCompanionAgent {
             await state.resetForNextRun()
 
             _ = try await connect()
+            defer { cancel() }
 
             do {
                 _ = try await request(
                     method: "sessions.patch",
                     params: [
                         "key": sessionKey,
-                        "execSecurity": "full",
-                        "execAsk": "off",
+                        "execSecurity": "deny",
+                        "execAsk": "always",
                     ],
                     timeoutSeconds: 10
                 )
             } catch {
-                // Session policy patch is useful for richer OpenClaw runs,
-                // but a failure here should not block the assistant reply.
+                // Clicky computer use should flow through the plugin tools so
+                // the app can own policy, progress, and runtime state. Older
+                // gateways may not accept this patch, so the prompt/tool
+                // contract remains the compatibility boundary.
             }
 
             let trimmedSystemPrompt = systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
             try await syncShellPromptContext(promptContext: trimmedSystemPrompt)
+            startComputerUsePollingIfNeeded()
 
             let gatewayMessageBody = buildGatewayMessageBody()
             ClickyAgentTurnDiagnostics.logOpenClawGatewayDispatch(
@@ -617,8 +636,6 @@ final class OpenClawGatewayCompanionAgent {
                     userInfo: [NSLocalizedDescriptionKey: lifecycleError]
                 )
             }
-
-            cancel()
 
             return (text: fullResponseText, duration: Date().timeIntervalSince(startTime))
         }
@@ -919,6 +936,83 @@ final class OpenClawGatewayCompanionAgent {
                         NSLocalizedDescriptionKey: "Failed to sync Clicky shell prompt context with OpenClaw. Make sure the clicky-shell plugin is installed, enabled, and registered for this session."
                     ]
                 )
+            }
+        }
+
+        private func startComputerUsePollingIfNeeded() {
+            guard computerUsePollingTask == nil,
+                  computerUseToolHandler != nil,
+                  let shellIdentifier,
+                  !shellIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return
+            }
+
+            computerUsePollingTask = Task { [weak self] in
+                guard let self else { return }
+                await self.pollComputerUseRequests(
+                    shellIdentifier: shellIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+        }
+
+        private func pollComputerUseRequests(shellIdentifier: String) async {
+            while !Task.isCancelled {
+                do {
+                    let payload = try await request(
+                        method: "clicky.shell.next_computer_use_action",
+                        params: [
+                            "shellId": shellIdentifier,
+                            "sessionKey": sessionKey,
+                            "timeoutMs": 20_000,
+                        ],
+                        timeoutSeconds: 25
+                    )
+
+                    guard let requestPayload = payload["request"] as? [String: Any] else {
+                        continue
+                    }
+
+                    guard let requestIdentifier = requestPayload["requestId"] as? String,
+                          let route = requestPayload["route"] as? String else {
+                        continue
+                    }
+
+                    let toolRequest = OpenClawComputerUseToolRequest(
+                        requestIdentifier: requestIdentifier,
+                        route: route,
+                        payload: requestPayload["payload"] as? [String: Any] ?? [:],
+                        statusText: requestPayload["statusText"] as? String
+                    )
+
+                    let result: [String: Any]
+                    if let computerUseToolHandler {
+                        result = await computerUseToolHandler(toolRequest)
+                    } else {
+                        result = [
+                            "ok": false,
+                            "error": "Clicky does not have a computer-use handler for this run.",
+                        ]
+                    }
+
+                    _ = try await request(
+                        method: "clicky.shell.complete_computer_use_action",
+                        params: [
+                            "shellId": shellIdentifier,
+                            "sessionKey": sessionKey,
+                            "requestId": requestIdentifier,
+                            "result": result,
+                        ],
+                        timeoutSeconds: 10
+                    )
+                } catch is CancellationError {
+                    return
+                } catch {
+                    ClickyLogger.error(
+                        .computerUse,
+                        "OpenClaw computer-use polling error=\(error.localizedDescription)"
+                    )
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
             }
         }
 

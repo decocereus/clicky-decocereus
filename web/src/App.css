@@ -222,19 +222,19 @@ button:active {
 /* Focus states */
 button:focus-visible,
 a:focus-visible {
-  outline: 1px solid #9B8FBF;
+  outline: 1px solid #8EA2FF;
   outline-offset: 2px;
 }
 
 /* Image loading placeholder */
 img {
-  background: linear-gradient(135deg, #f5f5f5 0%, #eeeeee 100%);
+  background: linear-gradient(135deg, #FAFCFF 0%, #EAF8FF 100%);
 }
 
 /* Hairline dividers */
 .hairline {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(0,0,0,0.08), transparent);
+  background: linear-gradient(90deg, transparent, rgba(52,120,246,0.16), transparent);
 }
 
 /* Responsive adjustments */
@@ -275,28 +275,28 @@ img {
 
 /* Smooth color transitions */
 .text-lavender {
-  color: #9B8FBF;
+  color: #526EF3;
 }
 
 .text-sage {
-  color: #7A9B8A;
+  color: #138D98;
 }
 
 /* Background color utilities */
 .bg-warm {
-  background-color: #FAF8F5;
+  background-color: #FAFCFF;
 }
 
 .bg-sage {
-  background-color: #E8EDE9;
+  background-color: #EAF8FF;
 }
 
 .bg-lavender {
-  background-color: #EAE8F0;
+  background-color: #EDF1FF;
 }
 
 .bg-rose {
-  background-color: #F5E8E8;
+  background-color: #FFF1F6;
 }
 
 /* Z-index layering for sections */
@@ -313,21 +313,21 @@ img {
 
 @keyframes companionTargetGlow {
   0% {
-    box-shadow: 0 0 0 0 rgba(155, 143, 191, 0.22);
+    box-shadow: 0 0 0 0 rgba(79, 231, 238, 0.22);
     opacity: 0;
   }
   15% {
     opacity: 1;
   }
   100% {
-    box-shadow: 0 0 0 18px rgba(155, 143, 191, 0);
+    box-shadow: 0 0 0 18px rgba(79, 231, 238, 0);
     opacity: 0;
   }
 }
 
 @keyframes companionTargetPulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(122, 155, 196, 0.24);
+    box-shadow: 0 0 0 0 rgba(52, 120, 246, 0.24);
     opacity: 0;
     transform: scale(0.96);
   }
@@ -335,7 +335,7 @@ img {
     opacity: 1;
   }
   100% {
-    box-shadow: 0 0 0 14px rgba(122, 155, 196, 0);
+    box-shadow: 0 0 0 14px rgba(52, 120, 246, 0);
     opacity: 0;
     transform: scale(1.05);
   }
@@ -353,8 +353,8 @@ img {
   position: absolute;
   inset: 18px;
   border-radius: 28px;
-  border: 1px solid rgba(155, 143, 191, 0.5);
-  box-shadow: 0 0 0 10px rgba(155, 143, 191, 0.1);
+  border: 1px solid rgba(79, 231, 238, 0.5);
+  box-shadow: 0 0 0 10px rgba(79, 231, 238, 0.12);
   pointer-events: none;
 }
 
@@ -370,5 +370,5 @@ img {
 [data-companion-highlight='pulse'][data-companion-target-kind='cta']::after {
   inset: -8px;
   border-radius: 999px;
-  box-shadow: 0 0 0 6px rgba(155, 143, 191, 0.12);
+  box-shadow: 0 0 0 6px rgba(52, 120, 246, 0.14);
 }

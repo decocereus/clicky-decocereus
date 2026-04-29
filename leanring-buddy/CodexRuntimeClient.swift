@@ -38,10 +38,12 @@ final class CodexRuntimeClient {
         let fileManager = FileManager.default
         let homeDirectoryURL = fileManager.homeDirectoryForCurrentUser
         let prompt = Self.renderPrompt(from: request)
-        ClickyAgentTurnDiagnostics.logRenderedPrompt(
-            backendLabel: "Codex",
-            prompt: prompt
-        )
+        await MainActor.run {
+            ClickyAgentTurnDiagnostics.logRenderedPrompt(
+                backendLabel: "Codex",
+                prompt: prompt
+            )
+        }
         let configuredModel = runtimeStatus.configuredModel?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let executionEnvironment = Self.executionEnvironment(

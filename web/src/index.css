@@ -6,36 +6,38 @@
 
 @layer base {
   :root {
-    /* New elegant color scheme */
-    --bg-primary: 40 20% 97%; /* Warm off-white #FAF8F5 */
-    --bg-secondary: 220 14% 96%; /* Light gray for sections */
-    --text-primary: 30 10% 12%; /* Dark charcoal #1A1A1A */
-    --text-secondary: 30 5% 45%; /* Muted gray */
-    --text-muted: 30 4% 60%; /* Light gray text */
-    --accent-lavender: 250 30% 75%; /* Soft lavender for accents */
-    --accent-sage: 150 20% 75%; /* Soft sage green */
-    --accent-rose: 350 25% 80%; /* Soft rose */
-    --dark-circle: 30 10% 15%; /* Dark circles for numbers */
+    /* Clicky glass logo palette */
+    --soft-white: 204 100% 99%; /* #FAFCFF */
+    --frost-glass: 197 100% 96%; /* #EAF8FF */
+    --mist: 200 25% 90%; /* #DDE8EE */
+    --icy-blue: 199 58% 79%; /* #A9D6EB */
+    --aqua-glow: 182 82% 62%; /* #4FE7EE */
+    --cursor-blue: 218 92% 58%; /* #3478F6 */
+    --periwinkle: 230 100% 78%; /* #8EA2FF */
+    --blush: 344 100% 86%; /* #FFB9CF */
+    --deep-ink: 209 32% 13%; /* #16212B */
+    --text-secondary: 205 17% 44%; /* #5D7283 */
+    --text-muted: 202 14% 62%; /* #8EA0AC */
     
-    --background: var(--bg-primary);
-    --foreground: var(--text-primary);
+    --background: var(--soft-white);
+    --foreground: var(--deep-ink);
     --card: 0 0% 100%;
-    --card-foreground: var(--text-primary);
+    --card-foreground: var(--deep-ink);
     --popover: 0 0% 100%;
-    --popover-foreground: var(--text-primary);
-    --primary: var(--text-primary);
-    --primary-foreground: var(--bg-primary);
-    --secondary: var(--bg-secondary);
-    --secondary-foreground: var(--text-primary);
-    --muted: var(--bg-secondary);
+    --popover-foreground: var(--deep-ink);
+    --primary: var(--cursor-blue);
+    --primary-foreground: var(--soft-white);
+    --secondary: var(--frost-glass);
+    --secondary-foreground: var(--deep-ink);
+    --muted: var(--frost-glass);
     --muted-foreground: var(--text-secondary);
-    --accent: var(--accent-lavender);
-    --accent-foreground: var(--text-primary);
+    --accent: var(--aqua-glow);
+    --accent-foreground: var(--deep-ink);
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 30 10% 88%;
-    --input: 30 10% 88%;
-    --ring: var(--accent-lavender);
+    --border: var(--mist);
+    --input: var(--mist);
+    --ring: var(--periwinkle);
     --radius: 1.5rem;
   }
 }
@@ -51,10 +53,15 @@
   
   body {
     @apply antialiased;
-    background-color: #FAF8F5;
-    color: #1A1A1A;
+    background-color: #FAFCFF;
+    color: #16212B;
     font-family: 'Inter', sans-serif;
     font-weight: 400;
+    overflow-x: hidden;
+  }
+
+  #root {
+    max-width: 100vw;
     overflow-x: hidden;
   }
   
@@ -64,7 +71,7 @@
     font-weight: 500;
     letter-spacing: -0.01em;
     line-height: 1.1;
-    color: #1A1A1A;
+    color: #16212B;
   }
   
   /* Italic variants for emphasis */
@@ -82,81 +89,83 @@
 @layer utilities {
   /* Background colors */
   .bg-warm {
-    background-color: #FAF8F5;
+    background-color: #FAFCFF;
   }
   
   .bg-warm-dark {
-    background-color: #F5F2EE;
+    background-color: #F2FCFF;
   }
   
   .bg-sage {
-    background-color: #E8EDE9;
+    background-color: #EAF8FF;
   }
   
   .bg-lavender {
-    background-color: #EAE8F0;
+    background-color: #EDF1FF;
   }
   
   .bg-rose {
-    background-color: #F5E8E8;
+    background-color: #FFF1F6;
   }
   
   /* Text colors */
   .text-charcoal {
-    color: #1A1A1A;
+    color: #16212B;
   }
   
   .text-muted-elegant {
-    color: #6B6B6B;
+    color: #5D7283;
   }
   
   .text-lavender {
-    color: #9B8FBF;
+    color: #526EF3;
   }
   
   .text-sage {
-    color: #7A9B8A;
+    color: #138D98;
   }
   
   /* Accent colors */
   .accent-lavender {
-    color: #9B8FBF;
+    color: #8EA2FF;
   }
   
   .accent-sage {
-    color: #7A9B8A;
+    color: #4FE7EE;
   }
   
   /* Dark circle for numbers */
   .dark-circle {
-    background-color: #2D2D2D;
-    color: #FAF8F5;
+    background-color: #16212B;
+    color: #FAFCFF;
   }
   
   /* Card styling */
   .card-elegant {
-    background: white;
+    background: rgba(255, 255, 255, 0.9);
     border-radius: 24px;
-    box-shadow: 0 4px 40px rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(221, 232, 238, 0.86);
+    box-shadow: 0 22px 70px rgba(52, 120, 246, 0.09);
   }
   
   .shadow-elegant {
-    box-shadow: 0 4px 40px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 22px 70px rgba(52, 120, 246, 0.09);
   }
   
   /* Speech bubble - updated for light theme */
   .speech-bubble-elegant {
     position: relative;
-    background: white;
+    background: rgba(255, 255, 255, 0.94);
     border-radius: 16px;
     padding: 12px 18px;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(221, 232, 238, 0.9);
+    box-shadow: 0 18px 48px rgba(52, 120, 246, 0.12);
   }
   
   /* Hairline divider */
   .hairline {
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(0,0,0,0.1), transparent);
+    background: linear-gradient(90deg, transparent, rgba(52,120,246,0.18), transparent);
   }
   
   /* Number badge */
@@ -164,8 +173,8 @@
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: #2D2D2D;
-    color: #FAF8F5;
+    background: #16212B;
+    color: #FAFCFF;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -186,7 +195,7 @@ html.lenis {
 
 /* Selection styling */
 ::selection {
-  background: rgba(155, 143, 191, 0.25);
+  background: rgba(79, 231, 238, 0.28);
   color: inherit;
 }
 
@@ -211,7 +220,7 @@ html.lenis {
 /* Focus states */
 button:focus-visible,
 a:focus-visible {
-  outline: 1px solid #9B8FBF;
+  outline: 1px solid #8EA2FF;
   outline-offset: 2px;
 }
 

@@ -1,516 +1,844 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 
-type ClickyShellRegistration = {
+type ShellRegistration = {
   agentIdentityName: string | null;
   bridgeVersion: string | null;
-  clickyShellCapabilityVersion: string | null;
-  capabilities: string[];
   clickyPresentationName: string | null;
-  cursorPointingProtocol: string | null;
+  capabilities: string[];
   lastHeartbeatAt: number;
-  personaScope: "clicky-local-override" | "openclaw-identity";
+  promptContext: string | null;
   registeredAt: number;
   runtimeMode: string | null;
   screenContextTransport: string | null;
   sessionKey: string | null;
   shellId: string;
   shellLabel: string | null;
-  shellProtocolVersion: string | null;
   shellTransportScope: "local-gateway" | "remote-gateway";
-  speechOutputMode: string | null;
-  supportsInlineTextBubble: boolean;
-  promptContext: string | null;
 };
 
-type ClickyShellFreshnessState = "fresh" | "stale";
-type ClickyShellTrustState = "trusted-local" | "trusted-remote";
-type ClickyPresentationMode = "answer" | "point" | "walkthrough" | "tutorial";
+type PresentationMode = "answer" | "point" | "walkthrough" | "tutorial";
+type ComputerUseRoute =
+  | "list_apps"
+  | "list_windows"
+  | "get_window_state"
+  | "click"
+  | "type_text"
+  | "press_key"
+  | "scroll"
+  | "set_value"
+  | "perform_secondary_action"
+  | "drag"
+  | "resize"
+  | "set_window_frame";
 
-type ClickyStructuredPoint = {
-  x: number;
-  y: number;
-  label: string;
-  bubbleText?: string;
-  explanation?: string;
-  screenNumber?: number;
+type QueuedComputerUseRequest = {
+  createdAt: number;
+  payload: Record<string, unknown>;
+  requestId: string;
+  resolve: (result: Record<string, unknown>) => void;
+  route: ComputerUseRoute;
+  sessionKey: string | null;
+  shellId: string;
+  timeout: ReturnType<typeof setTimeout>;
 };
 
-type ClickyStructuredReply = {
-  spokenText: string;
-  points: ClickyStructuredPoint[];
+type WaitingPoll = {
+  deadline: number;
+  respond: (ok: boolean, payload: Record<string, unknown>) => void;
+  sessionKey: string | null;
+  shellId: string;
+  timeout: ReturnType<typeof setTimeout>;
 };
 
-type ClickyPresentationReply = ClickyStructuredReply & {
-  mode: ClickyPresentationMode;
+type ComputerUseCompletionProof = {
+  lastMutationAt: number | null;
+  lastMutationRoute: ComputerUseRoute | null;
+  lastObservationAt: number | null;
+  lastResultOk: boolean | null;
+  lastRoute: ComputerUseRoute;
+  lastUpdatedAt: number;
+  startedAt: number;
 };
 
-function freshnessStateForRegistration(
-  registration: ClickyShellRegistration,
-  registrationTtlMs: number
-): ClickyShellFreshnessState {
-  return Date.now() - registration.lastHeartbeatAt <= registrationTtlMs ? "fresh" : "stale";
-}
+const computerUseRoutes = [
+  "list_apps",
+  "list_windows",
+  "get_window_state",
+  "click",
+  "type_text",
+  "press_key",
+  "scroll",
+  "set_value",
+  "perform_secondary_action",
+  "drag",
+  "resize",
+  "set_window_frame",
+] as const satisfies readonly ComputerUseRoute[];
 
-function trustStateForRegistration(registration: ClickyShellRegistration): ClickyShellTrustState {
-  return registration.shellTransportScope === "local-gateway" ? "trusted-local" : "trusted-remote";
-}
+const registrationsByShellId = new Map<string, ShellRegistration>();
+const pendingComputerUseRequests = new Map<string, QueuedComputerUseRequest>();
+const completionProofBySession = new Map<string, ComputerUseCompletionProof>();
+const waitingPolls: WaitingPoll[] = [];
+const completionProofTtlMs = 10 * 60 * 1000;
 
-function sessionBindingStateForRegistration(registration: ClickyShellRegistration) {
-  return registration.sessionKey ? "bound" : "unbound";
+function normalizePluginConfig(config: unknown) {
+  const record = config && typeof config === "object" && !Array.isArray(config)
+    ? config as Record<string, unknown>
+    : {};
+
+  return {
+    allowRemoteDesktopShell: record.allowRemoteDesktopShell === true,
+    registrationTtlMs: typeof record.registrationTtlMs === "number"
+      ? Math.max(5_000, Math.min(300_000, Math.floor(record.registrationTtlMs)))
+      : 45_000,
+  };
 }
 
 function candidateSessionKeys(sessionKey: string | null | undefined) {
   if (!sessionKey) return [];
+  const trimmed = sessionKey.trim();
+  if (!trimmed) return [];
 
-  const trimmedSessionKey = sessionKey.trim();
-  if (!trimmedSessionKey) return [];
-
-  const candidates = new Set<string>([trimmedSessionKey]);
-  const segments = trimmedSessionKey.split(":");
-
-  // Runtime hooks often see session keys in the internal form
-  // "agent:<agentId>:<userSessionKey>", while Clicky binds the shorter
-  // user-facing key. Treat both as the same session binding target.
+  const candidates = new Set<string>([trimmed]);
+  const segments = trimmed.split(":");
   if (segments.length >= 3 && segments[0] === "agent") {
-    const userSessionKey = segments.slice(2).join(":");
-    candidates.add(userSessionKey);
-
+    candidates.add(segments.slice(2).join(":"));
     if (segments[2] === "explicit" && segments.length >= 4) {
       candidates.add(segments.slice(3).join(":"));
     }
   }
-
   if (segments[0] === "explicit" && segments.length >= 2) {
     candidates.add(segments.slice(1).join(":"));
   }
-
   return [...candidates];
 }
 
-function sessionKeysMatch(leftSessionKey: string | null | undefined, rightSessionKey: string | null | undefined) {
-  const leftCandidates = candidateSessionKeys(leftSessionKey);
-  const rightCandidates = new Set(candidateSessionKeys(rightSessionKey));
-
-  return leftCandidates.some((candidate) => rightCandidates.has(candidate));
+function sessionKeysMatch(left: string | null | undefined, right: string | null | undefined) {
+  const rightCandidates = new Set(candidateSessionKeys(right));
+  return candidateSessionKeys(left).some((candidate) => rightCandidates.has(candidate));
 }
 
-function findFreshShellRegistrationForSessionKey(
-  sessionKey: string | undefined,
-  registrationTtlMs: number
-) {
-  if (!sessionKey) return null;
-
-  const registrations = [...clickyShellRegistrationsById.values()]
-    .filter((registration) => sessionKeysMatch(registration.sessionKey, sessionKey))
-    .sort((leftRegistration, rightRegistration) => rightRegistration.lastHeartbeatAt - leftRegistration.lastHeartbeatAt);
-
-  const freshestRegistration = registrations[0] ?? null;
-  if (!freshestRegistration) return null;
-
-  return freshnessStateForRegistration(freshestRegistration, registrationTtlMs) === "fresh"
-    ? freshestRegistration
-    : null;
+function primarySessionKey(sessionKey: string | null | undefined, shellId: string | null | undefined) {
+  return candidateSessionKeys(sessionKey)[0] ?? (shellId ? `shell:${shellId}` : "unbound");
 }
 
-function buildClickyPresentationPromptInstructions() {
-  return [
-    "clicky presentation tools:",
-    "- finish clicky turns with the clicky_present tool whenever possible.",
-    "- use clicky_present mode answer for spoken guidance with no pointing.",
-    "- use clicky_present mode point for one grounded target with one detailed explanation.",
-    "- use clicky_present mode walkthrough for multiple grounded targets with an explanation on each point.",
-    "- use clicky_present mode tutorial for richer guided sequences that still need ordered point explanations.",
-    "- after clicky_present returns, output exactly the JSON object from the tool result as the final assistant message and nothing else.",
-    "- if tool use is unavailable, return clicky's structured response contract with ordered point targets.",
-  ].join("\n");
+function completionProofKeys(sessionKey: string | null | undefined, shell: ShellRegistration | null | undefined) {
+  const keys = new Set<string>();
+  for (const candidate of candidateSessionKeys(sessionKey)) keys.add(candidate);
+  for (const candidate of candidateSessionKeys(shell?.sessionKey)) keys.add(candidate);
+  if (shell?.shellId) keys.add(`shell:${shell.shellId}`);
+  if (keys.size === 0) keys.add("unbound");
+  return [...keys];
 }
 
-function buildClickyShellPromptContext(
-  registration: ClickyShellRegistration
-) {
-  const promptContext =
-    typeof registration.promptContext === "string" && registration.promptContext.trim()
-      ? registration.promptContext.trim()
-      : null;
+function routeIsMutation(route: ComputerUseRoute) {
+  return !["list_apps", "list_windows", "get_window_state"].includes(route);
+}
 
-  if (promptContext) {
-    return `${promptContext}\n\n${buildClickyPresentationPromptInstructions()}`;
+function freshnessState(registration: ShellRegistration, ttlMs: number) {
+  return Date.now() - registration.lastHeartbeatAt <= ttlMs ? "fresh" : "stale";
+}
+
+function serializeRegistration(registration: ShellRegistration, ttlMs: number) {
+  return {
+    ...registration,
+    freshnessState: freshnessState(registration, ttlMs),
+    sessionBindingState: registration.sessionKey ? "bound" : "unbound",
+    trustState: registration.shellTransportScope === "local-gateway" ? "trusted-local" : "trusted-remote",
+  };
+}
+
+function pruneExpiredRegistrations(ttlMs: number) {
+  const now = Date.now();
+  for (const [shellId, registration] of registrationsByShellId.entries()) {
+    if (now - registration.lastHeartbeatAt > ttlMs) {
+      registrationsByShellId.delete(shellId);
+    }
   }
-
-  return [
-    "clicky shell is active for this run.",
-    `upstream agent identity: ${registration.agentIdentityName ?? "unknown"}.`,
-    `clicky-local presentation: ${registration.clickyPresentationName ?? registration.agentIdentityName ?? "unknown"}.`,
-    `persona scope: ${registration.personaScope}.`,
-    `shell capabilities: ${registration.capabilities.join(", ") || "none"}.`,
-    `screen context transport: ${registration.screenContextTransport ?? "unknown"}.`,
-    `cursor pointing protocol: ${registration.cursorPointingProtocol ?? "unknown"}.`,
-    `speech output mode: ${registration.speechOutputMode ?? "unknown"}.`,
-    buildClickyPresentationPromptInstructions(),
-  ].join(" ");
+  for (const [key, proof] of completionProofBySession.entries()) {
+    if (now - proof.lastUpdatedAt > completionProofTtlMs) {
+      completionProofBySession.delete(key);
+    }
+  }
 }
 
-function extractNonEmptyString(value: unknown) {
+function parseString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function extractInteger(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value) ? value : null;
-}
-
-function extractClickyPoint(point: unknown): ClickyStructuredPoint | null {
-  if (!point || typeof point !== "object" || Array.isArray(point)) {
-    return null;
-  }
-
-  const pointRecord = point as Record<string, unknown>;
-  const x = extractInteger(pointRecord.x);
-  const y = extractInteger(pointRecord.y);
-  const label = extractNonEmptyString(pointRecord.label);
-
-  if (x === null || y === null || !label) {
-    return null;
-  }
-
-  const bubbleText = extractNonEmptyString(pointRecord.bubbleText) ?? undefined;
-  const explanation = extractNonEmptyString(pointRecord.explanation) ?? undefined;
-  const screenNumber = extractInteger(pointRecord.screenNumber);
+function parseShellRegistration(params: unknown): ShellRegistration | null {
+  if (!params || typeof params !== "object" || Array.isArray(params)) return null;
+  const record = params as Record<string, unknown>;
+  const shellId = parseString(record.shellId);
+  if (!shellId) return null;
 
   return {
-    x,
-    y,
-    label,
-    bubbleText,
-    explanation,
-    screenNumber: screenNumber && screenNumber > 0 ? screenNumber : undefined,
+    agentIdentityName: parseString(record.agentIdentityName),
+    bridgeVersion: parseString(record.bridgeVersion),
+    capabilities: Array.isArray(record.capabilities)
+      ? record.capabilities.filter((value): value is string => typeof value === "string")
+      : [],
+    clickyPresentationName: parseString(record.clickyPresentationName),
+    lastHeartbeatAt: Date.now(),
+    promptContext: null,
+    registeredAt: typeof record.registeredAt === "number" ? Math.floor(record.registeredAt) : Date.now(),
+    runtimeMode: parseString(record.runtimeMode),
+    screenContextTransport: parseString(record.screenContextTransport),
+    sessionKey: parseString(record.sessionKey),
+    shellId,
+    shellLabel: parseString(record.shellLabel),
+    shellTransportScope: record.shellTransportScope === "remote-gateway" ? "remote-gateway" : "local-gateway",
   };
 }
 
-function presentationModeRequiresPoints(mode: ClickyPresentationMode) {
-  return mode !== "answer";
-}
+function findFreshShell(sessionKey: string | null | undefined, ttlMs: number) {
+  const registrations = [...registrationsByShellId.values()]
+    .filter((registration) => freshnessState(registration, ttlMs) === "fresh")
+    .sort((left, right) => right.lastHeartbeatAt - left.lastHeartbeatAt);
 
-function presentationModeRequiresPointExplanations(mode: ClickyPresentationMode) {
-  return mode !== "answer";
-}
-
-function buildClickyPresentationReply(params: unknown) {
-  if (!params || typeof params !== "object" || Array.isArray(params)) {
-    return {
-      ok: false as const,
-      error: "clicky_present parameters were missing or invalid",
-    };
-  }
-
-  const paramsRecord = params as Record<string, unknown>;
-  const mode = extractNonEmptyString(paramsRecord.mode);
-  const spokenText = extractNonEmptyString(paramsRecord.spokenText);
-
-  if (!mode || !["answer", "point", "walkthrough", "tutorial"].includes(mode)) {
-    return {
-      ok: false as const,
-      error: "clicky_present mode must be one of: answer, point, walkthrough, tutorial",
-    };
-  }
-
-  if (!spokenText) {
-    return {
-      ok: false as const,
-      error: "clicky_present spokenText was empty",
-    };
-  }
-
-  const points = Array.isArray(paramsRecord.points)
-    ? paramsRecord.points
-        .map((point) => extractClickyPoint(point))
-        .filter((point): point is ClickyStructuredPoint => point !== null)
-    : [];
-
-  const presentationReply: ClickyPresentationReply = {
-    mode: mode as ClickyPresentationMode,
-    spokenText,
-    points,
-  };
-
-  const validationIssues = validateStructuredReply(
-    presentationReply,
-    presentationModeRequiresPoints(presentationReply.mode),
-    presentationModeRequiresPointExplanations(presentationReply.mode)
+  const sessionMatch = registrations.find((registration) =>
+    sessionKeysMatch(registration.sessionKey, sessionKey)
   );
-
-  if (presentationReply.mode === "answer" && presentationReply.points.length > 0) {
-    validationIssues.push("clicky_present answer mode must not include points");
-  }
-
-  if (presentationReply.mode === "point" && presentationReply.points.length !== 1) {
-    validationIssues.push("clicky_present point mode must include exactly one point");
-  }
-
-  if (presentationReply.mode === "walkthrough" && presentationReply.points.length < 2) {
-    validationIssues.push("clicky_present walkthrough mode must include at least two points");
-  }
-
-  if (presentationReply.mode === "tutorial" && presentationReply.points.length < 1) {
-    validationIssues.push("clicky_present tutorial mode must include at least one point");
-  }
-
-  if (validationIssues.length > 0) {
-    return {
-      ok: false as const,
-      error: validationIssues.join("; "),
-    };
-  }
-
-  return {
-    ok: true as const,
-    reply: presentationReply,
-    replyText: JSON.stringify(presentationReply),
-  };
+  return sessionMatch ?? registrations[0] ?? null;
 }
 
-function validateStructuredReply(
-  structuredReply: ClickyStructuredReply,
-  requiresPoints: boolean,
-  requiresPointExplanations: boolean
-) {
-  const issues: string[] = [];
+function statusSummary(config: unknown, includeRegistrations: boolean) {
+  const normalized = normalizePluginConfig(config);
+  pruneExpiredRegistrations(normalized.registrationTtlMs);
+  const registrations = [...registrationsByShellId.values()];
+  const lines = [
+    registrations.length > 0
+      ? `Clicky shell connected: ${registrations.length} active.`
+      : "No Clicky desktop shell is currently connected.",
+    "Computer use tools: list_apps, list_windows, get_window_state, click, type_text, press_key, scroll, set_value, perform_secondary_action, drag, resize, set_window_frame.",
+  ];
 
-  if (typeof structuredReply.spokenText !== "string" || !structuredReply.spokenText.trim()) {
-    issues.push("spokenText was empty");
+  if (includeRegistrations) {
+    lines.push(
+      ...registrations.map((registration) =>
+        `- ${registration.shellLabel ?? registration.shellId}: ${registration.sessionKey ?? "unbound"} (${freshnessState(registration, normalized.registrationTtlMs)})`
+      )
+    );
   }
-
-  if (!Array.isArray(structuredReply.points)) {
-    issues.push("points was not an array");
-    return issues;
-  }
-
-  if (requiresPoints && structuredReply.points.length === 0) {
-    issues.push("points array was empty even though the request required pointing");
-  }
-
-  structuredReply.points.forEach((point, index) => {
-    if (typeof point?.x !== "number" || !Number.isFinite(point.x)) {
-      issues.push(`point ${index + 1} was missing a valid x coordinate`);
-    }
-    if (typeof point?.y !== "number" || !Number.isFinite(point.y)) {
-      issues.push(`point ${index + 1} was missing a valid y coordinate`);
-    }
-    if (typeof point?.label !== "string" || !point.label.trim()) {
-      issues.push(`point ${index + 1} was missing a label`);
-    }
-
-    if (requiresPointExplanations) {
-      const explanation = typeof point?.explanation === "string" ? point.explanation.trim() : "";
-      if (!explanation) {
-        issues.push(`point ${index + 1} was missing an explanation`);
-      }
-    }
-  });
-
-  return issues;
+  return lines.join("\n");
 }
 
-function serializeShellRegistration(
-  registration: ClickyShellRegistration,
-  registrationTtlMs: number = defaultRegistrationTtlMs
-) {
-  return {
-    agentIdentityName: registration.agentIdentityName,
-    bridgeVersion: registration.bridgeVersion,
-    clickyShellCapabilityVersion: registration.clickyShellCapabilityVersion,
-    capabilities: registration.capabilities,
-    clickyPresentationName: registration.clickyPresentationName,
-    cursorPointingProtocol: registration.cursorPointingProtocol,
-    lastHeartbeatAt: registration.lastHeartbeatAt,
-    personaScope: registration.personaScope,
-    registeredAt: registration.registeredAt,
-    runtimeMode: registration.runtimeMode,
-    screenContextTransport: registration.screenContextTransport,
-    sessionKey: registration.sessionKey,
-    shellId: registration.shellId,
-    shellLabel: registration.shellLabel,
-    shellProtocolVersion: registration.shellProtocolVersion,
-    shellTransportScope: registration.shellTransportScope,
-    speechOutputMode: registration.speechOutputMode,
-    supportsInlineTextBubble: registration.supportsInlineTextBubble,
-    freshnessState: freshnessStateForRegistration(registration, registrationTtlMs),
-    trustState: trustStateForRegistration(registration),
-    sessionBindingState: sessionBindingStateForRegistration(registration),
-  };
+function buildPromptInstructions() {
+  return [
+    "clicky desktop tools:",
+    "- use the computer-use tools directly. they execute through the connected Clicky desktop shell and return live runtime results.",
+    "- do not use generic shell/process/exec/osascript/browser automation for desktop control. if a desktop action is needed, use these Clicky computer-use tools so Clicky can show cursor progress, apply policy, and verify state.",
+    "- use an observe-act-observe loop: list_apps or list_windows when choosing a target, get_window_state before meaningful UI actions, perform one action, then observe again.",
+    "- window must be the exact stable window ID from list_windows. do not pass frontmost, current, active, or a visible title as the window value.",
+    "- choose windows and elements yourself from runtime state. Clicky does not perform semantic target scoring for you.",
+    "- get_window_state returns model-usable screenshots in the structured tool result. after each action, call get_window_state again before deciding the next step; do not call separate image tools on local screenshot paths.",
+    "- actions require the exact window ID from list_windows. use target objects from the latest get_window_state, for example {kind:'display_index', value: 12}. pass stateToken when the runtime returned one, but do not invent it.",
+    "- for text entry, call type_text with an observed text-entry target from get_window_state whenever possible. if the editor is not visible in the latest state, observe or recover before typing.",
+    "- for draft flows, stop before final submit/publish unless the user explicitly asks and Review allows it.",
+    "- routine actions run immediately when Clicky Studio is Auto Approved. Review may pause sensitive final actions like submit, delete, payment, or account/security changes.",
+    "- after completing desktop work, verify the result with get_window_state before using clicky_present to say it is done.",
+  ].join("\n");
 }
 
-const clickyShellRegistrationsById = new Map<string, ClickyShellRegistration>();
-const defaultRegistrationTtlMs = 60_000;
-
-// OpenClaw accepts plain JSON Schema objects for tool parameters here, which
-// keeps this local source plugin self-contained when it is loaded in place.
-const clickyStatusToolParameters = {
+const statusToolParameters = {
   type: "object",
   additionalProperties: false,
   properties: {
-    includeRegistrations: {
-      type: "boolean",
-    },
+    includeRegistrations: { type: "boolean" },
   },
-} as const;
+};
 
-const clickyPresentToolParameters = {
+const presentToolParameters = {
   type: "object",
   additionalProperties: false,
   required: ["mode", "spokenText", "points"],
   properties: {
-    mode: {
-      type: "string",
-      enum: ["answer", "point", "walkthrough", "tutorial"],
-    },
-    spokenText: {
-      type: "string",
-      description: "The spoken intro or full answer text for this Clicky turn.",
-    },
+    mode: { type: "string", enum: ["answer", "point", "walkthrough", "tutorial"] },
+    spokenText: { type: "string" },
     points: {
       type: "array",
-      description: "Ordered Clicky point targets. Leave empty for answer mode.",
       items: {
         type: "object",
         additionalProperties: false,
         required: ["x", "y", "label"],
         properties: {
-          x: {
-            type: "integer",
-          },
-          y: {
-            type: "integer",
-          },
-          label: {
-            type: "string",
-          },
-          bubbleText: {
-            type: "string",
-          },
-          explanation: {
-            type: "string",
-          },
-          screenNumber: {
-            type: "integer",
-            minimum: 1,
-          },
+          x: { type: "integer" },
+          y: { type: "integer" },
+          label: { type: "string" },
+          bubbleText: { type: "string" },
+          explanation: { type: "string" },
+          screenNumber: { type: "integer" },
         },
       },
     },
   },
-} as const;
+};
 
-function normalizePluginConfig(pluginConfig: Record<string, unknown>) {
-  const shellLabel =
-    typeof pluginConfig.shellLabel === "string" && pluginConfig.shellLabel.trim()
-      ? pluginConfig.shellLabel.trim()
-      : "Clicky";
+const cursorParameter = {
+  type: "object",
+  additionalProperties: true,
+  properties: {
+    id: { type: "string" },
+    name: { type: "string" },
+    color: { type: "string" },
+  },
+};
 
-  const registrationTtlMs =
-    typeof pluginConfig.registrationTtlMs === "number" && Number.isFinite(pluginConfig.registrationTtlMs)
-      ? Math.max(5_000, Math.min(300_000, Math.floor(pluginConfig.registrationTtlMs)))
-      : defaultRegistrationTtlMs;
+const actionTargetParameter = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind", "value"],
+  properties: {
+    kind: {
+      type: "string",
+      enum: ["display_index", "node_id", "refetch_fingerprint"],
+      description: "Runtime target kind from get_window_state. Prefer display_index for visible projected-tree nodes.",
+    },
+    value: {
+      description: "Target value. For display_index this must be the integer display index from get_window_state.",
+      anyOf: [{ type: "integer" }, { type: "string" }],
+    },
+  },
+};
 
-  const allowRemoteDesktopShell = pluginConfig.allowRemoteDesktopShell === true;
+const commonObservationProperties = {
+  includeMenuBar: { type: "boolean" },
+  maxNodes: { type: "integer" },
+  imageMode: { type: "string", enum: ["path", "base64", "omit"], description: "Defaults to base64 through Clicky so OpenClaw can inspect the screenshot without reading a local temp path." },
+  debug: { type: "boolean" },
+};
 
+function runtimeToolParameters(route: ComputerUseRoute) {
+  switch (route) {
+  case "list_apps":
+    return {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+    };
+  case "list_windows":
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["app"],
+      properties: {
+        app: { type: "string", description: "App name, bundle ID, or target query from list_apps." },
+      },
+    };
+  case "get_window_state":
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["window"],
+      properties: {
+        window: { type: "string", description: "Stable window ID returned by list_windows." },
+        menuPath: { type: "array", items: { type: "string" } },
+        webTraversal: { type: "string", enum: ["visible", "full"] },
+        includeRawScreenshot: { type: "boolean" },
+        debugMode: { type: "string", enum: ["none", "summary", "full"] },
+        includeDiagnostics: { type: "boolean" },
+        includePlatformProfile: { type: "boolean" },
+        includeRawCapture: { type: "boolean" },
+        includeSemanticTree: { type: "boolean" },
+        includeProjectedTree: { type: "boolean" },
+        ...commonObservationProperties,
+      },
+    };
+  case "click":
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["window"],
+      anyOf: [
+        { required: ["target"] },
+        { required: ["x", "y"] },
+      ],
+      properties: {
+        window: { type: "string", description: "Stable window ID returned by list_windows." },
+        stateToken: { type: "string", description: "Optional state token returned by the latest get_window_state for this window." },
+        target: actionTargetParameter,
+        x: { type: "number" },
+        y: { type: "number" },
+        mode: { type: "string", enum: ["single", "double"] },
+        clickCount: { type: "integer", enum: [1, 2] },
+        mouseButton: { type: "string", enum: ["left", "right", "middle"] },
+        cursor: cursorParameter,
+        ...commonObservationProperties,
+      },
+    };
+  case "type_text":
+    return actionSchema(["window", "text"], {
+      stateToken: { type: "string" },
+      target: actionTargetParameter,
+      text: { type: "string" },
+      focusAssistMode: { type: "string", enum: ["none", "focus", "focus_and_caret_end"], description: "Optional assist after the observed target is chosen." },
+      ...commonObservationProperties,
+    });
+  case "press_key":
+    return actionSchema(["window", "key"], {
+      stateToken: { type: "string" },
+      key: { type: "string", description: "Keyboard key or shortcut, e.g. Enter, Escape, Meta+L." },
+      ...commonObservationProperties,
+    });
+  case "scroll":
+    return actionSchema(["window", "target", "direction"], {
+      stateToken: { type: "string" },
+      target: actionTargetParameter,
+      direction: { type: "string", enum: ["up", "down", "left", "right"] },
+      pages: { type: "integer" },
+      verificationMode: { type: "string", enum: ["strict", "fast"] },
+      ...commonObservationProperties,
+    });
+  case "set_value":
+    return actionSchema(["window", "target", "value"], {
+      stateToken: { type: "string" },
+      target: actionTargetParameter,
+      value: { type: "string" },
+      ...commonObservationProperties,
+    });
+  case "perform_secondary_action":
+    return actionSchema(["window", "target", "action"], {
+      stateToken: { type: "string" },
+      target: actionTargetParameter,
+      action: { type: "string", description: "Exact public label from the target node secondaryActions array." },
+      actionID: { type: "string" },
+      menuPath: { type: "array", items: { type: "string" } },
+      webTraversal: { type: "string", enum: ["visible", "full"] },
+      ...commonObservationProperties,
+    });
+  case "drag":
+    return actionSchema(["window", "toX", "toY"], {
+      toX: { type: "number" },
+      toY: { type: "number" },
+    });
+  case "resize":
+    return actionSchema(["window", "handle", "toX", "toY"], {
+      handle: { type: "string", enum: ["left", "right", "top", "bottom", "topLeft", "topRight", "bottomLeft", "bottomRight"] },
+      toX: { type: "number" },
+      toY: { type: "number" },
+    });
+  case "set_window_frame":
+    return actionSchema(["window", "x", "y", "width", "height"], {
+      x: { type: "number" },
+      y: { type: "number" },
+      width: { type: "number" },
+      height: { type: "number" },
+      animate: { type: "boolean" },
+    });
+  }
+}
+
+function actionSchema(required: string[], properties: Record<string, unknown>) {
   return {
-    allowRemoteDesktopShell,
-    registrationTtlMs,
-    shellLabel,
+    type: "object",
+    additionalProperties: false,
+    required,
+    properties: {
+      window: { type: "string", description: "Stable window ID returned by list_windows." },
+      cursor: cursorParameter,
+      ...properties,
+    },
   };
 }
 
-function pruneExpiredShellRegistrations(registrationTtlMs: number) {
+function hasString(record: Record<string, unknown>, key: string) {
+  return typeof record[key] === "string" && Boolean((record[key] as string).trim());
+}
+
+function hasNumber(record: Record<string, unknown>, key: string) {
+  return typeof record[key] === "number" && Number.isFinite(record[key] as number);
+}
+
+function hasInteger(record: Record<string, unknown>, key: string) {
+  return Number.isInteger(record[key]);
+}
+
+function hasTarget(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const target = value as Record<string, unknown>;
+  if (!["display_index", "node_id", "refetch_fingerprint"].includes(String(target.kind))) {
+    return false;
+  }
+  if (target.kind === "display_index") {
+    if (Number.isInteger(target.value) && (target.value as number) >= 0) return true;
+    if (typeof target.value === "string" && /^\d+$/.test(target.value.trim())) return true;
+    return false;
+  }
+  return typeof target.value === "string" && Boolean(target.value.trim());
+}
+
+function validatePayload(route: ComputerUseRoute, params: unknown) {
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    return { ok: false as const, error: "tool parameters must be a JSON object." };
+  }
+  const payload = { ...(params as Record<string, unknown>) };
+  const missing = (field: string) => ({ ok: false as const, error: `${route} requires ${field}.` });
+  const invalid = (message: string) => ({ ok: false as const, error: `${route}: ${message}` });
+
+  switch (route) {
+  case "list_apps":
+    break;
+  case "list_windows":
+    if (!hasString(payload, "app")) return missing("app");
+    break;
+  case "get_window_state":
+    if (!hasString(payload, "window")) return missing("window");
+    break;
+  case "click":
+    if (!hasString(payload, "window")) return missing("window");
+    if (!hasTarget(payload, "target") && !(hasNumber(payload, "x") && hasNumber(payload, "y"))) {
+      return invalid("provide target, or provide both x and y.");
+    }
+    break;
+  case "type_text":
+    if (!hasString(payload, "window")) return missing("window");
+    if (!hasString(payload, "text")) return missing("text");
+    if (payload.target !== undefined && !hasTarget(payload, "target")) return invalid("target must use kind and value.");
+    break;
+  case "press_key":
+    if (!hasString(payload, "window")) return missing("window");
+    if (!hasString(payload, "key")) return missing("key");
+    break;
+  case "scroll":
+    if (!hasString(payload, "window")) return missing("window");
+    if (!hasTarget(payload, "target")) return missing("target");
+    if (!hasString(payload, "direction")) return missing("direction");
+    break;
+  case "set_value":
+    if (!hasString(payload, "window")) return missing("window");
+    if (!hasTarget(payload, "target")) return missing("target");
+    if (!hasString(payload, "value")) return missing("value");
+    break;
+  case "perform_secondary_action":
+    if (!hasString(payload, "window")) return missing("window");
+    if (!hasTarget(payload, "target")) return missing("target");
+    if (!hasString(payload, "action")) return missing("action");
+    break;
+  case "drag":
+    if (!hasString(payload, "window")) return missing("window");
+    if (!hasNumber(payload, "toX") || !hasNumber(payload, "toY")) return invalid("provide toX and toY.");
+    break;
+  case "resize":
+    if (!hasString(payload, "window")) return missing("window");
+    if (!hasString(payload, "handle")) return missing("handle");
+    if (!hasNumber(payload, "toX") || !hasNumber(payload, "toY")) return invalid("provide toX and toY.");
+    break;
+  case "set_window_frame":
+    if (!hasString(payload, "window")) return missing("window");
+    for (const field of ["x", "y", "width", "height"]) {
+      if (!hasNumber(payload, field)) return missing(field);
+    }
+    break;
+  }
+
+  return { ok: true as const, payload };
+}
+
+function humanRouteLabel(route: ComputerUseRoute) {
+  switch (route) {
+  case "list_apps":
+  case "list_windows":
+  case "get_window_state":
+    return "looking";
+  case "click":
+    return "clicking";
+  case "type_text":
+    return "typing";
+  case "press_key":
+    return "pressing keys";
+  case "scroll":
+    return "scrolling";
+  case "set_value":
+    return "updating a field";
+  case "perform_secondary_action":
+    return "opening an action";
+  case "drag":
+    return "dragging";
+  case "resize":
+    return "resizing";
+  case "set_window_frame":
+    return "moving the window";
+  }
+}
+
+function runtimeToolDescription(route: ComputerUseRoute) {
+  switch (route) {
+  case "list_apps":
+    return "List running apps visible to Clicky's desktop runtime.";
+  case "list_windows":
+    return "List live windows for an app name, bundle ID, or app identifier from list_apps.";
+  case "get_window_state":
+    return "Observe one live window and return its stateToken, model-usable screenshot, AX tree, focused element, and element indices. Pass the exact stable window ID returned by list_windows.";
+  case "click":
+    return "Click an observed target or screenshot coordinate. Prefer target from the latest get_window_state, such as {kind:'display_index', value: 12}.";
+  case "type_text":
+    return "Type text into an observed text-entry target. Prefer target from the latest get_window_state; omit target only when intentionally typing into the already-focused field.";
+  case "press_key":
+    return "Send a key or shortcut to the target window, such as Enter, Escape, or Meta+L.";
+  case "scroll":
+    return "Scroll an observed scrollable element in a target window.";
+  case "set_value":
+    return "Set the value of an observed value-bearing element.";
+  case "perform_secondary_action":
+    return "Perform a secondary action exposed by an observed target, using the exact action label or actionID from get_window_state.";
+  case "drag":
+    return "Move a window by dragging it to a destination origin.";
+  case "resize":
+    return "Resize a window from a handle to a destination point.";
+  case "set_window_frame":
+    return "Set a window frame directly with x, y, width, and height.";
+  }
+}
+
+function sanitizeToolResultForText(value: unknown, depth = 0): unknown {
+  if (typeof value === "string" && value.length > 12000) {
+    return `${value.slice(0, 12000)}[truncated ${value.length - 12000} chars]`;
+  }
+  if (depth > 7) return "[truncated-depth]";
+  if (Array.isArray(value)) {
+    return value.slice(0, 300).map((item) => sanitizeToolResultForText(item, depth + 1));
+  }
+  if (!value || typeof value !== "object") return value;
+
+  const record = value as Record<string, unknown>;
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(record)) {
+    if (["imageBase64", "base64", "data"].includes(key) && typeof item === "string" && item.length > 500) {
+      sanitized[key] = `[omitted ${item.length} chars]`;
+      continue;
+    }
+    if (key === "screenshot" && item && typeof item === "object" && !Array.isArray(item)) {
+      const screenshot = item as Record<string, unknown>;
+      const image = screenshot.image && typeof screenshot.image === "object" && !Array.isArray(screenshot.image)
+        ? screenshot.image as Record<string, unknown>
+        : null;
+      sanitized[key] = {
+        ...sanitizeToolResultForText(screenshot, depth + 1) as Record<string, unknown>,
+        image: image
+          ? {
+              mimeType: image.mimeType,
+              width: image.width,
+              height: image.height,
+              imageBase64: typeof image.imageBase64 === "string" ? `[omitted ${image.imageBase64.length} chars]` : undefined,
+            }
+          : sanitizeToolResultForText(screenshot.image, depth + 1),
+      };
+      continue;
+    }
+    sanitized[key] = sanitizeToolResultForText(item, depth + 1);
+  }
+  return sanitized;
+}
+
+function formatToolResult(route: ComputerUseRoute, result: Record<string, unknown>) {
+  const sanitized = sanitizeToolResultForText(result);
+  const text = JSON.stringify(sanitized, null, 2);
+  return [
+    `Clicky computer-use result for ${route}.`,
+    "Use this JSON as the source of truth for the next observe-act-observe step:",
+    text,
+  ].join("\n");
+}
+
+function screenshotDataUrl(result: Record<string, unknown>) {
+  const screenshot = result.screenshot && typeof result.screenshot === "object" && !Array.isArray(result.screenshot)
+    ? result.screenshot as Record<string, unknown>
+    : null;
+  const image = screenshot?.image && typeof screenshot.image === "object" && !Array.isArray(screenshot.image)
+    ? screenshot.image as Record<string, unknown>
+    : null;
+  const imageBase64 = image ? parseString(image.imageBase64) : null;
+  if (!imageBase64) return null;
+  const mimeType = image ? parseString(image.mimeType) ?? "image/png" : "image/png";
+  return `data:${mimeType};base64,${imageBase64}`;
+}
+
+function resultSucceeded(result: Record<string, unknown>) {
+  return result.ok !== false;
+}
+
+function rememberCompletionProof(
+  shell: ShellRegistration,
+  route: ComputerUseRoute,
+  result: Record<string, unknown>,
+  sessionKey: string | null | undefined
+) {
   const now = Date.now();
+  const isMutation = routeIsMutation(route);
+  const isObservation = route === "get_window_state";
+  const ok = resultSucceeded(result);
 
-  for (const [shellId, registration] of clickyShellRegistrationsById.entries()) {
-    if (now - registration.lastHeartbeatAt > registrationTtlMs) {
-      clickyShellRegistrationsById.delete(shellId);
-    }
+  for (const key of completionProofKeys(sessionKey, shell)) {
+    const previous = completionProofBySession.get(key);
+    completionProofBySession.set(key, {
+      lastMutationAt: isMutation ? now : previous?.lastMutationAt ?? null,
+      lastMutationRoute: isMutation ? route : previous?.lastMutationRoute ?? null,
+      lastObservationAt: isObservation && ok ? now : previous?.lastObservationAt ?? null,
+      lastResultOk: ok,
+      lastRoute: route,
+      lastUpdatedAt: now,
+      startedAt: previous?.startedAt ?? now,
+    });
   }
 }
 
-function formatStatusSummary(pluginConfig: Record<string, unknown>, includeRegistrations: boolean) {
-  const normalizedPluginConfig = normalizePluginConfig(pluginConfig);
-  const registrations = [...clickyShellRegistrationsById.values()].sort(
-    (leftRegistration, rightRegistration) => rightRegistration.lastHeartbeatAt - leftRegistration.lastHeartbeatAt
+function findCompletionProof(sessionKey: string | null | undefined, shell: ShellRegistration | null | undefined) {
+  const now = Date.now();
+  for (const key of completionProofKeys(sessionKey, shell)) {
+    const proof = completionProofBySession.get(key);
+    if (proof && now - proof.lastUpdatedAt <= completionProofTtlMs) {
+      return proof;
+    }
+  }
+  return null;
+}
+
+function textClaimsCompletion(text: string) {
+  const normalized = text.toLowerCase();
+  return /\b(done|completed|finished|opened|typed|created|wrote|filled|drafted|ready)\b/.test(normalized) &&
+    !/\b(can'?t|cannot|could not|unable|failed|did not|didn'?t|not able|not yet|still need)\b/.test(normalized);
+}
+
+function validatePresentationAgainstCompletionProof(
+  params: unknown,
+  sessionKey: string | null | undefined,
+  shell: ShellRegistration | null | undefined
+) {
+  if (!params || typeof params !== "object" || Array.isArray(params)) return null;
+  const spokenText = parseString((params as Record<string, unknown>).spokenText);
+  if (!spokenText || !textClaimsCompletion(spokenText)) return null;
+
+  const proof = findCompletionProof(sessionKey, shell);
+  if (!proof) return null;
+  if (proof.lastResultOk === false) {
+    return "clicky_present cannot claim completion because the latest computer-use runtime result failed. Explain the failure or recover with observe-act-observe.";
+  }
+  if (proof.lastMutationAt && (!proof.lastObservationAt || proof.lastObservationAt < proof.lastMutationAt)) {
+    return "clicky_present cannot claim completion yet. Call get_window_state after the latest computer-use action, inspect the runtime state, then present the verified result.";
+  }
+  return null;
+}
+
+function resolveWaitingPollForRequest(request: QueuedComputerUseRequest) {
+  const pollIndex = waitingPolls.findIndex((poll) =>
+    poll.shellId === request.shellId &&
+    (!poll.sessionKey || !request.sessionKey || sessionKeysMatch(poll.sessionKey, request.sessionKey))
   );
+  if (pollIndex < 0) return false;
 
-  const summaryLines = [
-    `clicky shell label: ${normalizedPluginConfig.shellLabel}`,
-    `remote desktop shells: ${normalizedPluginConfig.allowRemoteDesktopShell ? "allowed" : "local-first"}`,
-    `registration ttl: ${normalizedPluginConfig.registrationTtlMs}ms`,
-    `active shells: ${registrations.length}`,
-  ];
-
-  if (includeRegistrations && registrations.length > 0) {
-    for (const registration of registrations) {
-      const freshnessState = freshnessStateForRegistration(registration, normalizedPluginConfig.registrationTtlMs);
-      const trustState = trustStateForRegistration(registration);
-      const sessionBindingState = sessionBindingStateForRegistration(registration);
-      summaryLines.push(
-        `- ${registration.shellId} agent=${registration.agentIdentityName ?? "unknown"} clicky=${registration.clickyPresentationName ?? registration.agentIdentityName ?? "unknown"} scope=${registration.personaScope} trust=${trustState} freshness=${freshnessState} binding=${sessionBindingState} session=${registration.sessionKey ?? "none"} capabilities=${registration.capabilities.join(", ") || "none"}`
-      );
-    }
-  }
-
-  if (includeRegistrations && registrations.length === 0) {
-    summaryLines.push("- no Clicky shells registered yet");
-  }
-
-  return summaryLines.join("\n");
+  const [poll] = waitingPolls.splice(pollIndex, 1);
+  clearTimeout(poll.timeout);
+  poll.respond(true, {
+    ok: true,
+    request: {
+      payload: request.payload,
+      requestId: request.requestId,
+      route: request.route,
+      statusText: humanRouteLabel(request.route),
+    },
+  });
+  return true;
 }
 
-function parseShellRegistration(params: unknown): ClickyShellRegistration | null {
-  if (typeof params !== "object" || params === null || Array.isArray(params)) {
-    return null;
-  }
+function queueComputerUseRequest(
+  shell: ShellRegistration,
+  route: ComputerUseRoute,
+  payload: Record<string, unknown>
+) {
+  const requestId = `cu_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+  return new Promise<Record<string, unknown>>((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingComputerUseRequests.delete(requestId);
+      resolve({
+        ok: false,
+        error: "Clicky did not return a computer-use result before the tool timed out.",
+        recovery: ["Make sure the Clicky app is running and connected to this OpenClaw session."],
+        requestId,
+        route,
+      });
+    }, 300_000);
+
+    const request: QueuedComputerUseRequest = {
+      createdAt: Date.now(),
+      payload,
+      requestId,
+      resolve,
+      route,
+      sessionKey: shell.sessionKey,
+      shellId: shell.shellId,
+      timeout,
+    };
+    pendingComputerUseRequests.set(requestId, request);
+    resolveWaitingPollForRequest(request);
+  });
+}
+
+function takeNextRequest(shellId: string, sessionKey: string | null) {
+  const matches = [...pendingComputerUseRequests.values()]
+    .filter((request) =>
+      request.shellId === shellId &&
+      (!sessionKey || !request.sessionKey || sessionKeysMatch(sessionKey, request.sessionKey))
+    )
+    .sort((left, right) => left.createdAt - right.createdAt);
+  return matches[0] ?? null;
+}
+
+function buildPresentationReply(params: unknown) {
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    return { ok: false as const, error: "clicky_present parameters must be a JSON object." };
+  }
   const record = params as Record<string, unknown>;
-  const shellId = typeof record.shellId === "string" ? record.shellId.trim() : "";
-  if (!shellId) return null;
-
-  return {
-    agentIdentityName: typeof record.agentIdentityName === "string" && record.agentIdentityName.trim() ? record.agentIdentityName.trim() : null,
-    bridgeVersion: typeof record.bridgeVersion === "string" && record.bridgeVersion.trim() ? record.bridgeVersion.trim() : null,
-    clickyShellCapabilityVersion: typeof record.clickyShellCapabilityVersion === "string" && record.clickyShellCapabilityVersion.trim() ? record.clickyShellCapabilityVersion.trim() : null,
-    capabilities: Array.isArray(record.capabilities)
-      ? record.capabilities.filter((capability): capability is string => typeof capability === "string").map((capability) => capability.trim()).filter(Boolean)
-      : [],
-    clickyPresentationName: typeof record.clickyPresentationName === "string" && record.clickyPresentationName.trim() ? record.clickyPresentationName.trim() : null,
-    cursorPointingProtocol: typeof record.cursorPointingProtocol === "string" && record.cursorPointingProtocol.trim() ? record.cursorPointingProtocol.trim() : null,
-    lastHeartbeatAt: Date.now(),
-    personaScope:
-      record.personaScope === "clicky-local-override"
-        ? "clicky-local-override"
-        : "openclaw-identity",
-    registeredAt:
-      typeof record.registeredAt === "number" && Number.isFinite(record.registeredAt)
-        ? Math.floor(record.registeredAt)
-        : Date.now(),
-    runtimeMode: typeof record.runtimeMode === "string" && record.runtimeMode.trim() ? record.runtimeMode.trim() : null,
-    screenContextTransport: typeof record.screenContextTransport === "string" && record.screenContextTransport.trim() ? record.screenContextTransport.trim() : null,
-    sessionKey: typeof record.sessionKey === "string" && record.sessionKey.trim() ? record.sessionKey.trim() : null,
-    shellId,
-    shellLabel: typeof record.shellLabel === "string" && record.shellLabel.trim() ? record.shellLabel.trim() : null,
-    shellProtocolVersion: typeof record.shellProtocolVersion === "string" && record.shellProtocolVersion.trim() ? record.shellProtocolVersion.trim() : null,
-    shellTransportScope: record.shellTransportScope === "remote-gateway" ? "remote-gateway" : "local-gateway",
-    speechOutputMode: typeof record.speechOutputMode === "string" && record.speechOutputMode.trim() ? record.speechOutputMode.trim() : null,
-    supportsInlineTextBubble: record.supportsInlineTextBubble === true,
-    promptContext: null,
-  };
+  const mode = parseString(record.mode) as PresentationMode | null;
+  const spokenText = parseString(record.spokenText);
+  const points = Array.isArray(record.points) ? record.points : [];
+  if (!mode || !["answer", "point", "walkthrough", "tutorial"].includes(mode)) {
+    return { ok: false as const, error: "mode must be answer, point, walkthrough, or tutorial." };
+  }
+  if (!spokenText) {
+    return { ok: false as const, error: "spokenText is required." };
+  }
+  const reply = { mode, spokenText, points };
+  return { ok: true as const, reply, replyText: JSON.stringify(reply) };
 }
 
-function readShellIdFromParams(params: unknown): string {
-  if (typeof params !== "object" || params === null || Array.isArray(params)) {
-    return "";
-  }
+function makeRuntimeTool(route: ComputerUseRoute, api: any, ctx: any) {
+  return {
+    name: route,
+    description: `${runtimeToolDescription(route)} Executes through Clicky's local BackgroundComputerUse runtime. Use observe-act-observe: observe before actions and observe again after actions.`,
+    parameters: runtimeToolParameters(route),
+    async execute(_toolCallId: string, params: unknown) {
+      const validation = validatePayload(route, params);
+      if (!validation.ok) {
+        return { content: [{ type: "text", text: validation.error }], isError: true };
+      }
 
-  const shellId = typeof (params as Record<string, unknown>).shellId === "string"
-    ? (params as Record<string, unknown>).shellId.trim()
-    : "";
+      const normalizedConfig = normalizePluginConfig(api.pluginConfig);
+      const shell = findFreshShell(ctx?.sessionKey, normalizedConfig.registrationTtlMs);
+      if (!shell) {
+        return {
+          content: [{ type: "text", text: "No fresh Clicky desktop shell is connected for computer use." }],
+          isError: true,
+          structuredContent: { ok: false, error: "no_fresh_clicky_shell", route },
+        };
+      }
 
-  return shellId;
+      api.logger.info(`clicky-shell: computer_use route=${route} shell=${shell.shellId}`);
+      const result = await queueComputerUseRequest(shell, route, validation.payload);
+      rememberCompletionProof(shell, route, result, ctx?.sessionKey);
+      const content: Record<string, string>[] = [{ type: "text", text: formatToolResult(route, result) }];
+      const screenshotUrl = screenshotDataUrl(result);
+      if (screenshotUrl) {
+        content.push({ type: "image", url: screenshotUrl });
+      }
+      return {
+        content,
+        structuredContent: result,
+        isError: result.ok === false,
+      };
+    },
+  };
 }
 
 export default definePluginEntry({
@@ -521,331 +849,223 @@ export default definePluginEntry({
     type: "object",
     additionalProperties: false,
     properties: {
-      shellLabel: {
-        type: "string",
-      },
-      registrationTtlMs: {
-        type: "integer",
-        minimum: 5000,
-        maximum: 300000,
-      },
-      allowRemoteDesktopShell: {
-        type: "boolean",
-      },
+      shellLabel: { type: "string" },
+      registrationTtlMs: { type: "integer", minimum: 5000, maximum: 300000 },
+      allowRemoteDesktopShell: { type: "boolean" },
     },
   },
   register(api) {
-    api.registerGatewayMethod(
-      "clicky.status",
-      async ({ respond }) => {
-        try {
-          pruneExpiredShellRegistrations(normalizePluginConfig(api.pluginConfig).registrationTtlMs);
-          const summary = formatStatusSummary(api.pluginConfig, true);
-          respond(true, {
-            activeShellCount: clickyShellRegistrationsById.size,
-            registrations: [...clickyShellRegistrationsById.values()].map((registration) =>
-              serializeShellRegistration(registration, normalizePluginConfig(api.pluginConfig).registrationTtlMs)
-            ),
-            summary,
-          });
-        } catch (error) {
-          respond(false, { error: error instanceof Error ? error.message : String(error) });
-        }
-      },
-      { scope: "operator.read" }
-    );
+    api.registerGatewayMethod("clicky.status", async ({ respond }) => {
+      respond(true, {
+        registrations: [...registrationsByShellId.values()].map((registration) =>
+          serializeRegistration(registration, normalizePluginConfig(api.pluginConfig).registrationTtlMs)
+        ),
+        summary: statusSummary(api.pluginConfig, true),
+      });
+    }, { scope: "operator.read" });
 
-    api.registerGatewayMethod(
-      "clicky.shell.register",
-      async ({ params, respond }) => {
-        try {
-          const normalizedPluginConfig = normalizePluginConfig(api.pluginConfig);
-          const shellRegistration = parseShellRegistration(params);
-          if (!shellRegistration) {
-            respond(false, { error: "shellId required" });
-            return;
-          }
+    api.registerGatewayMethod("clicky.shell.register", async ({ params, respond }) => {
+      const registration = parseShellRegistration(params);
+      if (!registration) {
+        respond(false, { error: "shellId required" });
+        return;
+      }
+      const config = normalizePluginConfig(api.pluginConfig);
+      if (registration.shellTransportScope === "remote-gateway" && !config.allowRemoteDesktopShell) {
+        respond(false, { error: "remote Clicky shells are not allowed" });
+        return;
+      }
+      registrationsByShellId.set(registration.shellId, registration);
+      respond(true, {
+        ok: true,
+        registration: serializeRegistration(registration, config.registrationTtlMs),
+        shellId: registration.shellId,
+        summary: statusSummary(api.pluginConfig, true),
+      });
+    }, { scope: "operator.write" });
 
-          if (shellRegistration.shellTransportScope === "remote-gateway" && !normalizedPluginConfig.allowRemoteDesktopShell) {
-            respond(false, { error: "remote clicky shells are not allowed by current plugin policy" });
-            return;
-          }
+    api.registerGatewayMethod("clicky.shell.heartbeat", async ({ params, respond }) => {
+      const shellId = params && typeof params === "object" ? parseString((params as Record<string, unknown>).shellId) : null;
+      const registration = shellId ? registrationsByShellId.get(shellId) : null;
+      if (!shellId || !registration) {
+        respond(false, { error: "shell not registered" });
+        return;
+      }
+      registration.lastHeartbeatAt = Date.now();
+      registrationsByShellId.set(shellId, registration);
+      respond(true, { ok: true, shellId });
+    }, { scope: "operator.write" });
 
-          clickyShellRegistrationsById.set(shellRegistration.shellId, shellRegistration);
-          respond(true, {
-            ok: true,
-            registration: {
-              ...serializeShellRegistration(shellRegistration, normalizedPluginConfig.registrationTtlMs),
-              freshnessState: freshnessStateForRegistration(shellRegistration, normalizedPluginConfig.registrationTtlMs),
-            },
-            shellId: shellRegistration.shellId,
-            summary: formatStatusSummary(api.pluginConfig, true),
-          });
-        } catch (error) {
-          respond(false, { error: error instanceof Error ? error.message : String(error) });
-        }
-      },
-      { scope: "operator.write" }
-    );
+    api.registerGatewayMethod("clicky.shell.set_prompt_context", async ({ params, respond }) => {
+      const record = params && typeof params === "object" ? params as Record<string, unknown> : {};
+      const shellId = parseString(record.shellId);
+      const registration = shellId ? registrationsByShellId.get(shellId) : null;
+      const promptContext = parseString(record.promptContext);
+      if (!shellId || !registration || !promptContext) {
+        respond(false, { error: "shellId and promptContext required" });
+        return;
+      }
+      registration.promptContext = promptContext;
+      registration.sessionKey = parseString(record.sessionKey) ?? registration.sessionKey;
+      registration.lastHeartbeatAt = Date.now();
+      registrationsByShellId.set(shellId, registration);
+      respond(true, { ok: true, shellId });
+    }, { scope: "operator.write" });
 
-    api.registerGatewayMethod(
-      "clicky.shell.heartbeat",
-      async ({ params, respond }) => {
-        try {
-          const normalizedPluginConfig = normalizePluginConfig(api.pluginConfig);
-          const shellId = readShellIdFromParams(params);
+    api.registerGatewayMethod("clicky.shell.status", async ({ params, respond }) => {
+      const shellId = params && typeof params === "object" ? parseString((params as Record<string, unknown>).shellId) : null;
+      const registration = shellId ? registrationsByShellId.get(shellId) : null;
+      respond(true, {
+        found: Boolean(registration),
+        registration: registration
+          ? serializeRegistration(registration, normalizePluginConfig(api.pluginConfig).registrationTtlMs)
+          : null,
+        shellId,
+        summary: statusSummary(api.pluginConfig, true),
+      });
+    }, { scope: "operator.read" });
 
-          if (!shellId) {
-            respond(false, { error: "shellId required" });
-            return;
-          }
+    api.registerGatewayMethod("clicky.shell.bind_session", async ({ params, respond }) => {
+      const record = params && typeof params === "object" ? params as Record<string, unknown> : {};
+      const shellId = parseString(record.shellId);
+      const registration = shellId ? registrationsByShellId.get(shellId) : null;
+      if (!shellId || !registration) {
+        respond(false, { error: "shell not registered" });
+        return;
+      }
+      registration.sessionKey = parseString(record.sessionKey);
+      registration.promptContext = null;
+      registration.lastHeartbeatAt = Date.now();
+      registrationsByShellId.set(shellId, registration);
+      respond(true, {
+        ok: true,
+        registration: serializeRegistration(registration, normalizePluginConfig(api.pluginConfig).registrationTtlMs),
+        shellId,
+        summary: statusSummary(api.pluginConfig, true),
+      });
+    }, { scope: "operator.write" });
 
-          const existingRegistration = clickyShellRegistrationsById.get(shellId);
-          if (!existingRegistration) {
-            respond(false, { error: "shell not registered" });
-            return;
-          }
+    api.registerGatewayMethod("clicky.shell.next_computer_use_action", async ({ params, respond }) => {
+      const record = params && typeof params === "object" ? params as Record<string, unknown> : {};
+      const shellId = parseString(record.shellId);
+      const sessionKey = parseString(record.sessionKey);
+      const timeoutMs = typeof record.timeoutMs === "number"
+        ? Math.max(250, Math.min(25_000, Math.floor(record.timeoutMs)))
+        : 20_000;
+      if (!shellId) {
+        respond(false, { error: "shellId required" });
+        return;
+      }
+      const request = takeNextRequest(shellId, sessionKey);
+      if (request) {
+        respond(true, {
+          ok: true,
+          request: {
+            payload: request.payload,
+            requestId: request.requestId,
+            route: request.route,
+            statusText: humanRouteLabel(request.route),
+          },
+        });
+        return;
+      }
 
-          existingRegistration.lastHeartbeatAt = Date.now();
-          clickyShellRegistrationsById.set(shellId, existingRegistration);
-          respond(true, {
-            ok: true,
-            registration: {
-              ...serializeShellRegistration(existingRegistration, normalizedPluginConfig.registrationTtlMs),
-              freshnessState: freshnessStateForRegistration(existingRegistration, normalizedPluginConfig.registrationTtlMs),
-            },
-            shellId,
-          });
-        } catch (error) {
-          respond(false, { error: error instanceof Error ? error.message : String(error) });
-        }
-      },
-      { scope: "operator.write" }
-    );
+      const poll: WaitingPoll = {
+        deadline: Date.now() + timeoutMs,
+        respond,
+        sessionKey,
+        shellId,
+        timeout: setTimeout(() => {
+          const index = waitingPolls.indexOf(poll);
+          if (index >= 0) waitingPolls.splice(index, 1);
+          respond(true, { ok: true, request: null });
+        }, timeoutMs),
+      };
+      waitingPolls.push(poll);
+    }, { scope: "operator.write" });
 
-    api.registerGatewayMethod(
-      "clicky.shell.set_prompt_context",
-      async ({ params, respond }) => {
-        try {
-          const shellId = readShellIdFromParams(params);
-          if (!shellId) {
-            respond(false, { error: "shellId required" });
-            return;
-          }
-
-          const existingRegistration = clickyShellRegistrationsById.get(shellId);
-          if (!existingRegistration) {
-            respond(false, { error: "shell not registered" });
-            return;
-          }
-
-          const promptContext =
-            typeof (params as Record<string, unknown>).promptContext === "string" &&
-            (params as Record<string, unknown>).promptContext.trim()
-              ? (params as Record<string, unknown>).promptContext.trim()
-              : null;
-
-          if (!promptContext) {
-            respond(false, { error: "promptContext required" });
-            return;
-          }
-
-          const sessionKey =
-            typeof (params as Record<string, unknown>).sessionKey === "string" &&
-            (params as Record<string, unknown>).sessionKey.trim()
-              ? (params as Record<string, unknown>).sessionKey.trim()
-              : existingRegistration.sessionKey;
-
-          existingRegistration.promptContext = promptContext;
-          existingRegistration.sessionKey = sessionKey;
-          existingRegistration.lastHeartbeatAt = Date.now();
-          clickyShellRegistrationsById.set(shellId, existingRegistration);
-
-          respond(true, {
-            ok: true,
-            shellId,
-          });
-        } catch (error) {
-          respond(false, { error: error instanceof Error ? error.message : String(error) });
-        }
-      },
-      { scope: "operator.write" }
-    );
-
-    api.registerGatewayMethod(
-      "clicky.shell.status",
-      async ({ params, respond }) => {
-        try {
-          const normalizedPluginConfig = normalizePluginConfig(api.pluginConfig);
-          const shellId = readShellIdFromParams(params);
-          if (!shellId) {
-            respond(true, {
-              found: false,
-              summary: formatStatusSummary(api.pluginConfig, true),
-            });
-            return;
-          }
-
-          const existingRegistration = clickyShellRegistrationsById.get(shellId);
-          if (!existingRegistration) {
-            respond(true, {
-              found: false,
-              shellId,
-              summary: formatStatusSummary(api.pluginConfig, true),
-            });
-            return;
-          }
-
-          respond(true, {
-            found: true,
-            registration: {
-              ...serializeShellRegistration(existingRegistration, normalizedPluginConfig.registrationTtlMs),
-              freshnessState: freshnessStateForRegistration(existingRegistration, normalizedPluginConfig.registrationTtlMs),
-              trustState: trustStateForRegistration(existingRegistration),
-              sessionBindingState: sessionBindingStateForRegistration(existingRegistration),
-            },
-            shellId,
-            summary: formatStatusSummary(api.pluginConfig, true),
-          });
-        } catch (error) {
-          respond(false, { error: error instanceof Error ? error.message : String(error) });
-        }
-      },
-      { scope: "operator.read" }
-    );
-
-    api.registerGatewayMethod(
-      "clicky.shell.bind_session",
-      async ({ params, respond }) => {
-        try {
-          const shellId = readShellIdFromParams(params);
-          if (!shellId) {
-            respond(false, { error: "shellId required" });
-            return;
-          }
-
-          const existingRegistration = clickyShellRegistrationsById.get(shellId);
-          if (!existingRegistration) {
-            respond(false, { error: "shell not registered" });
-            return;
-          }
-
-          const sessionKey =
-            typeof (params as Record<string, unknown>).sessionKey === "string" &&
-            (params as Record<string, unknown>).sessionKey.trim()
-              ? (params as Record<string, unknown>).sessionKey.trim()
-              : null;
-
-          existingRegistration.sessionKey = sessionKey;
-          existingRegistration.promptContext = null;
-          existingRegistration.lastHeartbeatAt = Date.now();
-          clickyShellRegistrationsById.set(shellId, existingRegistration);
-
-          respond(true, {
-            ok: true,
-            registration: serializeShellRegistration(existingRegistration, normalizePluginConfig(api.pluginConfig).registrationTtlMs),
-            shellId,
-            summary: formatStatusSummary(api.pluginConfig, true),
-          });
-        } catch (error) {
-          respond(false, { error: error instanceof Error ? error.message : String(error) });
-        }
-      },
-      { scope: "operator.write" }
-    );
+    api.registerGatewayMethod("clicky.shell.complete_computer_use_action", async ({ params, respond }) => {
+      const record = params && typeof params === "object" ? params as Record<string, unknown> : {};
+      const requestId = parseString(record.requestId);
+      const request = requestId ? pendingComputerUseRequests.get(requestId) : null;
+      if (!requestId || !request) {
+        respond(false, { error: "computer-use request not found" });
+        return;
+      }
+      pendingComputerUseRequests.delete(requestId);
+      clearTimeout(request.timeout);
+      const result = record.result && typeof record.result === "object" && !Array.isArray(record.result)
+        ? record.result as Record<string, unknown>
+        : { ok: false, error: "Clicky returned an invalid computer-use result." };
+      request.resolve({
+        ...result,
+        requestId,
+        route: request.route,
+      });
+      respond(true, { ok: true, requestId });
+    }, { scope: "operator.write" });
 
     api.registerCommand({
       name: "clicky",
       description: "Show Clicky shell integration status.",
       acceptsArgs: false,
       requireAuth: false,
-      handler: async () => {
-        return {
-          text: formatStatusSummary(api.pluginConfig, true),
-        };
-      },
+      handler: async () => ({ text: statusSummary(api.pluginConfig, true) }),
     });
 
     api.registerTool({
       name: "clicky_status",
-      description: "Inspect whether a Clicky desktop shell is connected and what shell capabilities it exposes.",
-      parameters: clickyStatusToolParameters,
+      description: "Inspect whether a Clicky desktop shell is connected.",
+      parameters: statusToolParameters,
       async execute(_toolCallId, params) {
-        const includeRegistrations = params.includeRegistrations !== false;
         return {
-          content: [
-            {
-              type: "text",
-              text: formatStatusSummary(api.pluginConfig, includeRegistrations),
-            },
-          ],
+          content: [{ type: "text", text: statusSummary(api.pluginConfig, params?.includeRegistrations !== false) }],
         };
       },
     });
 
-    api.registerTool({
+    api.registerTool((ctx) => ({
       name: "clicky_present",
-      description: "Finish a Clicky turn in one of four modes: answer, point, walkthrough, or tutorial. Use this as the final presentation step for Clicky shell responses.",
-      parameters: clickyPresentToolParameters,
+      description: "Finish a Clicky turn in answer, point, walkthrough, or tutorial mode.",
+      parameters: presentToolParameters,
       async execute(_toolCallId, params) {
-        const presentationResult = buildClickyPresentationReply(params);
-        if (!presentationResult.ok) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: presentationResult.error,
-              },
-            ],
-            isError: true,
-          };
+        const normalized = normalizePluginConfig(api.pluginConfig);
+        const shell = findFreshShell(ctx?.sessionKey, normalized.registrationTtlMs);
+        const completionError = validatePresentationAgainstCompletionProof(params, ctx?.sessionKey, shell);
+        if (completionError) {
+          return { content: [{ type: "text", text: completionError }], isError: true };
         }
 
-        api.logger.info(
-          `clicky-shell: captured clicky_present tool output mode=${presentationResult.reply.mode}`
-        );
-
-        const finalResponseInstruction = [
-          "Clicky presentation accepted.",
-          "For the final assistant message, output exactly this JSON object and nothing else:",
-          presentationResult.replyText,
-        ].join("\n");
-
+        const result = buildPresentationReply(params);
+        if (!result.ok) {
+          return { content: [{ type: "text", text: result.error }], isError: true };
+        }
         return {
-          content: [
-            {
-              type: "text",
-              text: finalResponseInstruction,
-            },
-          ],
-          structuredContent: presentationResult.reply,
+          content: [{
+            type: "text",
+            text: [
+              "Clicky presentation accepted.",
+              "For the final assistant message, output exactly this JSON object and nothing else:",
+              result.replyText,
+            ].join("\n"),
+          }],
+          structuredContent: result.reply,
         };
       },
-    });
+    }), { names: ["clicky_present"] });
+
+    for (const route of computerUseRoutes) {
+      api.registerTool((ctx) => makeRuntimeTool(route, api, ctx), { names: [route] });
+    }
 
     api.on("before_prompt_build", async (_event, ctx) => {
-      api.logger.info(
-        `clicky-shell: before_prompt_build sessionKey=${ctx.sessionKey ?? "none"} sessionId=${ctx.sessionId ?? "none"}`
-      );
-
-      const normalizedPluginConfig = normalizePluginConfig(api.pluginConfig);
-      const registration = findFreshShellRegistrationForSessionKey(
-        ctx.sessionKey,
-        normalizedPluginConfig.registrationTtlMs
-      );
-
-      if (!registration) {
-        api.logger.info(`clicky-shell: before_prompt_build no fresh registration for ${ctx.sessionKey ?? "none"}`);
-        return;
-      }
-
-      api.logger.info(
-        `clicky-shell: before_prompt_build appending prompt context for shellId=${registration.shellId} boundSession=${registration.sessionKey ?? "none"}`
-      );
-
-      return {
-        appendSystemContext: buildClickyShellPromptContext(registration),
-      };
+      const normalized = normalizePluginConfig(api.pluginConfig);
+      const shell = findFreshShell(ctx.sessionKey, normalized.registrationTtlMs);
+      if (!shell) return;
+      const context = shell.promptContext?.trim()
+        ? `${shell.promptContext.trim()}\n\n${buildPromptInstructions()}`
+        : buildPromptInstructions();
+      return { prependSystemContext: context };
     });
   },
 });

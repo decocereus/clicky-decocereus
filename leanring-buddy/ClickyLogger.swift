@@ -13,6 +13,7 @@ enum ClickyLogCategory: String {
     case app
     case audio
     case agent
+    case computerUse = "ComputerUse"
     case turns
     case gateway
     case plugin
@@ -99,6 +100,7 @@ final class ClickyDiagnosticsStore: ObservableObject {
 
 enum ClickyLogger {
     private static let subsystem = Bundle.main.bundleIdentifier ?? "so.clicky.app"
+    private static let verboseTurnDiagnosticsKey = "clickyVerboseTurnDiagnostics"
 
     private static func logger(for category: ClickyLogCategory) -> Logger {
         Logger(subsystem: subsystem, category: category.rawValue)
@@ -106,6 +108,11 @@ enum ClickyLogger {
 
     static func debug(_ category: ClickyLogCategory, _ message: String) {
         log(category: category, level: .debug, message: message)
+    }
+
+    static func verboseTurn(_ message: String) {
+        guard verboseTurnDiagnosticsEnabled else { return }
+        log(category: .turns, level: .debug, message: message)
     }
 
     static func info(_ category: ClickyLogCategory, _ message: String) {
@@ -124,7 +131,18 @@ enum ClickyLogger {
         ClickyLogRedactor.redact(text)
     }
 
+    static var verboseTurnDiagnosticsEnabled: Bool {
+        if ProcessInfo.processInfo.environment["CLICKY_VERBOSE_TURN_LOGS"] == "1" {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: verboseTurnDiagnosticsKey)
+    }
+
     private static func log(category: ClickyLogCategory, level: ClickyLogLevel, message: String) {
+        if category == .turns, !verboseTurnDiagnosticsEnabled, level != .error {
+            return
+        }
+
         let redactedMessage = ClickyLogRedactor.redact(message)
         logger(for: category).log(level: level.osLogType, "\(redactedMessage, privacy: .public)")
 

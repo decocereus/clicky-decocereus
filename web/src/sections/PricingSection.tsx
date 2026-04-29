@@ -1,7 +1,7 @@
 import { useRef, useLayoutEffect } from 'react';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { Check, Sparkles, Shield, Zap, Download } from 'lucide-react';
+import { Check, Sparkles, Shield, Zap, Download, ArrowRight } from 'lucide-react';
 import { getDownloadUrl } from '../lib/download';
 
 gsap.registerPlugin(ScrollTrigger);
@@ -93,7 +93,7 @@ export function PricingSection() {
       id="pricing"
       className="relative w-full min-h-screen bg-warm py-24 z-80"
     >
-      <div className="max-w-4xl mx-auto px-6">
+      <div className="mx-auto max-w-6xl px-6">
         {/* Heading */}
         <div ref={headingRef} className="text-center mb-12">
           <p className="text-muted-elegant text-xs tracking-[0.2em] uppercase mb-4 font-mono">
@@ -111,77 +111,78 @@ export function PricingSection() {
           </h2>
         </div>
 
-        {/* Pricing Card */}
+        {/* Pricing band */}
         <div
           ref={cardRef}
-          className="bg-white rounded-3xl shadow-elegant overflow-hidden"
+          className="relative overflow-hidden border-y border-[#DDE8EE] bg-gradient-to-br from-[#FAFCFF] via-[#EAF8FF] to-[#F9F3F8] py-12 md:py-16"
         >
-          {/* Popular Tag */}
-          <div className="bg-charcoal py-2 px-4 text-center">
-            <span className="text-warm text-xs font-medium tracking-wide flex items-center justify-center gap-1.5">
-              <Sparkles size={12} />
-              Welcome Pass — Limited Time Pricing
-            </span>
-          </div>
-
-          <div className="p-10 md:p-14">
-            {/* Price Section */}
-            <div className="text-center mb-10">
-              <div className="flex items-center justify-center gap-3 mb-2">
-                <span className="text-xl text-muted-elegant line-through font-light">$79</span>
-                <span
-                  className="text-charcoal font-semibold"
-                  style={{ fontSize: 'clamp(48px, 6vw, 72px)' }}
-                >
-                  $49
-                </span>
-                <span className="text-muted-elegant text-lg">/year</span>
-              </div>
-              <p className="text-sm text-muted-elegant">
-                Early supporter price — lock in this rate forever
-              </p>
-            </div>
-
-            {/* CTA Button */}
-            <a
-              id="pricing-download-cta"
-              href={downloadUrl}
-              data-companion-cta-id="pricing-download-cta"
-              data-companion-section-id="pricing"
-              data-companion-target-kind="cta"
-              className="w-full bg-charcoal text-warm py-4 rounded-full font-medium text-base hover:bg-lavender transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2 mb-10 group"
-            >
-              <Download size={18} className="group-hover:translate-y-0.5 transition-transform" />
-              Download for macOS
-            </a>
-
-            {/* Features Grid - Auto-sizing for content */}
-            <div
-              ref={featuresRef}
-              className="grid grid-cols-1 sm:grid-cols-2 gap-3"
-            >
-              {features.map((feature, index) => (
-                <div
-                  key={index}
-                  className="feature-item flex items-start gap-3 p-3 rounded-xl hover:bg-warm/50 transition-colors min-h-0"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-sage/20 flex items-center justify-center flex-shrink-0">
-                    <feature.icon size={16} className="text-sage" />
-                  </div>
-                  <span className="text-charcoal text-sm leading-snug pt-1">{feature.text}</span>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_16%_20%,rgba(79,231,238,0.2),transparent_30%),radial-gradient(circle_at_88%_72%,rgba(255,185,207,0.22),transparent_34%)]" />
+          <div className="relative grid gap-10 px-6 md:grid-cols-[0.9fr_1.1fr] md:px-12">
+            <div className="flex flex-col justify-between gap-8">
+              <div>
+                <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-charcoal px-3 py-1.5 text-xs font-medium tracking-wide text-white">
+                  <Sparkles size={13} />
+                  Welcome Pass
                 </div>
-              ))}
+                <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                  <span className="pb-3 text-2xl font-light text-muted-elegant line-through">
+                    $79
+                  </span>
+                  <span
+                    className="font-semibold leading-none text-charcoal"
+                    style={{ fontSize: 'clamp(64px, 9vw, 112px)' }}
+                  >
+                    $49
+                  </span>
+                  <span className="pb-4 text-xl text-muted-elegant">/year</span>
+                </div>
+                <p className="mt-5 max-w-md text-base leading-7 text-muted-elegant">
+                  Early supporter pricing for people who want Clicky beside them while they work.
+                  Lock in the rate forever.
+                </p>
+              </div>
+
+              <a
+                id="pricing-download-cta"
+                href={downloadUrl}
+                data-companion-cta-id="pricing-download-cta"
+                data-companion-section-id="pricing"
+                data-companion-target-kind="cta"
+                className="group inline-flex w-fit items-center justify-center gap-3 rounded-full bg-charcoal px-7 py-4 text-base font-medium text-warm shadow-lg shadow-[#3478F6]/15 transition-all hover:bg-[#3478F6] hover:shadow-xl"
+              >
+                <Download size={18} className="transition-transform group-hover:translate-y-0.5" />
+                Download for macOS
+                <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+              </a>
             </div>
 
-            {/* Trust Row */}
-            <div className="mt-10 pt-8 border-t border-gray-100">
-              <div className="flex flex-wrap justify-center gap-8 text-muted-elegant text-sm">
+            <div className="space-y-8">
+              <div
+                ref={featuresRef}
+                className="grid grid-cols-1 gap-x-8 gap-y-0 sm:grid-cols-2"
+              >
+                {features.map((feature, index) => (
+                  <div
+                    key={index}
+                    className="feature-item flex items-start gap-3 border-t border-[#DDE8EE] py-5"
+                  >
+                    <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/80">
+                      <feature.icon size={16} className="text-[#3478F6]" />
+                    </div>
+                    <span className="pt-1 text-sm leading-6 text-charcoal">{feature.text}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                className="grid gap-4 border-t border-[#DDE8EE] pt-6 text-sm text-muted-elegant sm:grid-cols-2"
+              >
                 <span className="flex items-center gap-2">
-                  <Shield size={14} />
+                  <Shield size={15} className="text-[#3478F6]" />
                   14-day money-back guarantee
                 </span>
                 <span className="flex items-center gap-2">
-                  <Zap size={14} />
+                  <Zap size={15} className="text-[#3478F6]" />
                   Instant digital delivery
                 </span>
               </div>

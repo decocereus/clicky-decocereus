@@ -13,7 +13,7 @@ BUNDLE_ID="com.yourcompany.leanring-buddy"
 
 usage() {
   cat <<'EOF'
-usage: ./script/build_and_run.sh [run|--debug|--logs|--telemetry|--verify]
+usage: ./script/build_and_run.sh [build|run|--debug|--logs|--telemetry|--verify]
 EOF
 }
 
@@ -201,6 +201,10 @@ wait_for_process() {
 }
 
 case "$MODE" in
+  build)
+    require_xcode_success build >/dev/null
+    printf 'Built %s via Xcode scheme %s.\n' "$APP_NAME" "$SCHEME_NAME"
+    ;;
   run|"")
     stop_existing_app
     require_xcode_success run >/dev/null

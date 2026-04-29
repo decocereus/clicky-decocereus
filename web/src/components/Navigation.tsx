@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
+import { ClickyLogo } from './ClickyLogo';
 import { getDownloadUrl } from '../lib/download';
 
 export function Navigation() {
@@ -35,8 +36,8 @@ export function Navigation() {
       >
         <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
           {/* Logo */}
-          <a href="#" className="text-charcoal font-semibold text-xl tracking-tight">
-            Clicky
+          <a href="#" aria-label="Clicky home">
+            <ClickyLogo />
           </a>
 
           {/* Desktop Nav */}
@@ -70,7 +71,7 @@ export function Navigation() {
               href={downloadUrl}
               data-companion-cta-id="nav-download-cta"
               data-companion-target-kind="cta"
-              className="bg-charcoal text-warm px-5 py-2.5 rounded-full text-sm font-medium hover:bg-lavender transition-colors"
+              className="bg-charcoal text-warm px-5 py-2.5 rounded-full text-sm font-medium hover:bg-[#3478F6] transition-colors shadow-[0_10px_28px_rgba(52,120,246,0.18)]"
             >
               Download
             </a>
@@ -119,7 +120,7 @@ export function Navigation() {
               href={downloadUrl}
               data-companion-cta-id="nav-mobile-download-cta"
               data-companion-target-kind="cta"
-              className="bg-charcoal text-warm px-6 py-3 rounded-full text-lg font-medium mt-4"
+              className="bg-charcoal text-warm px-6 py-3 rounded-full text-lg font-medium mt-4 shadow-[0_10px_28px_rgba(52,120,246,0.18)]"
             >
               Download
             </a>

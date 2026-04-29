@@ -197,6 +197,7 @@ final class CompanionManager: ObservableObject {
     let preferences = ClickyPreferencesStore()
     let backendRoutingController = ClickyBackendRoutingController()
     let launchAccessController = ClickyLaunchAccessController()
+    let computerUseController = ClickyComputerUseController()
     let speechProviderController = ClickySpeechProviderController()
     let buddyDictationManager = BuddyDictationManager()
     let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor()
@@ -236,6 +237,15 @@ final class CompanionManager: ObservableObject {
                     sessionKey: self.openClawSessionKey,
                     shellIdentifier: self.clickyShellIdentifier
                 )
+            },
+            computerUseToolHandler: { [weak self] request in
+                guard let self else {
+                    return [
+                        "ok": false,
+                        "error": "Clicky is no longer available for computer use.",
+                    ]
+                }
+                return await self.executeOpenClawComputerUseToolRequest(request)
             }
         )
     }()
@@ -284,7 +294,13 @@ final class CompanionManager: ObservableObject {
     private var pendingDetectedElementTargets: [QueuedPointingTarget] = []
     private var pendingManagedPointNarrationSteps: [ManagedPointNarrationStep] = []
     private var pointTargetArrivalContinuation: CheckedContinuation<Void, Never>?
+    private var pendingComputerUseToolContinuation: CheckedContinuation<[String: Any], Never>?
     private var isManagedPointSequenceActive = false
+    private var latestComputerUseScreenCaptures: [CompanionScreenCapture] = []
+    private var lastComputerUseStatusText: String?
+    private var lastComputerUseStatusUpdatedAt: Date?
+    private var computerUseActivityFinishTask: Task<Void, Never>?
+    private let minimumComputerUseStatusDisplayInterval: TimeInterval = 0.9
 
     /// The currently running AI response task, if any. Cancelled when the user
     /// speaks again so a new response can begin immediately.
@@ -297,6 +313,9 @@ final class CompanionManager: ObservableObject {
     private var accessibilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     private var clickyShellHeartbeatTimer: Timer?
+    private var clickyShellRegistrationRetryTask: Task<Void, Never>?
+    private var isClickyShellRegistrationInFlight = false
+    private var isClickyShellHeartbeatInFlight = false
     /// Scheduled hide for transient cursor mode — cancelled if the user
     /// speaks again before the delay elapses.
     private var transientHideTask: Task<Void, Never>?
@@ -305,6 +324,7 @@ final class CompanionManager: ObservableObject {
     private var preferencesObjectWillChangeCancellable: AnyCancellable?
     private var backendRoutingObjectWillChangeCancellable: AnyCancellable?
     private var launchAccessObjectWillChangeCancellable: AnyCancellable?
+    private var computerUseObjectWillChangeCancellable: AnyCancellable?
     private var tutorialObjectWillChangeCancellable: AnyCancellable?
     private var surfaceObjectWillChangeCancellable: AnyCancellable?
     private var speechProviderObjectWillChangeCancellable: AnyCancellable?
@@ -317,6 +337,9 @@ final class CompanionManager: ObservableObject {
             self?.objectWillChange.send()
         }
         launchAccessObjectWillChangeCancellable = launchAccessController.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        computerUseObjectWillChangeCancellable = computerUseController.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         tutorialObjectWillChangeCancellable = tutorialController.objectWillChange.sink { [weak self] _ in
@@ -1786,7 +1809,7 @@ final class CompanionManager: ObservableObject {
         labeledImages: [(data: Data, label: String)],
         focusContext: ClickyAssistantFocusContext?
     ) -> ClickyAssistantTurnRequest {
-        assistantTurnBuilder.buildRequest(
+        return assistantTurnBuilder.buildRequest(
             systemPrompt: systemPrompt,
             userPrompt: transcript,
             conversationHistory: conversationHistory,
@@ -2361,6 +2384,10 @@ final class CompanionManager: ObservableObject {
     private func refreshClickyShellRegistrationLifecycle() {
         clickyShellHeartbeatTimer?.invalidate()
         clickyShellHeartbeatTimer = nil
+        clickyShellRegistrationRetryTask?.cancel()
+        clickyShellRegistrationRetryTask = nil
+        isClickyShellRegistrationInFlight = false
+        isClickyShellHeartbeatInFlight = false
 
         guard shouldAttemptClickyShellRegistration else {
             clickyShellRegistrationStatus = .idle
@@ -2377,7 +2404,9 @@ final class CompanionManager: ObservableObject {
 
     private func attemptClickyShellRegistration() {
         guard shouldAttemptClickyShellRegistration else { return }
+        guard !isClickyShellRegistrationInFlight else { return }
 
+        isClickyShellRegistrationInFlight = true
         clickyShellRegistrationStatus = .registering
 
         let shellRegistrationPayload = OpenClawShellRegistrationPayload(
@@ -2400,6 +2429,10 @@ final class CompanionManager: ObservableObject {
         )
 
         Task { @MainActor in
+            defer {
+                isClickyShellRegistrationInFlight = false
+            }
+
             do {
                 let summary = try await openClawGatewayCompanionAgent.registerShell(
                     gatewayURLString: openClawGatewayURL,
@@ -2408,18 +2441,36 @@ final class CompanionManager: ObservableObject {
                 )
 
                 clickyShellRegistrationStatus = .registered(summary: summary)
+                clickyShellRegistrationRetryTask?.cancel()
+                clickyShellRegistrationRetryTask = nil
                 clickyShellServerFreshnessState = "fresh"
                 clickyShellServerStatusSummary = summary
                 clickyShellServerSessionBindingState = shellRegistrationPayload.sessionKey == nil ? "unbound" : "bound"
                 clickyShellServerSessionKey = shellRegistrationPayload.sessionKey
                 clickyShellServerTrustState = isOpenClawGatewayRemote ? "trusted-remote" : "trusted-local"
-                ClickyLogger.notice(.plugin, "Clicky shell registered summary=\(summary)")
+                ClickyLogger.debug(.plugin, "Clicky shell registered summary=\(summary)")
                 startClickyShellHeartbeatTimerIfNeeded()
                 fetchClickyShellServerStatus()
             } catch {
                 clickyShellRegistrationStatus = .failed(message: error.localizedDescription)
                 ClickyLogger.error(.plugin, "Clicky shell registration failed error=\(error.localizedDescription)")
+                scheduleClickyShellRegistrationRetry()
             }
+        }
+    }
+
+    private func scheduleClickyShellRegistrationRetry() {
+        guard shouldAttemptClickyShellRegistration else { return }
+        guard clickyShellRegistrationRetryTask == nil else { return }
+
+        clickyShellRegistrationRetryTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            clickyShellRegistrationRetryTask = nil
+
+            guard !Task.isCancelled else { return }
+            guard shouldAttemptClickyShellRegistration else { return }
+
+            attemptClickyShellRegistration()
         }
     }
 
@@ -2436,6 +2487,13 @@ final class CompanionManager: ObservableObject {
 
     private func sendClickyShellHeartbeat() async {
         guard shouldAttemptClickyShellRegistration else { return }
+        guard !isClickyShellRegistrationInFlight else { return }
+        guard !isClickyShellHeartbeatInFlight else { return }
+
+        isClickyShellHeartbeatInFlight = true
+        defer {
+            isClickyShellHeartbeatInFlight = false
+        }
 
         do {
             try await openClawGatewayCompanionAgent.sendShellHeartbeat(
@@ -2447,7 +2505,9 @@ final class CompanionManager: ObservableObject {
         } catch {
             clickyShellRegistrationStatus = .failed(message: error.localizedDescription)
             ClickyLogger.error(.plugin, "Clicky shell heartbeat failed error=\(error.localizedDescription)")
-            attemptClickyShellRegistration()
+            clickyShellHeartbeatTimer?.invalidate()
+            clickyShellHeartbeatTimer = nil
+            scheduleClickyShellRegistrationRetry()
         }
     }
 
@@ -2542,6 +2602,7 @@ final class CompanionManager: ObservableObject {
 
         restoreClickyLaunchSessionIfPossible()
         refreshAllPermissions()
+        computerUseController.startWithAppIfNeeded()
         startPermissionPolling()
         bindVoiceStateObservation()
         bindAudioPowerLevel()
@@ -2716,6 +2777,102 @@ final class CompanionManager: ObservableObject {
         detectedElementDisplayFrame = firstTarget.displayFrame
         detectedElementScreenLocation = firstTarget.screenLocation
         ClickyAnalytics.trackElementPointed(elementLabel: firstTarget.elementLabel)
+    }
+
+    private func beginComputerUseActivity(statusText: String = "working", force: Bool = false) {
+        computerUseActivityFinishTask?.cancel()
+        computerUseActivityFinishTask = nil
+        surfaceController.isComputerUseActive = true
+        setComputerUseActivityStatus(statusText, force: force)
+        ClickyLogger.info(.computerUse, "activity_started")
+    }
+
+    private func finishComputerUseActivity() {
+        computerUseActivityFinishTask?.cancel()
+        computerUseActivityFinishTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled, let self else { return }
+            self.lastComputerUseStatusText = nil
+            self.lastComputerUseStatusUpdatedAt = nil
+            self.surfaceController.computerUseStatusText = nil
+            self.surfaceController.computerUsePulseToken += 1
+            self.surfaceController.isComputerUseActive = false
+            ClickyLogger.info(.computerUse, "activity_finished")
+        }
+    }
+
+    private func updateComputerUseActivity(statusText: String, force: Bool = false) {
+        setComputerUseActivityStatus(statusText, force: force)
+    }
+
+    private func setComputerUseActivityStatus(_ statusText: String, force: Bool) {
+        let trimmedStatusText = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedStatusText.isEmpty else { return }
+
+        let now = Date()
+        if !force {
+            if lastComputerUseStatusText == trimmedStatusText {
+                return
+            }
+            if let lastComputerUseStatusUpdatedAt,
+               now.timeIntervalSince(lastComputerUseStatusUpdatedAt) < minimumComputerUseStatusDisplayInterval {
+                return
+            }
+        }
+
+        lastComputerUseStatusText = trimmedStatusText
+        lastComputerUseStatusUpdatedAt = now
+        surfaceController.isComputerUseActive = true
+        surfaceController.computerUseStatusText = trimmedStatusText
+        surfaceController.computerUsePulseToken += 1
+    }
+
+    private func computerUseStatusText(for toolName: ClickyComputerUseToolName) -> String {
+        switch toolName {
+        case .listApps, .listWindows, .getWindowState:
+            return "looking"
+        case .click:
+            return "clicking"
+        case .typeText, .setValue:
+            return "typing"
+        case .pressKey:
+            return "pressing"
+        case .scroll:
+            return "scrolling"
+        case .performSecondaryAction:
+            return "opening"
+        case .drag:
+            return "dragging"
+        case .resize, .setWindowFrame:
+            return "moving"
+        }
+    }
+
+    private func computerUseStatusText(forRoute route: String) -> String {
+        switch route {
+        case "list_apps", "list_windows", "get_window_state":
+            return "looking"
+        case "click":
+            return "clicking"
+        case "type_text", "set_value":
+            return "typing"
+        case "press_key":
+            return "pressing keys"
+        case "scroll":
+            return "scrolling"
+        case "perform_secondary_action":
+            return "opening menu"
+        case "drag":
+            return "dragging"
+        case "resize", "set_window_frame":
+            return "moving window"
+        default:
+            return "working"
+        }
+    }
+
+    private func shouldForceComputerUseStatusUpdate(forRoute route: String) -> Bool {
+        isComputerUseActionRoute(route)
     }
 
     var hasPendingDetectedElementTargets: Bool {
@@ -3499,6 +3656,10 @@ final class CompanionManager: ObservableObject {
         transientHideTask?.cancel()
         quietLaunchEntitlementRefreshTask?.cancel()
         quietLaunchEntitlementRefreshTask = nil
+        clickyShellRegistrationRetryTask?.cancel()
+        clickyShellRegistrationRetryTask = nil
+        computerUseActivityFinishTask?.cancel()
+        computerUseActivityFinishTask = nil
         clickyShellHeartbeatTimer?.invalidate()
         clickyShellHeartbeatTimer = nil
 
@@ -3733,10 +3894,10 @@ final class CompanionManager: ObservableObject {
         do {
             return try await clickyBackendAuthClient.fetchCurrentTrial(sessionToken: sessionToken).trial
         } catch {
-            ClickyUnifiedTelemetry.billing.error(
+            ClickyUnifiedTelemetry.billing.debug(
                 "Launch trial snapshot unavailable during session sync error=\(error.localizedDescription, privacy: .public)"
             )
-            ClickyLogger.error(.app, "Launch trial snapshot unavailable during session sync error=\(error.localizedDescription)")
+            ClickyLogger.debug(.app, "Launch trial snapshot unavailable during session sync error=\(error.localizedDescription)")
             return nil
         }
     }
@@ -3801,10 +3962,10 @@ final class CompanionManager: ObservableObject {
         }
 
         lastQuietLaunchEntitlementRefreshAt = Date()
-        ClickyUnifiedTelemetry.billing.info(
+        ClickyUnifiedTelemetry.billing.debug(
             "Quiet entitlement refresh scheduled reason=\(reason, privacy: .public)"
         )
-        ClickyLogger.info(.app, "Scheduling quiet launch entitlement refresh reason=\(reason)")
+        ClickyLogger.debug(.app, "Scheduling quiet launch entitlement refresh reason=\(reason)")
 
         quietLaunchEntitlementRefreshTask = Task { @MainActor in
             defer {
@@ -3824,10 +3985,10 @@ final class CompanionManager: ObservableObject {
                 if refreshedSnapshot.entitlement.hasAccess {
                     setLaunchBillingState(.completed, reason: "quiet-entitlement-refresh")
                 }
-                ClickyUnifiedTelemetry.billing.info(
+                ClickyUnifiedTelemetry.billing.debug(
                     "Quiet entitlement refresh completed reason=\(reason, privacy: .public) access=\(refreshedSnapshot.entitlement.hasAccess ? "true" : "false", privacy: .public) status=\(refreshedSnapshot.entitlement.status, privacy: .public)"
                 )
-                ClickyLogger.notice(
+                ClickyLogger.debug(
                     .app,
                     "Quiet launch entitlement refresh succeeded reason=\(reason) access=\(refreshedSnapshot.entitlement.hasAccess)"
                 )
@@ -3850,10 +4011,10 @@ final class CompanionManager: ObservableObject {
                     return
                 }
 
-                ClickyUnifiedTelemetry.billing.error(
+                ClickyUnifiedTelemetry.billing.debug(
                     "Quiet entitlement refresh failed reason=\(reason, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
                 )
-                ClickyLogger.error(
+                ClickyLogger.debug(
                     .app,
                     "Quiet launch entitlement refresh failed reason=\(reason) error=\(error.localizedDescription)"
                 )
@@ -4247,10 +4408,10 @@ final class CompanionManager: ObservableObject {
                     storedSession.trial,
                     hasAccess: launchEntitlementHasEffectiveAccess(storedSession.entitlement)
                 ), reason: "restore-cached-fallback")
-                ClickyUnifiedTelemetry.launchAuth.error(
+                ClickyUnifiedTelemetry.launchAuth.debug(
                     "Launch auth restore failed; using cached session error=\(error.localizedDescription, privacy: .public)"
                 )
-                ClickyLogger.error(
+                ClickyLogger.debug(
                     .app,
                     "Failed to refresh Clicky launch session; continuing with cached state error=\(error.localizedDescription)"
                 )
@@ -4344,6 +4505,8 @@ final class CompanionManager: ObservableObject {
         if !previouslyHadAll && allPermissionsGranted {
             ClickyAnalytics.trackAllPermissionsGranted()
         }
+
+        computerUseController.refreshRuntimeStatus()
     }
 
     /// Triggers the macOS screen content picker by performing a dummy
@@ -4673,6 +4836,546 @@ final class CompanionManager: ObservableObject {
         """
     }
 
+    private func executeOpenClawComputerUseToolRequest(
+        _ request: OpenClawComputerUseToolRequest
+    ) async -> [String: Any] {
+        let actionID = ClickyComputerUseLog.makeActionID()
+        let route = request.route.trimmingCharacters(in: .whitespacesAndNewlines)
+        var payload = request.payload
+        let statusText = request.statusText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let caption = statusText?.isEmpty == false ? statusText! : computerUseStatusText(forRoute: route)
+
+        beginComputerUseActivity(
+            statusText: caption,
+            force: shouldForceComputerUseStatusUpdate(forRoute: route)
+        )
+
+        defer {
+            finishComputerUseActivity()
+        }
+
+        payload = preparedComputerUsePayload(route: route, payload: payload)
+
+        if let validationError = validateOpenClawComputerUsePayload(route: route, payload: payload) {
+            ClickyLogger.info(.computerUse, "tool_rejected id=\(actionID) route=\(route) reason=contract-validation message=\(validationError)")
+            return [
+                "ok": false,
+                "needsApproval": false,
+                "needsPermissions": false,
+                "route": route,
+                "error": validationError,
+                "recovery": [
+                    "Call list_windows if you need a live window ID.",
+                    "Call get_window_state for that window and use a target object from the latest state before acting.",
+                ],
+            ]
+        }
+
+        if preferences.computerUsePermissionLevel == .blocked {
+            ClickyLogger.info(.computerUse, "tool_blocked id=\(actionID) route=\(route) reason=studio-blocked")
+            return [
+                "ok": false,
+                "needsApproval": false,
+                "needsPermissions": false,
+                "route": route,
+                "error": "Computer use is blocked in Clicky Studio.",
+            ]
+        }
+
+        computerUseController.refreshRuntimeStatus()
+        guard computerUseController.isReady else {
+            ClickyLogger.error(.computerUse, "tool_blocked id=\(actionID) route=\(route) reason=runtime-not-ready")
+            return [
+                "ok": false,
+                "needsApproval": false,
+                "needsPermissions": true,
+                "route": route,
+                "error": computerUseController.enablementGuidance,
+            ]
+        }
+
+        if let toolName = toolName(forComputerUseRoute: route),
+           !isComputerUseReadRoute(route) {
+            let rawPayload = jsonString(from: payload)
+            let review = ClickyComputerUseActionPolicy.review(
+                toolName: toolName,
+                rawPayload: rawPayload,
+                originalUserRequest: lastTranscript
+            )
+            if review.isBlocked {
+                ClickyComputerUseLog.policyDecision(id: actionID, review: review, decision: "blocked")
+                return [
+                    "ok": false,
+                    "needsApproval": false,
+                    "needsPermissions": false,
+                    "route": route,
+                    "error": review.policySummary,
+                    "summary": review.summary,
+                ]
+            }
+            let shouldAskForReview = preferences.computerUsePermissionLevel == .review
+                && review.riskLevel == .sensitiveHighImpact
+            if shouldAskForReview {
+                ClickyComputerUseLog.policyDecision(id: actionID, review: review, decision: "review")
+                guard pendingComputerUseToolContinuation == nil else {
+                    return [
+                        "ok": false,
+                        "needsApproval": false,
+                        "needsPermissions": false,
+                        "route": route,
+                        "error": "Another computer-use approval is already pending.",
+                    ]
+                }
+
+                computerUseController.requestActionConfirmation(
+                    toolName: toolName,
+                    route: route,
+                    requestIdentifier: request.requestIdentifier,
+                    rawPayload: rawPayload,
+                    summary: review.summary,
+                    originalUserRequest: lastTranscript
+                )
+                return await withCheckedContinuation { continuation in
+                    pendingComputerUseToolContinuation = continuation
+                }
+            }
+        }
+
+        return await runComputerUseRoute(
+            route: route,
+            payload: payload,
+            requestIdentifier: request.requestIdentifier,
+            actionID: actionID
+        )
+    }
+
+    private func runComputerUseRoute(
+        route: String,
+        payload: [String: Any],
+        requestIdentifier: String,
+        actionID: String
+    ) async -> [String: Any] {
+        do {
+            ClickyComputerUseLog.routeStart(
+                id: actionID,
+                route: route,
+                payloadSummary: ClickyComputerUseLog.payloadSummary(from: payload)
+            )
+            let response = try await executeComputerUseRuntimeRoute(route: route, payload: payload)
+            ClickyComputerUseLog.routeResult(
+                id: actionID,
+                route: route,
+                statusCode: response.statusCode,
+                bodyPreview: ClickyComputerUseClient.bodyPreview(from: response.body)
+            )
+            return routeResultDictionary(
+                route: route,
+                response: response,
+                requestIdentifier: requestIdentifier
+            )
+        } catch {
+            ClickyComputerUseLog.routeFailure(
+                id: actionID,
+                route: route,
+                error: error
+            )
+            return [
+                "ok": false,
+                "needsApproval": false,
+                "needsPermissions": false,
+                "route": route,
+                "requestId": requestIdentifier,
+                "error": error.localizedDescription,
+            ]
+        }
+    }
+
+    private func executeComputerUseRuntimeRoute(
+        route: String,
+        payload: [String: Any]
+    ) async throws -> ClickyComputerUseRouteResponse {
+        switch route {
+        case "list_apps":
+            return try await computerUseController.client.listApps()
+        case "list_windows":
+            return try await computerUseController.client.listWindows(payload)
+        case "get_window_state":
+            var body = payload
+            if body["window"] == nil, let windowID = body["windowID"] {
+                body["window"] = windowID
+            }
+            if body["includeMenuBar"] == nil {
+                body["includeMenuBar"] = true
+            }
+            if body["maxNodes"] == nil {
+                body["maxNodes"] = 6500
+            }
+            return try await computerUseController.client.getWindowState(body)
+        case "click":
+            return try await computerUseController.client.click(payload)
+        case "type_text":
+            return try await computerUseController.client.typeText(payload)
+        case "press_key":
+            return try await computerUseController.client.pressKey(payload)
+        case "scroll":
+            return try await computerUseController.client.scroll(payload)
+        case "set_value":
+            return try await computerUseController.client.setValue(payload)
+        case "perform_secondary_action":
+            return try await computerUseController.client.performSecondaryAction(payload)
+        case "drag":
+            return try await computerUseController.client.drag(payload)
+        case "resize":
+            return try await computerUseController.client.resize(payload)
+        case "set_window_frame":
+            return try await computerUseController.client.setWindowFrame(payload)
+        default:
+            throw ClickyComputerUseClientError.invalidRequest(message: "Unknown computer-use route: \(route)")
+        }
+    }
+
+    private func preparedComputerUsePayload(route: String, payload: [String: Any]) -> [String: Any] {
+        var body = payload
+        if body["window"] == nil, let windowID = body["windowID"] {
+            body["window"] = windowID
+        }
+
+        if routeSupportsRuntimeCursor(route), body["cursor"] == nil {
+            body["cursor"] = defaultComputerUseCursorPayload()
+        }
+
+        if routeSupportsPostActionObservation(route) {
+            if body["imageMode"] == nil {
+                body["imageMode"] = "base64"
+            }
+            if body["includeMenuBar"] == nil {
+                body["includeMenuBar"] = true
+            }
+            if body["maxNodes"] == nil {
+                body["maxNodes"] = 6500
+            }
+        }
+
+        return body
+    }
+
+    private func routeSupportsRuntimeCursor(_ route: String) -> Bool {
+        isComputerUseActionRoute(route)
+    }
+
+    private func defaultComputerUseCursorPayload() -> [String: Any] {
+        [
+            "id": "clicky-openclaw-operator",
+            "name": computerUseCursorDisplayName(),
+            "color": "#4FE7EE",
+        ]
+    }
+
+    private func computerUseCursorDisplayName() -> String {
+        let candidate = effectiveClickyPresentationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if candidate.isEmpty || candidate == "your OpenClaw agent" {
+            return "agent"
+        }
+        return String(candidate.prefix(18))
+    }
+
+    private func routeSupportsPostActionObservation(_ route: String) -> Bool {
+        switch route {
+        case "get_window_state", "click", "type_text", "press_key", "scroll", "set_value", "perform_secondary_action":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func validateOpenClawComputerUsePayload(route: String, payload: [String: Any]) -> String? {
+        func missing(_ field: String) -> String {
+            "\(route) requires \(field)."
+        }
+
+        switch route {
+        case "list_apps":
+            return nil
+        case "list_windows":
+            return hasNonEmptyString(payload, "app") ? nil : missing("app")
+        case "get_window_state":
+            return hasNonEmptyString(payload, "window") ? nil : missing("window")
+        case "click":
+            guard hasNonEmptyString(payload, "window") else { return missing("window") }
+            guard hasActionTarget(payload["target"]) || (hasNumericValue(payload, "x") && hasNumericValue(payload, "y")) else {
+                return "click requires target, or both x and y from the latest observed state."
+            }
+            return nil
+        case "type_text":
+            guard hasNonEmptyString(payload, "window") else { return missing("window") }
+            guard hasNonEmptyString(payload, "text") else { return missing("text") }
+            if payload.keys.contains("target"), !hasActionTarget(payload["target"]) {
+                return "type_text target must use kind and value."
+            }
+            return nil
+        case "press_key":
+            guard hasNonEmptyString(payload, "window") else { return missing("window") }
+            guard hasNonEmptyString(payload, "key") else { return missing("key") }
+            return nil
+        case "scroll":
+            guard hasNonEmptyString(payload, "window") else { return missing("window") }
+            guard hasActionTarget(payload["target"]) else { return missing("target") }
+            guard hasNonEmptyString(payload, "direction") else { return missing("direction") }
+            return nil
+        case "set_value":
+            guard hasNonEmptyString(payload, "window") else { return missing("window") }
+            guard hasActionTarget(payload["target"]) else { return missing("target") }
+            guard hasNonEmptyString(payload, "value") else { return missing("value") }
+            return nil
+        case "perform_secondary_action":
+            guard hasNonEmptyString(payload, "window") else { return missing("window") }
+            guard hasActionTarget(payload["target"]) else { return missing("target") }
+            guard hasNonEmptyString(payload, "action") else { return missing("action") }
+            return nil
+        case "drag":
+            guard hasNonEmptyString(payload, "window") else { return missing("window") }
+            guard hasNumericValue(payload, "toX"), hasNumericValue(payload, "toY") else {
+                return "drag requires toX and toY."
+            }
+            return nil
+        case "resize":
+            guard hasNonEmptyString(payload, "window") else { return missing("window") }
+            guard hasNonEmptyString(payload, "handle") else { return missing("handle") }
+            guard hasNumericValue(payload, "toX"), hasNumericValue(payload, "toY") else {
+                return "resize requires toX and toY."
+            }
+            return nil
+        case "set_window_frame":
+            guard hasNonEmptyString(payload, "window") else { return missing("window") }
+            for field in ["x", "y", "width", "height"] {
+                if !hasNumericValue(payload, field) {
+                    return missing(field)
+                }
+            }
+            return nil
+        default:
+            return "Unknown computer-use route: \(route)"
+        }
+    }
+
+    private func hasNonEmptyString(_ payload: [String: Any], _ key: String) -> Bool {
+        guard let value = payload[key] as? String else { return false }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    private func hasActionTarget(_ value: Any?) -> Bool {
+        guard let target = value as? [String: Any],
+              let rawKind = target["kind"] as? String else {
+            return false
+        }
+
+        switch rawKind {
+        case "display_index":
+            if let index = target["value"] as? Int {
+                return index >= 0
+            }
+            if let number = target["value"] as? NSNumber {
+                return CFGetTypeID(number) != CFBooleanGetTypeID()
+                    && number.doubleValue.isFinite
+                    && number.doubleValue.rounded() == number.doubleValue
+                    && number.intValue >= 0
+            }
+            if let text = target["value"] as? String,
+               let index = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return index >= 0
+            }
+            return false
+        case "node_id", "refetch_fingerprint":
+            guard let text = target["value"] as? String else { return false }
+            return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        default:
+            return false
+        }
+    }
+
+    private func hasNumericValue(_ payload: [String: Any], _ key: String) -> Bool {
+        if let value = payload[key] as? Double {
+            return value.isFinite
+        }
+        if let value = payload[key] as? Int {
+            return Double(value).isFinite
+        }
+        if let value = payload[key] as? NSNumber {
+            return CFGetTypeID(value) != CFBooleanGetTypeID() && value.doubleValue.isFinite
+        }
+        return false
+    }
+
+    private func routeResultDictionary(
+        route: String,
+        response: ClickyComputerUseRouteResponse,
+        requestIdentifier: String
+    ) -> [String: Any] {
+        let decoded = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any]
+        var result = decoded ?? [
+            "bodyText": response.bodyText,
+        ]
+        result["ok"] = result["ok"] as? Bool ?? true
+        result["route"] = route
+        result["requestId"] = requestIdentifier
+        result["statusCode"] = response.statusCode
+        return result
+    }
+
+    private func jsonString(from payload: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return text
+    }
+
+    private func payloadObject(from rawPayload: String) -> [String: Any]? {
+        guard let data = rawPayload.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private func isComputerUseReadRoute(_ route: String) -> Bool {
+        route == "list_apps" || route == "list_windows" || route == "get_window_state"
+    }
+
+    private func isComputerUseActionRoute(_ route: String) -> Bool {
+        !isComputerUseReadRoute(route)
+    }
+
+    private func toolName(forComputerUseRoute route: String) -> ClickyComputerUseToolName? {
+        switch route {
+        case "list_apps":
+            return .listApps
+        case "list_windows":
+            return .listWindows
+        case "get_window_state":
+            return .getWindowState
+        case "click":
+            return .click
+        case "type_text":
+            return .typeText
+        case "press_key":
+            return .pressKey
+        case "scroll":
+            return .scroll
+        case "set_value":
+            return .setValue
+        case "perform_secondary_action":
+            return .performSecondaryAction
+        case "drag":
+            return .drag
+        case "resize":
+            return .resize
+        case "set_window_frame":
+            return .setWindowFrame
+        default:
+            return nil
+        }
+    }
+
+    func approvePendingComputerUseAction() {
+        guard let pendingAction = computerUseController.pendingAction else { return }
+        let actionID = ClickyComputerUseLog.makeActionID()
+        computerUseController.markPendingActionExecuting()
+        Task { @MainActor in
+            let review = ClickyComputerUseActionPolicy.review(
+                toolName: pendingAction.toolName,
+                rawPayload: pendingAction.rawPayload,
+                originalUserRequest: pendingAction.originalUserRequest
+            )
+            if review.isBlocked {
+                ClickyComputerUseLog.policyDecision(
+                    id: actionID,
+                    review: review,
+                    decision: "blocked-after-user-approval"
+                )
+                let result: [String: Any] = [
+                    "ok": false,
+                    "needsApproval": false,
+                    "needsPermissions": false,
+                    "route": pendingAction.route,
+                    "requestId": pendingAction.requestIdentifier,
+                    "error": review.policySummary,
+                ]
+                computerUseController.failPendingAction(message: review.policySummary)
+                pendingComputerUseToolContinuation?.resume(returning: result)
+                pendingComputerUseToolContinuation = nil
+                return
+            }
+
+            ClickyComputerUseLog.policyDecision(
+                id: actionID,
+                review: review,
+                decision: "userApproved"
+            )
+
+            guard var payload = payloadObject(from: pendingAction.rawPayload) else {
+                let result: [String: Any] = [
+                    "ok": false,
+                    "needsApproval": false,
+                    "needsPermissions": false,
+                    "route": pendingAction.route,
+                    "requestId": pendingAction.requestIdentifier,
+                    "error": "The approved computer-use payload was not valid JSON.",
+                ]
+                computerUseController.failPendingAction(message: "The approved computer-use payload was not valid JSON.")
+                pendingComputerUseToolContinuation?.resume(returning: result)
+                pendingComputerUseToolContinuation = nil
+                return
+            }
+
+            payload = preparedComputerUsePayload(route: pendingAction.route, payload: payload)
+            if let validationError = validateOpenClawComputerUsePayload(route: pendingAction.route, payload: payload) {
+                let result: [String: Any] = [
+                    "ok": false,
+                    "needsApproval": false,
+                    "needsPermissions": false,
+                    "route": pendingAction.route,
+                    "requestId": pendingAction.requestIdentifier,
+                    "error": validationError,
+                ]
+                computerUseController.failPendingAction(message: validationError)
+                pendingComputerUseToolContinuation?.resume(returning: result)
+                pendingComputerUseToolContinuation = nil
+                return
+            }
+            let result = await runComputerUseRoute(
+                route: pendingAction.route,
+                payload: payload,
+                requestIdentifier: pendingAction.requestIdentifier,
+                actionID: actionID
+            )
+            if result["ok"] as? Bool == true {
+                computerUseController.completePendingAction(message: result["summary"] as? String ?? "Computer use action completed.")
+            } else {
+                computerUseController.failPendingAction(message: result["error"] as? String ?? "Computer use action failed.")
+            }
+            pendingComputerUseToolContinuation?.resume(returning: result)
+            pendingComputerUseToolContinuation = nil
+        }
+    }
+
+    func cancelPendingComputerUseAction() {
+        if let pendingAction = computerUseController.pendingAction {
+            pendingComputerUseToolContinuation?.resume(returning: [
+                "ok": false,
+                "needsApproval": false,
+                "needsPermissions": false,
+                "denied": true,
+                "route": pendingAction.route,
+                "requestId": pendingAction.requestIdentifier,
+                "error": "The user denied this computer-use action.",
+            ])
+            pendingComputerUseToolContinuation = nil
+        }
+        computerUseController.cancelPendingAction()
+    }
+
+    func clearPendingComputerUseAction() {
+        computerUseController.clearPendingAction()
+    }
+
     private struct AssistantResponseAudit {
         let issues: [String]
 
@@ -4868,18 +5571,24 @@ final class CompanionManager: ObservableObject {
     /// the spinner/processing state until TTS audio begins playing.
     /// The assistant response should be a structured object with spoken text
     /// plus ordered point targets for the cursor overlay.
-    private func sendTranscriptToSelectedAgentWithScreenshot(transcript: String) {
+    private func sendTranscriptToSelectedAgentWithScreenshot(
+        transcript: String,
+        historyTranscriptOverride: String? = nil,
+        skipsPreflightIntentHandlers: Bool = false
+    ) {
         currentResponseTask?.cancel()
         openClawGatewayCompanionAgent.cancelActiveRequest()
         elevenLabsTTSClient.stopPlayback()
 
         currentResponseTask = Task {
-            if await handleTutorialImportIntentIfNeeded(for: transcript) {
-                return
-            }
+            if !skipsPreflightIntentHandlers {
+                if await handleTutorialImportIntentIfNeeded(for: transcript) {
+                    return
+                }
 
-            if await handleTutorialModeTurnIfNeeded(for: transcript) {
-                return
+                if await handleTutorialModeTurnIfNeeded(for: transcript) {
+                    return
+                }
             }
 
             var launchAuthorization = LaunchAssistantTurnAuthorization(
@@ -4892,6 +5601,7 @@ final class CompanionManager: ObservableObject {
             // thinking, not transcribing, so the overlay switches to the
             // dedicated "thinking" treatment.
             voiceState = .thinking
+            var didBeginComputerUseActivity = false
 
             do {
                 launchAuthorization = try await prepareLaunchAuthorizationForAssistantTurn()
@@ -4934,7 +5644,7 @@ final class CompanionManager: ObservableObject {
                     initialFocusContext,
                     with: screenCaptures
                 )
-                ClickyLogger.info(
+                ClickyLogger.debug(
                     .agent,
                     "focus-context backend=\(selectedAgentBackend.displayName) display=\(focusContext.activeDisplayLabel) app=\(focusContext.frontmostApplicationName ?? "unknown") window=\(focusContext.frontmostWindowTitle ?? "unknown") cursor=(\(Int(focusContext.cursorX)),\(Int(focusContext.cursorY))) screenshotCursor=(\(focusContext.screenshotContext?.cursorPixelX ?? -1),\(focusContext.screenshotContext?.cursorPixelY ?? -1)) deltaMs=\(focusContext.screenshotContext?.cursorToScreenshotDeltaMilliseconds ?? -1) trailCount=\(focusContext.recentCursorTrail.count)"
                 )
@@ -5026,20 +5736,20 @@ final class CompanionManager: ObservableObject {
                     let labels = resolvedTargets
                         .compactMap { $0.elementLabel }
                         .joined(separator: ", ")
-                    print("🎯 Element pointing: queued \(resolvedTargets.count) target(s) \(labels)")
+                    ClickyLogger.debug(.ui, "Element pointing queued count=\(resolvedTargets.count) labels=\(labels)")
                 } else if !resolvedTargets.isEmpty {
                     let labels = resolvedTargets
                         .compactMap { $0.elementLabel }
                         .joined(separator: ", ")
-                    print("🎯 Element pointing: prepared managed sequence \(resolvedTargets.count) target(s) \(labels)")
+                    ClickyLogger.debug(.ui, "Element pointing managed count=\(resolvedTargets.count) labels=\(labels)")
                 } else {
-                    print("🎯 Element pointing: no element")
+                    ClickyLogger.debug(.ui, "Element pointing skipped reason=no-targets")
                 }
 
                 // Save this exchange to conversation history (with the point tag
                 // stripped so it doesn't confuse future context)
                 conversationHistory.append((
-                    userTranscript: transcript,
+                    userTranscript: historyTranscriptOverride ?? transcript,
                     assistantResponse: spokenText
                 ))
 
@@ -5121,10 +5831,16 @@ final class CompanionManager: ObservableObject {
                     }
                 }
             } catch is CancellationError {
+                if didBeginComputerUseActivity {
+                    finishComputerUseActivity()
+                }
                 // User spoke again — response was interrupted
             } catch {
+                if didBeginComputerUseActivity {
+                    finishComputerUseActivity()
+                }
                 ClickyAnalytics.trackResponseError(error: error.localizedDescription)
-                print("⚠️ Companion response error: \(error)")
+                ClickyLogger.error(.agent, "Assistant response failed error=\(error.localizedDescription)")
                 if launchAuthorization.shouldUsePaywallTurn {
                     if let storedSession = launchAuthorization.session {
                         do {

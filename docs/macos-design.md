@@ -50,14 +50,20 @@ If an agent changes SwiftUI/AppKit UI in the desktop app, they must read this fi
 
 - Match the desktop app to the web brand palette.
 - Current brand palette:
-  - warm background: `#FAF8F5`
-  - warm secondary surface: `#F5F2EE`
-  - lavender surface/accent: `#EAE8F0` / `#9B8FBF`
-  - sage accent: `#E8EDE9` / `#7A9B8A`
-  - charcoal text/action: `#1A1A1A`
-- Use sage for brand presence and positive/status accents.
-- Use lavender for focus, selection, and softer interaction accents.
-- Use charcoal for strong CTA actions and high-contrast text.
+  - soft white/background: `#FAFCFF`
+  - frost glass surface: `#EAF8FF`
+  - mist border/surface: `#DDE8EE`
+  - icy blue glass: `#A9D6EB`
+  - aqua glow/accent: `#4FE7EE`
+  - cursor blue/action: `#3478F6`
+  - periwinkle focus: `#8EA2FF`
+  - blush highlight: `#FFB9CF`
+  - deep ink text/action: `#16212B`
+- Use cursor blue for primary actions and active guidance.
+- Use aqua for voice/listening glow, presence, and positive status accents.
+- Use periwinkle for focus, selection, and softer interaction accents.
+- Use blush sparingly as a warm highlight, never as a dominant surface.
+- Use deep ink for strong CTA actions and high-contrast text.
 - Avoid falling back to generic system blue when a branded control treatment is expected and practical.
 
 ## Contrast Rules

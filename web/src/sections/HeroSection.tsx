@@ -154,7 +154,7 @@ export function HeroSection() {
         <div
           ref={cardARef}
           data-card="A"
-          className="absolute rounded-xl shadow-elegant overflow-hidden bg-white/90 backdrop-blur-sm border border-white/50 hero-float-slow"
+          className="absolute hidden rounded-xl shadow-elegant overflow-hidden bg-white/88 backdrop-blur-xl border border-[#DDE8EE]/80 hero-float-slow md:block"
           style={{
             left: '5vw',
             top: '8vh',
@@ -164,16 +164,16 @@ export function HeroSection() {
           }}
         >
           {/* macOS Window Chrome */}
-          <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-b from-gray-50 to-gray-100 border-b border-gray-200/50">
+          <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-b from-[#FAFCFF] to-[#EAF8FF] border-b border-[#DDE8EE]/70">
             <div className="w-3 h-3 rounded-full bg-red-400/80" />
             <div className="w-3 h-3 rounded-full bg-yellow-400/80" />
-            <div className="w-3 h-3 rounded-full bg-green-400/80" />
+            <div className="w-3 h-3 rounded-full bg-[#4FE7EE]/80" />
           </div>
           {/* Mock Content - Figma-style interface */}
           <div className="p-4 space-y-3">
             <div className="flex gap-2">
-              <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
-                <div className="w-4 h-4 rounded-sm bg-purple-400" />
+              <div className="w-8 h-8 rounded-lg bg-[#EDF1FF] flex items-center justify-center">
+                <div className="w-4 h-4 rounded-sm bg-[#8EA2FF]" />
               </div>
               <div className="flex-1 space-y-1.5">
                 <div className="h-2.5 bg-gray-200 rounded-full w-3/4" />
@@ -181,9 +181,9 @@ export function HeroSection() {
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 pt-2">
-              <div className="aspect-square rounded-lg bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-100" />
-              <div className="aspect-square rounded-lg bg-gradient-to-br from-blue-50 to-cyan-50 border border-blue-100" />
-              <div className="aspect-square rounded-lg bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-100" />
+              <div className="aspect-square rounded-lg bg-gradient-to-br from-[#EDF1FF] to-[#FFF1F6] border border-[#DDE8EE]" />
+              <div className="aspect-square rounded-lg bg-gradient-to-br from-[#EAF8FF] to-[#D9FEFF] border border-[#A9D6EB]/60" />
+              <div className="aspect-square rounded-lg bg-gradient-to-br from-[#FAFCFF] to-[#EAF8FF] border border-[#DDE8EE]" />
             </div>
           </div>
         </div>
@@ -191,7 +191,7 @@ export function HeroSection() {
         <div
           ref={cardBRef}
           data-card="B"
-          className="absolute rounded-xl shadow-elegant overflow-hidden bg-white/90 backdrop-blur-sm border border-white/50 hero-float"
+          className="absolute hidden rounded-xl shadow-elegant overflow-hidden bg-white/88 backdrop-blur-xl border border-[#DDE8EE]/80 hero-float md:block"
           style={{
             right: '5vw',
             top: '10vh',
@@ -201,10 +201,10 @@ export function HeroSection() {
           }}
         >
           {/* macOS Window Chrome */}
-          <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-b from-gray-50 to-gray-100 border-b border-gray-200/50">
+          <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-b from-[#FAFCFF] to-[#EAF8FF] border-b border-[#DDE8EE]/70">
             <div className="w-3 h-3 rounded-full bg-red-400/80" />
             <div className="w-3 h-3 rounded-full bg-yellow-400/80" />
-            <div className="w-3 h-3 rounded-full bg-green-400/80" />
+            <div className="w-3 h-3 rounded-full bg-[#4FE7EE]/80" />
             <div className="flex-1 text-center">
               <span className="text-[10px] text-gray-400 font-medium">Settings</span>
             </div>
@@ -213,17 +213,17 @@ export function HeroSection() {
           <div className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-md bg-blue-100" />
+                <div className="w-6 h-6 rounded-md bg-[#EAF8FF]" />
                 <div className="h-2 bg-gray-200 rounded-full w-16" />
               </div>
-              <div className="w-8 h-4 rounded-full bg-blue-400" />
+              <div className="w-8 h-4 rounded-full bg-[#3478F6]" />
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-md bg-green-100" />
+                <div className="w-6 h-6 rounded-md bg-[#D9FEFF]" />
                 <div className="h-2 bg-gray-200 rounded-full w-20" />
               </div>
-              <div className="w-8 h-4 rounded-full bg-green-400" />
+              <div className="w-8 h-4 rounded-full bg-[#4FE7EE]" />
             </div>
             <div className="pt-2 border-t border-gray-100">
               <div className="h-2 bg-gray-200 rounded-full w-full mb-2" />
@@ -235,7 +235,7 @@ export function HeroSection() {
         <div
           ref={cardCRef}
           data-card="C"
-          className="absolute rounded-xl shadow-elegant overflow-hidden bg-white/90 backdrop-blur-sm border border-white/50 hero-float-reverse"
+          className="absolute hidden rounded-xl shadow-elegant overflow-hidden bg-white/88 backdrop-blur-xl border border-[#DDE8EE]/80 hero-float-reverse md:block"
           style={{
             left: '6vw',
             bottom: '12vh',
@@ -245,25 +245,25 @@ export function HeroSection() {
           }}
         >
           {/* macOS Window Chrome */}
-          <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-b from-gray-50 to-gray-100 border-b border-gray-200/50">
+          <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-b from-[#FAFCFF] to-[#EAF8FF] border-b border-[#DDE8EE]/70">
             <div className="w-3 h-3 rounded-full bg-red-400/80" />
             <div className="w-3 h-3 rounded-full bg-yellow-400/80" />
-            <div className="w-3 h-3 rounded-full bg-green-400/80" />
+            <div className="w-3 h-3 rounded-full bg-[#4FE7EE]/80" />
           </div>
           {/* Mock Content - Code Editor */}
           <div className="p-3 space-y-2">
             <div className="flex gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-purple-400 mt-1.5" />
+              <div className="w-2 h-2 rounded-full bg-[#8EA2FF] mt-1.5" />
               <div className="flex-1 space-y-1">
-                <div className="h-1.5 bg-purple-200 rounded-full w-24" />
+                <div className="h-1.5 bg-[#D8DFFF] rounded-full w-24" />
                 <div className="h-1.5 bg-gray-200 rounded-full w-32" />
                 <div className="h-1.5 bg-gray-200 rounded-full w-20" />
               </div>
             </div>
             <div className="flex gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-blue-400 mt-1.5" />
+              <div className="w-2 h-2 rounded-full bg-[#3478F6] mt-1.5" />
               <div className="flex-1 space-y-1">
-                <div className="h-1.5 bg-blue-200 rounded-full w-28" />
+                <div className="h-1.5 bg-[#A9D6EB] rounded-full w-28" />
                 <div className="h-1.5 bg-gray-200 rounded-full w-16" />
               </div>
             </div>
@@ -271,7 +271,7 @@ export function HeroSection() {
         </div>
 
         {/* Main Content */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-5 pt-20 pb-8">
           {/* Small tagline */}
           <p
             ref={taglineRef}
@@ -281,11 +281,11 @@ export function HeroSection() {
           </p>
 
           {/* Headline with mixed styling */}
-          <div ref={headlineRef} className="text-center">
+          <div ref={headlineRef} className="w-full max-w-[min(760px,calc(100vw-2rem))] text-center">
             <h1
               className="text-charcoal"
               style={{
-                fontSize: 'clamp(48px, 6vw, 96px)',
+                fontSize: 'clamp(34px, 6vw, 96px)',
                 lineHeight: 1.05,
               }}
             >
@@ -294,7 +294,7 @@ export function HeroSection() {
             <h1
               className="text-lavender font-serif-italic mt-1"
               style={{
-                fontSize: 'clamp(48px, 6vw, 96px)',
+                fontSize: 'clamp(34px, 6vw, 96px)',
                 lineHeight: 1.05,
               }}
             >
@@ -304,7 +304,7 @@ export function HeroSection() {
 
           <p
             ref={subheadRef}
-            className="text-muted-elegant text-center mt-8 max-w-lg px-6 leading-relaxed"
+            className="text-muted-elegant text-center mt-8 max-w-[260px] px-2 leading-relaxed sm:max-w-lg sm:px-6"
             style={{ fontSize: 'clamp(14px, 1.2vw, 17px)' }}
           >
             Ask out loud. Clicky understands what you are looking at, points to the
@@ -313,16 +313,16 @@ export function HeroSection() {
           </p>
 
           <div ref={ctaRef} className="mt-10 flex flex-col items-center gap-4">
-            <div className="flex flex-col items-center gap-3 sm:flex-row">
+            <div className="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
               <a
                 id="hero-download-cta"
                 href={downloadUrl}
                 data-companion-cta-id="hero-download-cta"
                 data-companion-section-id="hero-section"
                 data-companion-target-kind="cta"
-                className="group relative flex items-center gap-3 bg-charcoal text-warm px-8 py-4 rounded-full text-base font-medium hover:bg-charcoal/90 transition-all shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 overflow-hidden"
+                className="group relative flex w-[calc(100vw-4rem)] max-w-[280px] items-center justify-center gap-2.5 bg-charcoal text-warm px-5 py-4 rounded-full text-[15px] font-medium hover:bg-[#3478F6] transition-all shadow-xl shadow-[#3478F6]/15 hover:shadow-2xl hover:shadow-[#3478F6]/22 hover:scale-105 active:scale-95 overflow-hidden sm:w-auto sm:max-w-[340px] sm:gap-3 sm:px-8 sm:text-base"
               >
-                <span className="absolute inset-0 bg-gradient-to-r from-lavender via-charcoal to-lavender opacity-0 group-hover:opacity-20 transition-opacity duration-500" />
+                <span className="absolute inset-0 bg-gradient-to-r from-[#4FE7EE] via-[#3478F6] to-[#FFB9CF] opacity-0 group-hover:opacity-24 transition-opacity duration-500" />
                 <Sparkles size={18} className="relative z-10 group-hover:rotate-12 transition-transform duration-300" />
                 <span className="relative z-10">Download for macOS</span>
                 <Download size={18} className="relative z-10 group-hover:translate-y-0.5 transition-transform duration-300" />
@@ -341,7 +341,7 @@ export function HeroSection() {
                   setIsPermissionModalOpen(true);
                 }}
                 disabled={isRequestingCompanion}
-                className="group flex items-center gap-3 rounded-full border border-charcoal/10 bg-white/84 px-7 py-4 text-base font-medium text-charcoal shadow-[0_12px_36px_rgba(26,26,26,0.08)] backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-charcoal/15 hover:shadow-[0_18px_42px_rgba(26,26,26,0.12)] disabled:cursor-default disabled:opacity-70"
+                className="group flex w-[calc(100vw-4rem)] max-w-[280px] items-center justify-center gap-2.5 rounded-full border border-[#DDE8EE] bg-white/84 px-5 py-4 text-[15px] font-medium text-charcoal shadow-[0_12px_36px_rgba(52,120,246,0.10)] backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-[#A9D6EB] hover:shadow-[0_18px_42px_rgba(52,120,246,0.15)] disabled:cursor-default disabled:opacity-70 sm:w-auto sm:max-w-[340px] sm:gap-3 sm:px-7 sm:text-base"
               >
                 {isRequestingCompanion ? (
                   <LoaderCircle size={18} className="animate-spin" />
@@ -352,7 +352,7 @@ export function HeroSection() {
               </button>
             </div>
 
-            <p className="text-center text-muted-elegant text-xs">
+            <p className="max-w-[260px] text-center text-muted-elegant text-xs sm:max-w-none">
               {isCompanionActive && experienceMode === 'mic-only'
                 ? (
                   <>
@@ -387,7 +387,7 @@ export function HeroSection() {
             </p>
 
             {!isCompanionActive && !isDemoOnlyMode ? (
-              <p className="text-center text-muted-elegant text-[11px]">
+              <p className="max-w-[260px] text-center text-muted-elegant text-[11px] sm:max-w-none">
                 Two-step live demo: 1. Choose permissions. 2. Hold{' '}
                 <span className="inline-flex items-center gap-1 align-middle">
                   <kbd className="rounded-md border border-black/10 bg-white/80 px-2 py-1 font-mono text-[11px] text-charcoal shadow-sm">
@@ -411,9 +411,9 @@ export function HeroSection() {
         </div>
 
         <Dialog open={isPermissionModalOpen} onOpenChange={setIsPermissionModalOpen}>
-          <DialogContent className="max-w-xl rounded-[28px] border-white/70 bg-[#FBF7F2]/96 p-0 shadow-[0_24px_90px_rgba(26,26,26,0.18)] backdrop-blur-xl">
+          <DialogContent className="max-w-xl rounded-[28px] border-white/70 bg-[#FAFCFF]/96 p-0 shadow-[0_24px_90px_rgba(52,120,246,0.18)] backdrop-blur-xl">
             <div className="overflow-hidden rounded-[28px]">
-              <div className="border-b border-black/5 bg-gradient-to-r from-white/90 via-[#F7F0E7] to-white/90 px-7 py-6">
+              <div className="border-b border-[#DDE8EE] bg-gradient-to-r from-white/92 via-[#EAF8FF] to-white/92 px-7 py-6">
                 <DialogHeader className="gap-3 text-left">
                   <DialogTitle className="text-2xl font-semibold text-charcoal">
                     Give Clicky the right context
@@ -436,10 +436,10 @@ export function HeroSection() {
                       setIsPermissionModalOpen(false);
                       void startExperience({ mode: 'mic-only' });
                     }}
-                    className="group flex w-full items-start justify-between rounded-[24px] border border-charcoal/10 bg-white/92 px-5 py-4 text-left shadow-[0_16px_42px_rgba(26,26,26,0.08)] transition-all hover:-translate-y-0.5 hover:border-charcoal/15 hover:shadow-[0_22px_46px_rgba(26,26,26,0.12)]"
+                    className="group flex w-full items-start justify-between rounded-[24px] border border-[#DDE8EE] bg-white/92 px-5 py-4 text-left shadow-[0_16px_42px_rgba(52,120,246,0.10)] transition-all hover:-translate-y-0.5 hover:border-[#A9D6EB] hover:shadow-[0_22px_46px_rgba(52,120,246,0.15)]"
                   >
                     <div className="flex gap-4">
-                      <div className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-charcoal text-warm">
+                      <div className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#3478F6] text-warm shadow-[0_10px_26px_rgba(52,120,246,0.26)]">
                         <Mic size={20} />
                       </div>
                       <div>
@@ -452,7 +452,7 @@ export function HeroSection() {
                         </p>
                       </div>
                     </div>
-                    <span className="rounded-full bg-lavender/18 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-lavender">
+                    <span className="rounded-full bg-[#EAF8FF] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#3478F6]">
                       Recommended
                     </span>
                   </button>
@@ -464,9 +464,9 @@ export function HeroSection() {
                       setIsPermissionModalOpen(false);
                       void startExperience({ mode: 'demo-only' });
                     }}
-                    className="group flex w-full items-start gap-4 rounded-[24px] border border-charcoal/10 bg-white/88 px-5 py-4 text-left shadow-[0_12px_28px_rgba(26,26,26,0.05)] transition-all hover:-translate-y-0.5 hover:border-charcoal/15 hover:shadow-[0_18px_34px_rgba(26,26,26,0.09)]"
+                    className="group flex w-full items-start gap-4 rounded-[24px] border border-[#DDE8EE] bg-white/88 px-5 py-4 text-left shadow-[0_12px_28px_rgba(52,120,246,0.08)] transition-all hover:-translate-y-0.5 hover:border-[#A9D6EB] hover:shadow-[0_18px_34px_rgba(52,120,246,0.12)]"
                   >
-                    <div className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#EFE4D6] text-charcoal">
+                    <div className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#EAF8FF] text-charcoal">
                       <PlayCircle size={20} />
                     </div>
                     <div>

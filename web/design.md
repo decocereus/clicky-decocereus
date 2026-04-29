@@ -14,21 +14,21 @@ Status note:
 
 ## Color System
 
-### Primary Palette (from mac app - keeping it consistent)
-- **Background**: `#121212` (deep dark)
-- **Surface**: `#1F1F1F` (elevated cards)
-- **Primary Accent**: `#53CFAF` (mint/teal)
-- **Secondary Accent**: `#7A5EFF` (purple - for light mode)
-- **Text Primary**: `#FBF8F5` (warm white)
-- **Text Secondary**: `#ADB5B2` (muted gray)
-- **Text Tertiary**: `#6B736F` (subtle)
-- **Success**: `#34D399` (emerald)
-- **Glow Colors**: `#0F2C26`, `#172120` (aura effects)
+### Primary Palette
+- **Soft White**: `#FAFCFF` (page background)
+- **Frost Glass**: `#EAF8FF` (glass surfaces)
+- **Mist**: `#DDE8EE` (borders and quiet surfaces)
+- **Icy Blue**: `#A9D6EB` (glass edge and secondary surface)
+- **Aqua Glow**: `#4FE7EE` (voice/listening glow and presence)
+- **Cursor Blue**: `#3478F6` (primary actions and guidance)
+- **Periwinkle**: `#8EA2FF` (focus and soft selection)
+- **Blush**: `#FFB9CF` (warm highlight)
+- **Deep Ink**: `#16212B` (text and high-contrast action)
 
 ### Gradients
-- **Hero Glow**: Radial from `#53CFAF` at 20% opacity to transparent
-- **Card Surface**: Linear from `#1F1F1F` to `#171918`
-- **CTA Button**: Linear from `#53CFAF` to `#3DB894`
+- **Hero Glow**: Radial from `#4FE7EE` and `#FFB9CF` to transparent
+- **Card Surface**: Linear from `#FFFFFF` to `#EAF8FF`
+- **CTA Button**: Deep ink base with cursor-blue hover
 
 ## Typography
 

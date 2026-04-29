@@ -214,6 +214,10 @@ function LandingPage() {
       snapTriggerRef.current = ScrollTrigger.create({
         snap: {
           snapTo: (value: number) => {
+            if (value < 0.01) {
+              return 0;
+            }
+
             // Check if within any pinned range (allow small buffer)
             const inPinned = pinnedRanges.some(
               (r) => value >= r.start - 0.02 && value <= r.end + 0.02

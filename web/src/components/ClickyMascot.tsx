@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
+import { ClickyCursorMark } from './ClickyCursorMark';
 
 interface ClickyMascotProps {
   className?: string;
@@ -142,36 +143,7 @@ export function ClickyMascot({
         </div>
       )}
 
-      {/* Clicky SVG */}
-      <svg
-        viewBox="0 0 52 52"
-        width={size}
-        height={size}
-        className="drop-shadow-lg"
-      >
-        {/* Main body - teardrop shape */}
-        <path
-          d="M26 4C26 4 8 18 8 32C8 41.941 16.059 50 26 50C35.941 50 44 41.941 44 32C44 18 26 4 26 4Z"
-          fill="#3B82F6"
-        />
-        {/* Highlight/eye */}
-        <ellipse
-          cx="20"
-          cy="26"
-          rx="5"
-          ry="7"
-          fill="white"
-          opacity="0.9"
-        />
-        {/* Small shine */}
-        <circle
-          cx="18"
-          cy="23"
-          r="2"
-          fill="white"
-          opacity="0.6"
-        />
-      </svg>
+      <ClickyCursorMark size={size} />
     </div>
   );
 }

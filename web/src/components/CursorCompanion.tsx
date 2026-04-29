@@ -57,12 +57,15 @@ function logGuidanceDebug(
 function TriangleGlyph({ color }: { color: string }) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 28 28"
       width="18"
       height="18"
-      style={{ transform: 'rotate(-35deg)' }}
+      style={{ transform: 'rotate(8deg)' }}
     >
-      <path d="M12 2L22 20H2L12 2Z" fill={color} />
+      <path
+        d="M10.7 3.8C9.3 3 7.5 3.9 7.2 5.5c-1.7 7.3-1.1 14.5.2 18 .5 1.4 2.2 1.9 3.3.9l4.5-3.9c.8-.7 1.8-1 2.8-1l5.2.2c2.2.1 3.2-2.7 1.5-4.1L10.7 3.8Z"
+        fill={color}
+      />
     </svg>
   )
 }
@@ -209,49 +212,49 @@ export function CursorCompanion() {
   const shellColors = useMemo(() => {
     if (!isActive) {
       return {
-        core: '#92A4BE',
-        outerGlow: 'rgba(146, 164, 190, 0.22)',
-        innerGlow: 'rgba(146, 164, 190, 0.14)',
-        ring: 'rgba(146, 164, 190, 0.3)',
+        core: '#8EA0AC',
+        outerGlow: 'rgba(169, 214, 235, 0.26)',
+        innerGlow: 'rgba(234, 248, 255, 0.42)',
+        ring: 'rgba(169, 214, 235, 0.42)',
       }
     }
 
     switch (companionVisualState) {
       case 'listening':
         return {
-          core: '#7A9BC4',
-          outerGlow: 'rgba(122, 155, 196, 0.74)',
-          innerGlow: 'rgba(122, 155, 196, 0.5)',
-          ring: 'rgba(122, 155, 196, 0.52)',
+          core: '#4FE7EE',
+          outerGlow: 'rgba(79, 231, 238, 0.74)',
+          innerGlow: 'rgba(79, 231, 238, 0.46)',
+          ring: 'rgba(79, 231, 238, 0.52)',
         }
       case 'transcribing':
         return {
-          core: '#88A3CB',
-          outerGlow: 'rgba(136, 163, 203, 0.68)',
-          innerGlow: 'rgba(136, 163, 203, 0.42)',
-          ring: 'rgba(136, 163, 203, 0.5)',
+          core: '#8EA2FF',
+          outerGlow: 'rgba(142, 162, 255, 0.68)',
+          innerGlow: 'rgba(142, 162, 255, 0.42)',
+          ring: 'rgba(142, 162, 255, 0.5)',
         }
       case 'thinking':
         return {
-          core: '#8F96BC',
-          outerGlow: 'rgba(143, 150, 188, 0.62)',
-          innerGlow: 'rgba(143, 150, 188, 0.38)',
-          ring: 'rgba(143, 150, 188, 0.48)',
+          core: '#3478F6',
+          outerGlow: 'rgba(52, 120, 246, 0.62)',
+          innerGlow: 'rgba(52, 120, 246, 0.38)',
+          ring: 'rgba(52, 120, 246, 0.48)',
         }
       case 'responding':
         return {
-          core: '#6E8CC4',
-          outerGlow: 'rgba(110, 140, 196, 0.78)',
-          innerGlow: 'rgba(110, 140, 196, 0.52)',
-          ring: 'rgba(110, 140, 196, 0.56)',
+          core: '#3478F6',
+          outerGlow: 'rgba(52, 120, 246, 0.78)',
+          innerGlow: 'rgba(255, 185, 207, 0.42)',
+          ring: 'rgba(255, 185, 207, 0.56)',
         }
       case 'idle':
       default:
         return {
-          core: '#7A9BC4',
-          outerGlow: 'rgba(122, 155, 196, 0.44)',
-          innerGlow: 'rgba(122, 155, 196, 0.28)',
-          ring: 'rgba(122, 155, 196, 0.4)',
+          core: '#3478F6',
+          outerGlow: 'rgba(52, 120, 246, 0.44)',
+          innerGlow: 'rgba(79, 231, 238, 0.28)',
+          ring: 'rgba(142, 162, 255, 0.4)',
         }
     }
   }, [companionVisualState, isActive])

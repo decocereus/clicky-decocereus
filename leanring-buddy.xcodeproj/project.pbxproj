@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		BBCU00022F65000100A0FC59 /* BackgroundComputerUse in Frameworks */ = {isa = PBXBuildFile; productRef = BBCU00012F65000100A0FC59 /* BackgroundComputerUse */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		28F22CCD2F56440300A0FC59 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -65,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BBCU00022F65000100A0FC59 /* BackgroundComputerUse in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -126,6 +131,7 @@
 			);
 			name = "leanring-buddy";
 			packageProductDependencies = (
+				BBCU00012F65000100A0FC59 /* BackgroundComputerUse */,
 			);
 			productName = "leanring-buddy";
 			productReference = 28F22CBF2F56440300A0FC59 /* Clicky.app */;
@@ -210,6 +216,7 @@
 			mainGroup = 28F22CB62F56440300A0FC59;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				BBCU00002F65000100A0FC59 /* XCLocalSwiftPackageReference "Packages/BackgroundComputerUse" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 28F22CC02F56440300A0FC59 /* Products */;
@@ -619,6 +626,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		BBCU00002F65000100A0FC59 /* XCLocalSwiftPackageReference "Packages/BackgroundComputerUse" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/BackgroundComputerUse;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BBCU00012F65000100A0FC59 /* BackgroundComputerUse */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BBCU00002F65000100A0FC59 /* XCLocalSwiftPackageReference "Packages/BackgroundComputerUse" */;
+			productName = BackgroundComputerUse;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 28F22CB72F56440300A0FC59 /* Project object */;
 }

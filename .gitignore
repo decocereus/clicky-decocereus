@@ -12,6 +12,7 @@ build/
 releases/
 .claude/
 coding-plans/
+__pycache__/
 
 plugins/openclaw-clicky-shell/node_modules/
 /backend/node_modules

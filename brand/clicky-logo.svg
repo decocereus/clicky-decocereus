@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Clicky logo</title>
+  <desc id="desc">A translucent rounded glass tile with a glowing cursor-shaped pointer mark.</desc>
+  <defs>
+    <linearGradient id="tile-fill" x1="166" y1="126" x2="862" y2="922" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F8FDFF" stop-opacity="0.88"/>
+      <stop offset="0.24" stop-color="#DDF5FF" stop-opacity="0.72"/>
+      <stop offset="0.55" stop-color="#A9D6EB" stop-opacity="0.56"/>
+      <stop offset="1" stop-color="#8EA2FF" stop-opacity="0.42"/>
+    </linearGradient>
+    <linearGradient id="tile-edge" x1="183" y1="152" x2="853" y2="883" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D9F7FF"/>
+      <stop offset="0.38" stop-color="#8BC7E4"/>
+      <stop offset="0.74" stop-color="#7EA5D8"/>
+      <stop offset="1" stop-color="#FFB9CF"/>
+    </linearGradient>
+    <radialGradient id="cyan-bloom" cx="44%" cy="40%" r="46%">
+      <stop offset="0" stop-color="#4FE7EE" stop-opacity="0.82"/>
+      <stop offset="0.48" stop-color="#4FE7EE" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#4FE7EE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blue-bloom" cx="45%" cy="68%" r="42%">
+      <stop offset="0" stop-color="#3478F6" stop-opacity="0.72"/>
+      <stop offset="0.58" stop-color="#3478F6" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#3478F6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="pink-bloom" cx="68%" cy="63%" r="35%">
+      <stop offset="0" stop-color="#FFB9CF" stop-opacity="0.78"/>
+      <stop offset="0.52" stop-color="#FFB9CF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#FFB9CF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="pointer-fill" x1="350" y1="226" x2="682" y2="795" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F6FFFF" stop-opacity="0.94"/>
+      <stop offset="0.24" stop-color="#7CF2F4" stop-opacity="0.82"/>
+      <stop offset="0.56" stop-color="#3478F6" stop-opacity="0.74"/>
+      <stop offset="0.78" stop-color="#9EA8FF" stop-opacity="0.70"/>
+      <stop offset="1" stop-color="#FFB9CF" stop-opacity="0.88"/>
+    </linearGradient>
+    <linearGradient id="pointer-edge" x1="332" y1="240" x2="708" y2="800" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FBFFFF"/>
+      <stop offset="0.35" stop-color="#CBFFFF"/>
+      <stop offset="0.68" stop-color="#D8D7FF"/>
+      <stop offset="1" stop-color="#FFE2EC"/>
+    </linearGradient>
+    <filter id="tile-shadow" x="-18%" y="-18%" width="136%" height="140%">
+      <feDropShadow dx="0" dy="24" stdDeviation="26" flood-color="#16212B" flood-opacity="0.22"/>
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#4FE7EE" flood-opacity="0.18"/>
+    </filter>
+    <filter id="inner-soften" x="-8%" y="-8%" width="116%" height="116%">
+      <feGaussianBlur stdDeviation="0.35"/>
+    </filter>
+    <filter id="pointer-glow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="0" stdDeviation="16" flood-color="#4FE7EE" flood-opacity="0.45"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#3478F6" flood-opacity="0.24"/>
+      <feDropShadow dx="10" dy="8" stdDeviation="18" flood-color="#FFB9CF" flood-opacity="0.28"/>
+    </filter>
+    <clipPath id="tile-clip">
+      <rect x="150" y="150" width="724" height="724" rx="156"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1024" height="1024" fill="none"/>
+
+  <g filter="url(#tile-shadow)">
+    <rect x="150" y="150" width="724" height="724" rx="156" fill="url(#tile-fill)"/>
+    <g clip-path="url(#tile-clip)" opacity="0.9">
+      <rect x="150" y="150" width="724" height="724" fill="url(#cyan-bloom)"/>
+      <rect x="150" y="150" width="724" height="724" fill="url(#blue-bloom)"/>
+      <rect x="150" y="150" width="724" height="724" fill="url(#pink-bloom)"/>
+      <path d="M204 256C286 210 726 214 810 276" fill="none" stroke="#FFFFFF" stroke-width="34" stroke-linecap="round" opacity="0.23"/>
+      <path d="M205 806C298 852 695 851 817 786" fill="none" stroke="#16212B" stroke-width="28" stroke-linecap="round" opacity="0.10"/>
+    </g>
+    <rect x="150" y="150" width="724" height="724" rx="156" fill="none" stroke="url(#tile-edge)" stroke-width="19"/>
+    <rect x="174" y="174" width="676" height="676" rx="136" fill="none" stroke="#FFFFFF" stroke-width="10" opacity="0.34"/>
+    <rect x="188" y="188" width="648" height="648" rx="124" fill="none" stroke="#16212B" stroke-width="4" opacity="0.08"/>
+  </g>
+
+  <g filter="url(#pointer-glow)">
+    <path
+      d="M397 279
+         C367 260 328 280 320 316
+         C286 468 298 648 324 723
+         C337 761 383 774 413 748
+         L523 653
+         C542 637 565 628 590 629
+         L717 633
+         C771 635 796 568 755 533
+         L397 279Z"
+      fill="url(#pointer-fill)"
+      opacity="0.88"/>
+    <path
+      d="M397 279
+         C367 260 328 280 320 316
+         C286 468 298 648 324 723
+         C337 761 383 774 413 748
+         L523 653
+         C542 637 565 628 590 629
+         L717 633
+         C771 635 796 568 755 533
+         L397 279Z"
+      fill="none"
+      stroke="url(#pointer-edge)"
+      stroke-width="28"
+      stroke-linejoin="round"
+      opacity="0.86"/>
+    <path
+      d="M375 319
+         C354 431 360 608 382 676
+         C385 685 395 687 402 681
+         L497 599
+         C526 573 565 560 603 561
+         L673 563
+         C686 563 691 547 681 539
+         L385 328
+         C380 325 377 322 375 319Z"
+      fill="#FFFFFF"
+      opacity="0.12"
+      filter="url(#inner-soften)"/>
+  </g>
+</svg>

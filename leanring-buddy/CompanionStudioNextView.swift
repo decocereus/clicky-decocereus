@@ -10,6 +10,7 @@ import SwiftUI
 
 enum CompanionStudioNextSection: String, CaseIterable, Identifiable, Hashable {
     case companion
+    case computerUse
     case profile
     case support
 
@@ -19,6 +20,8 @@ enum CompanionStudioNextSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .companion:
             return "Companion"
+        case .computerUse:
+            return "Computer Use"
         case .profile:
             return "Profile"
         case .support:
@@ -30,6 +33,8 @@ enum CompanionStudioNextSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .companion:
             return "Daily shell controls"
+        case .computerUse:
+            return "Permission level"
         case .profile:
             return "Account, access, and app"
         case .support:
@@ -41,6 +46,8 @@ enum CompanionStudioNextSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .companion:
             return "sparkles"
+        case .computerUse:
+            return "cursorarrow.click"
         case .profile:
             return "person.crop.circle"
         case .support:
@@ -301,6 +308,8 @@ struct CompanionStudioNextView: View {
                     companionManager: companionManager,
                     isSupportModeEnabled: $isSupportModeEnabled
                 )
+            case .computerUse:
+                CompanionStudioComputerUseScene(companionManager: companionManager)
             case .profile:
                 CompanionStudioProfileScene(companionManager: companionManager)
             case .support:
@@ -346,6 +355,268 @@ struct CompanionStudioNextView: View {
                     shape.stroke(Color.white.opacity(0.12), lineWidth: 0.8)
                 )
         }
+    }
+}
+
+private struct CompanionStudioComputerUseScene: View {
+    let companionManager: CompanionManager
+    @ObservedObject private var computerUseController: ClickyComputerUseController
+    @ObservedObject private var preferences: ClickyPreferencesStore
+    private let palette = CompanionStudioScalaPalette()
+
+    init(companionManager: CompanionManager) {
+        self.companionManager = companionManager
+        _computerUseController = ObservedObject(wrappedValue: companionManager.computerUseController)
+        _preferences = ObservedObject(wrappedValue: companionManager.preferences)
+    }
+
+    private var computerUsePermissionLabel: String {
+        computerUseController.permissionSummary
+    }
+
+    private var computerUseEndpointLabel: String {
+        computerUseController.runtimeSnapshot.baseURLString ?? "Not available"
+    }
+
+    private var computerUseStatusTitle: String {
+        switch computerUseController.runtimeSnapshot.phase {
+        case .ready:
+            return "Computer Use Is Ready"
+        case .needsPermissions:
+            return "Enable Computer Use"
+        case .starting:
+            return "Computer Use Is Starting"
+        case .idle:
+            return "Computer Use Has Not Started"
+        case .failed:
+            return "Computer Use Needs Attention"
+        }
+    }
+
+    private var computerUseStatusCopy: String {
+        switch computerUseController.runtimeSnapshot.phase {
+        case .ready:
+            return "Clicky can inspect the active app, ground targets, and operate on your Mac according to the permission level you choose here."
+        case .needsPermissions:
+            return "Clicky needs macOS Accessibility and Screen Recording before it can inspect controls or prepare actions."
+        case .starting:
+            return "The bundled runtime is starting. Refresh this card if the state does not update after a moment."
+        case .idle:
+            return "The bundled runtime has not reported in yet. Refresh this card to re-check the current permission and runtime state."
+        case .failed(let message):
+            return "The bundled runtime could not start. \(message)"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            computerUseOverviewCard
+
+            HStack(alignment: .top, spacing: 18) {
+                CompanionStudioReadableCard(
+                    eyebrow: "Current State",
+                    title: "Runtime And Permissions"
+                ) {
+                    VStack(spacing: 12) {
+                        CompanionStudioKeyValueRow(label: "Computer use", value: computerUseController.statusLabel)
+                        CompanionStudioKeyValueRow(label: "Permissions", value: computerUsePermissionLabel)
+                        CompanionStudioKeyValueRow(label: "Runtime", value: computerUseEndpointLabel)
+                        CompanionStudioKeyValueRow(
+                            label: "Internal tools",
+                            value: "\(ClickyComputerUseCapabilities.fullInternalSurface.count) registered"
+                        )
+                        CompanionStudioKeyValueRow(
+                            label: "Permission level",
+                            value: preferences.computerUsePermissionLevel.displayName
+                        )
+                        CompanionStudioKeyValueRow(
+                            label: "Action tools",
+                            value: "\(ClickyComputerUseActionPolicy.confirmationGatedSurface.count) controlled"
+                        )
+                    }
+                }
+
+                computerUsePendingActionCard
+
+                CompanionStudioReadableCard(
+                    eyebrow: "Policy",
+                    title: "Permission Level"
+                ) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Picker("Computer use permission", selection: $preferences.computerUsePermissionLevel) {
+                            ForEach(ClickyComputerUsePermissionLevel.allCases) { level in
+                                Text(level.displayName).tag(level)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .pointerCursor()
+
+                        Text(preferences.computerUsePermissionLevel.studioDescription)
+                            .font(ClickyTypography.body(size: 13))
+                            .foregroundColor(palette.cardSecondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("Auto Approved uses your macOS permissions as consent for computer use. Review pauses for approve or deny. Blocked turns the desktop operator off.")
+                            .font(ClickyTypography.body(size: 13))
+                            .foregroundColor(palette.cardSecondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private var computerUseOverviewCard: some View {
+        CompanionStudioReadableCard(
+            eyebrow: "Computer Use",
+            title: computerUseStatusTitle
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(computerUseStatusCopy)
+                    .font(ClickyTypography.body(size: 14))
+                    .foregroundColor(palette.cardSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    CompanionStudioGlassChip(text: computerUseController.statusLabel)
+                    CompanionStudioGlassChip(text: computerUsePermissionLabel)
+                    CompanionStudioGlassChip(text: computerUseEndpointLabel == "Not available" ? "Runtime unavailable" : "Runtime local")
+                }
+
+                HStack(spacing: 10) {
+                    Button(action: requestComputerUseAccessibilityPermission) {
+                        Text("Enable Accessibility")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(CompanionStudioSecondaryButtonModifier())
+                    .disabled(!computerUseController.missingPermissionNames.contains("Accessibility"))
+                    .pointerCursor()
+
+                    Button(action: requestComputerUseScreenRecordingPermission) {
+                        Text("Enable Screen Recording")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(CompanionStudioSecondaryButtonModifier())
+                    .disabled(!computerUseController.missingPermissionNames.contains("Screen Recording"))
+                    .pointerCursor()
+
+                    Button(action: refreshComputerUseStatus) {
+                        Text("Refresh")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(CompanionStudioPrimaryButtonModifier())
+                    .pointerCursor()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var computerUsePendingActionCard: some View {
+        if let pendingAction = computerUseController.pendingAction {
+            let review = ClickyComputerUseActionPolicy.review(
+                toolName: pendingAction.toolName,
+                rawPayload: pendingAction.rawPayload,
+                originalUserRequest: pendingAction.originalUserRequest
+            )
+
+            CompanionStudioReadableCard(
+                eyebrow: "Approval",
+                title: "Queued Action"
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    CompanionStudioKeyValueRow(label: "Tool", value: pendingAction.toolName.rawValue)
+                    CompanionStudioKeyValueRow(label: "Risk", value: review.riskLevel.displayName)
+                    CompanionStudioKeyValueRow(label: "Status", value: pendingActionStatusLabel(pendingAction.status))
+
+                    Text("You asked")
+                        .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                        .foregroundColor(palette.cardSecondaryText.opacity(0.82))
+
+                    Text(review.userRequestPreview)
+                        .font(ClickyTypography.body(size: 13))
+                        .foregroundColor(palette.cardSecondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("Model wants")
+                        .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                        .foregroundColor(palette.cardSecondaryText.opacity(0.82))
+
+                    Text(pendingAction.summary)
+                        .font(ClickyTypography.body(size: 13))
+                        .foregroundColor(palette.cardSecondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if case .pending = pendingAction.status {
+                        HStack(spacing: 10) {
+                            Button(action: companionManager.approvePendingComputerUseAction) {
+                                Text("Approve")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .modifier(CompanionStudioPrimaryButtonModifier())
+                            .pointerCursor()
+
+                            Button(action: companionManager.cancelPendingComputerUseAction) {
+                                Text("Deny")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .modifier(CompanionStudioSecondaryButtonModifier())
+                            .pointerCursor()
+                        }
+                    } else {
+                        Button(action: companionManager.clearPendingComputerUseAction) {
+                            Text("Dismiss")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .modifier(CompanionStudioSecondaryButtonModifier())
+                        .pointerCursor()
+                    }
+                }
+            }
+        } else {
+            CompanionStudioReadableCard(
+                eyebrow: "Approval",
+                title: "No Action Waiting"
+            ) {
+                Text(preferences.computerUsePermissionLevel == .review
+                    ? "When Clicky asks to click, type, scroll, or move windows, the queued action and approve or deny controls will appear here."
+                    : "This card is quiet unless Review mode is on and an action is waiting.")
+                    .font(ClickyTypography.body(size: 13))
+                    .foregroundColor(palette.cardSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func pendingActionStatusLabel(_ status: ClickyComputerUsePendingActionStatus) -> String {
+        switch status {
+        case .pending:
+            return "Waiting for approval"
+        case .executing:
+            return "Executing"
+        case .completed(let message):
+            return message
+        case .canceled:
+            return "Denied"
+        case .failed(let message):
+            return message
+        }
+    }
+
+    private func requestComputerUseAccessibilityPermission() {
+        computerUseController.requestAccessibilityPermission()
+        companionManager.refreshAllPermissions()
+    }
+
+    private func requestComputerUseScreenRecordingPermission() {
+        computerUseController.requestScreenRecordingPermission()
+        companionManager.refreshAllPermissions()
+    }
+
+    private func refreshComputerUseStatus() {
+        computerUseController.refreshRuntimeStatus()
+        companionManager.refreshAllPermissions()
     }
 }
 
@@ -2173,6 +2444,7 @@ private struct CompanionStudioSupportScene: View {
     @ObservedObject private var launchAccessController: ClickyLaunchAccessController
     @ObservedObject private var backendRoutingController: ClickyBackendRoutingController
     @ObservedObject private var surfaceController: ClickySurfaceController
+    @ObservedObject private var computerUseController: ClickyComputerUseController
     @ObservedObject private var speechProviderController: ClickySpeechProviderController
     @Binding var isSupportModeEnabled: Bool
     private let palette = CompanionStudioScalaPalette()
@@ -2183,6 +2455,7 @@ private struct CompanionStudioSupportScene: View {
         _launchAccessController = ObservedObject(wrappedValue: companionManager.launchAccessController)
         _backendRoutingController = ObservedObject(wrappedValue: companionManager.backendRoutingController)
         _surfaceController = ObservedObject(wrappedValue: companionManager.surfaceController)
+        _computerUseController = ObservedObject(wrappedValue: companionManager.computerUseController)
         _speechProviderController = ObservedObject(wrappedValue: companionManager.speechProviderController)
         _isSupportModeEnabled = isSupportModeEnabled
     }
@@ -2231,6 +2504,44 @@ private struct CompanionStudioSupportScene: View {
         companionManager.clickyOpenClawPluginStatusLabel
     }
 
+    private var computerUsePermissionLabel: String {
+        computerUseController.permissionSummary
+    }
+
+    private var computerUseEndpointLabel: String {
+        computerUseController.runtimeSnapshot.baseURLString ?? "Not available"
+    }
+
+    private var computerUseStatusTitle: String {
+        switch computerUseController.runtimeSnapshot.phase {
+        case .ready:
+            return "Computer Use Is Ready"
+        case .needsPermissions:
+            return "Enable Computer Use"
+        case .starting:
+            return "Computer Use Is Starting"
+        case .idle:
+            return "Computer Use Has Not Started"
+        case .failed:
+            return "Computer Use Needs Attention"
+        }
+    }
+
+    private var computerUseStatusCopy: String {
+        switch computerUseController.runtimeSnapshot.phase {
+        case .ready:
+            return "Clicky can inspect the active app, ground targets, and operate on your Mac according to the permission level you choose."
+        case .needsPermissions:
+            return "Clicky needs macOS Accessibility and Screen Recording before it can inspect controls or prepare actions. Until then, the agent will tell you to enable computer use first."
+        case .starting:
+            return "The bundled runtime is starting. Refresh this card if the state does not update after a moment."
+        case .idle:
+            return "The bundled runtime has not reported in yet. Refresh this card to re-check the current permission and runtime state."
+        case .failed(let message):
+            return "The bundled runtime could not start. \(message)"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             CompanionStudioReadableCard(
@@ -2248,6 +2559,8 @@ private struct CompanionStudioSupportScene: View {
                 }
             }
 
+            computerUseOverviewCard
+
             HStack(alignment: .top, spacing: 18) {
                 CompanionStudioReadableCard(
                     eyebrow: "Current State",
@@ -2256,8 +2569,25 @@ private struct CompanionStudioSupportScene: View {
                     VStack(spacing: 12) {
                         CompanionStudioKeyValueRow(label: "Speech", value: effectiveVoiceOutputDisplayName)
                         CompanionStudioKeyValueRow(label: "Bridge", value: clickyOpenClawPluginStatusLabel)
+                        CompanionStudioKeyValueRow(label: "Computer use", value: computerUseController.statusLabel)
+                        CompanionStudioKeyValueRow(label: "Permissions", value: computerUsePermissionLabel)
+                        CompanionStudioKeyValueRow(label: "Runtime", value: computerUseEndpointLabel)
+                        CompanionStudioKeyValueRow(
+                            label: "Internal tools",
+                            value: "\(ClickyComputerUseCapabilities.fullInternalSurface.count) registered"
+                        )
+                        CompanionStudioKeyValueRow(
+                            label: "Permission level",
+                            value: preferences.computerUsePermissionLevel.displayName
+                        )
+                        CompanionStudioKeyValueRow(
+                            label: "Action tools",
+                            value: "\(ClickyComputerUseActionPolicy.confirmationGatedSurface.count) controlled"
+                        )
                     }
                 }
+
+                computerUsePendingActionCard
 
                 CompanionStudioReadableCard(
                     eyebrow: "When To Use This",
@@ -2276,6 +2606,159 @@ private struct CompanionStudioSupportScene: View {
                 }
             }
         }
+    }
+
+    private var computerUseOverviewCard: some View {
+        CompanionStudioReadableCard(
+            eyebrow: "Computer Use",
+            title: computerUseStatusTitle
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(computerUseStatusCopy)
+                    .font(ClickyTypography.body(size: 14))
+                    .foregroundColor(palette.cardSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    CompanionStudioGlassChip(text: computerUseController.statusLabel)
+                    CompanionStudioGlassChip(text: computerUsePermissionLabel)
+                    CompanionStudioGlassChip(text: computerUseEndpointLabel == "Not available" ? "Runtime unavailable" : "Runtime local")
+                }
+
+                HStack(spacing: 10) {
+                    Button(action: requestComputerUseAccessibilityPermission) {
+                        Text("Enable Accessibility")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(CompanionStudioSecondaryButtonModifier())
+                    .disabled(!computerUseController.missingPermissionNames.contains("Accessibility"))
+                    .pointerCursor()
+
+                    Button(action: requestComputerUseScreenRecordingPermission) {
+                        Text("Enable Screen Recording")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(CompanionStudioSecondaryButtonModifier())
+                    .disabled(!computerUseController.missingPermissionNames.contains("Screen Recording"))
+                    .pointerCursor()
+
+                    Button(action: refreshComputerUseStatus) {
+                        Text("Refresh")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(CompanionStudioPrimaryButtonModifier())
+                    .pointerCursor()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var computerUsePendingActionCard: some View {
+        if let pendingAction = computerUseController.pendingAction {
+            let review = ClickyComputerUseActionPolicy.review(
+                toolName: pendingAction.toolName,
+                rawPayload: pendingAction.rawPayload,
+                originalUserRequest: pendingAction.originalUserRequest
+            )
+
+            CompanionStudioReadableCard(
+                eyebrow: "Computer Use",
+                title: "Pending Action"
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    CompanionStudioKeyValueRow(label: "Tool", value: pendingAction.toolName.rawValue)
+                    CompanionStudioKeyValueRow(label: "Risk", value: review.riskLevel.displayName)
+                    CompanionStudioKeyValueRow(label: "Policy", value: review.policySummary)
+                    CompanionStudioKeyValueRow(label: "Status", value: pendingActionStatusLabel(pendingAction.status))
+
+                    Text("You asked")
+                        .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                        .foregroundColor(palette.cardSecondaryText.opacity(0.82))
+
+                    Text(review.userRequestPreview)
+                        .font(ClickyTypography.body(size: 13))
+                        .foregroundColor(palette.cardSecondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("Model wants")
+                        .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                        .foregroundColor(palette.cardSecondaryText.opacity(0.82))
+
+                    Text(pendingAction.summary)
+                        .font(ClickyTypography.body(size: 13))
+                        .foregroundColor(palette.cardSecondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(review.payloadPreview)
+                        .font(ClickyTypography.mono(size: 11))
+                        .foregroundColor(palette.cardSecondaryText)
+                        .lineLimit(6)
+                        .textSelection(.enabled)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(palette.cardAccent.opacity(0.36))
+                        )
+
+                    if case .pending = pendingAction.status {
+                        HStack(spacing: 10) {
+                            Button(action: companionManager.approvePendingComputerUseAction) {
+                                Text("Approve")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .modifier(CompanionStudioPrimaryButtonModifier())
+                            .pointerCursor()
+
+                            Button(action: companionManager.cancelPendingComputerUseAction) {
+                                Text("Deny")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .modifier(CompanionStudioSecondaryButtonModifier())
+                            .pointerCursor()
+                        }
+                    } else {
+                        Button(action: companionManager.clearPendingComputerUseAction) {
+                            Text("Dismiss")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .modifier(CompanionStudioSecondaryButtonModifier())
+                        .pointerCursor()
+                    }
+                }
+            }
+        }
+    }
+
+    private func pendingActionStatusLabel(_ status: ClickyComputerUsePendingActionStatus) -> String {
+        switch status {
+        case .pending:
+            return "Waiting for approval"
+        case .executing:
+            return "Executing"
+        case .completed(let message):
+            return message
+        case .canceled:
+            return "Denied"
+        case .failed(let message):
+            return message
+        }
+    }
+
+    private func requestComputerUseAccessibilityPermission() {
+        computerUseController.requestAccessibilityPermission()
+        companionManager.refreshAllPermissions()
+    }
+
+    private func requestComputerUseScreenRecordingPermission() {
+        computerUseController.requestScreenRecordingPermission()
+        companionManager.refreshAllPermissions()
+    }
+
+    private func refreshComputerUseStatus() {
+        computerUseController.refreshRuntimeStatus()
+        companionManager.refreshAllPermissions()
     }
 }
 
@@ -3394,24 +3877,24 @@ struct CompanionStudioToolbarIconButtonModifier: ViewModifier {
 }
 
 struct CompanionStudioScalaPalette {
-    let shellBackgroundTop = Color(hex: "#4C4958")
-    let shellBackgroundMid = Color(hex: "#45414F")
-    let shellBackgroundBottom = Color(hex: "#3D3A47")
+    let shellBackgroundTop = Color(hex: "#F2FCFF")
+    let shellBackgroundMid = Color(hex: "#EAF8FF")
+    let shellBackgroundBottom = Color(hex: "#DDE8EE")
 
-    let shellTint = Color(hex: "#F5F2EE")
-    let shellPrimaryText = Color(hex: "#FAF8F5")
-    let shellSecondaryText = Color(hex: "#D7D1CB")
+    let shellTint = Color(hex: "#4FE7EE")
+    let shellPrimaryText = Color(hex: "#16212B")
+    let shellSecondaryText = Color(hex: "#5D7283")
 
-    let cardBackground = Color(hex: "#FAF8F5")
-    let cardPrimaryText = Color(hex: "#1A1A1A")
-    let cardSecondaryText = Color(hex: "#6B6B6B")
-    let cardBorder = Color(hex: "#E3DBD2")
-    let cardAccent = Color(hex: "#F5F2EE")
+    let cardBackground = Color(hex: "#FAFCFF")
+    let cardPrimaryText = Color(hex: "#16212B")
+    let cardSecondaryText = Color(hex: "#5D7283")
+    let cardBorder = Color(hex: "#DDE8EE")
+    let cardAccent = Color(hex: "#EAF8FF")
 
-    let lavender = Color(hex: "#9B8FBF")
-    let sage = Color(hex: "#7A9B8A")
-    let sageText = Color(hex: "#AFC3B7")
-    let brandWordmark = Color(hex: "#D9E4DA")
+    let lavender = Color(hex: "#8EA2FF")
+    let sage = Color(hex: "#4FE7EE")
+    let sageText = Color(hex: "#3478F6")
+    let brandWordmark = Color(hex: "#16212B")
 }
 
 private struct CompanionStudioNextWindowConfigurator: NSViewRepresentable {

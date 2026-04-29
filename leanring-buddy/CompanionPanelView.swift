@@ -14,6 +14,7 @@ struct CompanionPanelView: View {
     let companionManager: CompanionManager
     @ObservedObject private var preferences: ClickyPreferencesStore
     @ObservedObject private var surfaceController: ClickySurfaceController
+    @ObservedObject private var computerUseController: ClickyComputerUseController
     @ObservedObject private var launchAccessController: ClickyLaunchAccessController
     @ObservedObject private var tutorialController: ClickyTutorialController
 
@@ -29,6 +30,7 @@ struct CompanionPanelView: View {
         self.companionManager = companionManager
         _preferences = ObservedObject(wrappedValue: companionManager.preferences)
         _surfaceController = ObservedObject(wrappedValue: companionManager.surfaceController)
+        _computerUseController = ObservedObject(wrappedValue: companionManager.computerUseController)
         _launchAccessController = ObservedObject(wrappedValue: companionManager.launchAccessController)
         _tutorialController = ObservedObject(wrappedValue: companionManager.tutorialController)
     }
@@ -365,7 +367,7 @@ struct CompanionPanelView: View {
                     Button(action: openStudio) {
                         Image(systemName: "slider.horizontal.3")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(Color(hex: "#1A1A1A").opacity(0.88))
+                        .foregroundColor(theme.foreground.opacity(0.88))
                         .frame(width: 30, height: 30)
                     }
                     .buttonStyle(.plain)
@@ -376,7 +378,7 @@ struct CompanionPanelView: View {
                 Button(action: handleTrailingHeaderAction) {
                     Image(systemName: isInTutorialPanelFlow ? "chevron.left" : "xmark")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(Color(hex: "#1A1A1A").opacity(0.88))
+                        .foregroundColor(theme.foreground.opacity(0.88))
                         .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
@@ -404,7 +406,13 @@ struct CompanionPanelView: View {
     }
 
     private var panelBody: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 12) {
+            if let pendingAction = computerUseController.pendingAction {
+                pendingComputerUseActionCard(pendingAction)
+                    .panelGlassMotionID("computer-use-action-\(pendingAction.id.uuidString)", namespace: panelMotionNamespace)
+                    .transition(panelCardTransition)
+            }
+
             Group {
                 primaryContentCard
                     .panelGlassMotionID("primary-card-\(panelScreenKey)", namespace: panelMotionNamespace)
@@ -416,6 +424,7 @@ struct CompanionPanelView: View {
             }
         }
         .animation(panelCardAnimation, value: panelScreenKey)
+        .animation(panelCardAnimation, value: computerUseController.pendingAction?.id)
         .animation(panelCardAnimation, value: permissionRows.count)
         .animation(panelCardAnimation, value: showsSignInWhyCopy)
     }
@@ -436,7 +445,7 @@ struct CompanionPanelView: View {
         case .permissions:
             primaryCopyCard(
                 title: "Give Clicky the access it needs to help in context.",
-                body: "These permissions let Clicky listen, understand what's on screen, and guide you where to look. Only show what still needs attention."
+                body: "These permissions let Clicky listen, understand what's on screen, guide your attention, and act when you approve it. Only show what still needs attention."
             )
         case .ready:
             primaryCopyCard(
@@ -552,6 +561,90 @@ struct CompanionPanelView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .modifier(ClickyPanelContentCardStyle(tone: tone, padding: 18))
+    }
+
+    private func pendingComputerUseActionCard(_ action: ClickyComputerUsePendingAction) -> some View {
+        let review = ClickyComputerUseActionPolicy.review(
+            toolName: action.toolName,
+            rawPayload: action.rawPayload,
+            originalUserRequest: action.originalUserRequest
+        )
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "cursorarrow.click")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(theme.primary)
+                    .frame(width: 30, height: 30)
+                    .background(
+                        Circle()
+                            .fill(theme.primary.opacity(0.12))
+                    )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(pendingComputerUseTitle(for: action.toolName))
+                        .font(ClickyTypography.body(size: 13, weight: .semibold))
+                        .foregroundColor(contentTheme.textPrimary)
+
+                    Text(review.summary)
+                        .font(ClickyTypography.body(size: 11))
+                        .foregroundColor(contentTheme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            if case .pending = action.status {
+                HStack(spacing: 10) {
+                    Button(action: companionManager.approvePendingComputerUseAction) {
+                        Text("Approve")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(ClickyProminentActionStyle())
+                    .pointerCursor()
+
+                    Button(action: companionManager.cancelPendingComputerUseAction) {
+                        Text("Deny")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .modifier(ClickySecondaryGlassButtonStyle())
+                    .pointerCursor()
+                }
+            } else {
+                Button(action: companionManager.clearPendingComputerUseAction) {
+                    Text("Dismiss")
+                        .frame(maxWidth: .infinity)
+                }
+                .modifier(ClickySecondaryGlassButtonStyle())
+                .pointerCursor()
+            }
+        }
+        .modifier(ClickyPanelContentCardStyle(tone: .regular, padding: 16))
+    }
+
+    private func pendingComputerUseTitle(for toolName: ClickyComputerUseToolName) -> String {
+        switch toolName {
+        case .listApps, .listWindows:
+            return "Clicky wants to inspect"
+        case .click:
+            return "Clicky wants to click"
+        case .typeText, .setValue:
+            return "Clicky wants to type"
+        case .pressKey:
+            return "Clicky wants to press a key"
+        case .scroll:
+            return "Clicky wants to scroll"
+        case .drag:
+            return "Clicky wants to drag"
+        case .resize, .setWindowFrame:
+            return "Clicky wants to move a window"
+        case .performSecondaryAction:
+            return "Clicky wants to use a control"
+        case .getWindowState:
+            return "Clicky wants to inspect"
+        }
     }
 
     private var activeHeroCard: some View {
@@ -1206,15 +1299,14 @@ struct CompanionPanelView: View {
                     title: "Accessibility",
                     detail: hasCompletedOnboarding
                         ? "So Clicky can continue helping you act inside software."
-                        : "So Clicky can help you act inside software when you ask.",
+                        : "So Clicky can guide and act inside software when you ask.",
                     primaryTitle: "Grant",
-                    primaryAction: {
-                        WindowPositionManager.requestAccessibilityPermission()
-                    },
+                    primaryAction: requestAccessibilityPermission,
                     secondaryTitle: "Find App",
                     secondaryAction: {
                         WindowPositionManager.revealAppInFinder()
                         WindowPositionManager.openAccessibilitySettings()
+                        computerUseController.refreshRuntimeStatus()
                     }
                 ).withState(rowState(for: .accessibility, isGranted: false))
             )
@@ -1258,12 +1350,10 @@ struct CompanionPanelView: View {
                     kind: .screenRecording,
                     title: "Screen Recording",
                     detail: hasCompletedOnboarding
-                        ? "So Clicky can continue understanding the software in front of you."
-                        : "So Clicky can understand the software in front of you.",
+                        ? "So Clicky can continue seeing enough context to guide and act safely."
+                        : "So Clicky can see enough context to guide and act safely.",
                     primaryTitle: "Grant",
-                    primaryAction: {
-                        WindowPositionManager.requestScreenRecordingPermission()
-                    }
+                    primaryAction: requestScreenRecordingPermission
                 ).withState(rowState(for: .screenRecording, isGranted: false))
             )
         } else if recentlyGrantedPermissions.contains(.screenRecording) {
@@ -1521,6 +1611,18 @@ struct CompanionPanelView: View {
         } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func requestAccessibilityPermission() {
+        _ = WindowPositionManager.requestAccessibilityPermission()
+        computerUseController.refreshRuntimeStatus()
+        companionManager.refreshAllPermissions()
+    }
+
+    private func requestScreenRecordingPermission() {
+        _ = WindowPositionManager.requestScreenRecordingPermission()
+        computerUseController.refreshRuntimeStatus()
+        companionManager.refreshAllPermissions()
     }
 
     private func handleSignInPrimaryAction() {
@@ -1963,7 +2065,7 @@ private struct ClickyPrimaryPanelButtonStyle: ButtonStyle {
             .frame(minHeight: 42)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(hex: "#1A1A1A"))
+                    .fill(theme.primary)
                     .overlay(
                         LinearGradient(
                             colors: [

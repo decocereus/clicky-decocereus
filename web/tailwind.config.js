@@ -5,6 +5,14 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        warm: "#FAFCFF",
+        charcoal: "#16212B",
+        lavender: "#8EA2FF",
+        sage: "#4FE7EE",
+        rose: "#FFB9CF",
+        frost: "#EAF8FF",
+        mist: "#DDE8EE",
+        cursor: "#3478F6",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

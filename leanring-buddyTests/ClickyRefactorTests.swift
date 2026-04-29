@@ -77,13 +77,53 @@ struct ClickyRefactorTests {
         let store = ClickyPreferencesStore(defaults: defaults)
         store.selectedAgentBackend = .codex
         store.clickyThemePreset = .light
+        store.computerUsePermissionLevel = .review
         store.hasCompletedOnboarding = true
 
         let reloadedStore = ClickyPreferencesStore(defaults: defaults)
 
         #expect(reloadedStore.selectedAgentBackend == .codex)
         #expect(reloadedStore.clickyThemePreset == .light)
+        #expect(reloadedStore.computerUsePermissionLevel == .review)
         #expect(reloadedStore.hasCompletedOnboarding)
+    }
+
+    @Test
+    @MainActor
+    func preferencesStoreAutoApprovesComputerUseByDefault() throws {
+        let suiteName = "ClickyComputerUseDirectPreferenceTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated defaults suite")
+            return
+        }
+
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = ClickyPreferencesStore(defaults: defaults)
+
+        #expect(store.computerUsePermissionLevel == .autoApproved)
+    }
+
+    @Test
+    @MainActor
+    func preferencesStoreMigratesLegacyComputerUseReviewSetting() throws {
+        let suiteName = "ClickyComputerUseLegacyPreferenceTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated defaults suite")
+            return
+        }
+
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(false, forKey: "computerUseRunsRoutineActionsDirectly")
+
+        let store = ClickyPreferencesStore(defaults: defaults)
+
+        #expect(store.computerUsePermissionLevel == .review)
     }
 
     @Test

@@ -10,19 +10,22 @@ Native OpenClaw plugin scaffold for connecting OpenClaw to the Clicky desktop sh
 - registers a simple `/clicky` command
 - registers a `clicky_status` tool
 - registers a `clicky_present` tool as the preferred presentation-mode surface for Clicky turns
+- registers runtime-shaped computer-use tools: `list_apps`, `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`, `scroll`, `set_value`, `perform_secondary_action`, `drag`, `resize`, and `set_window_frame`
+- queues computer-use tool calls for the connected Clicky shell, waits for Clicky to execute them through `BackgroundComputerUse`, and returns compact runtime JSON directly to the model
 - accepts real shell registrations
 - tracks shell heartbeat freshness in memory
 - reports shell status and session binding state
 - syncs per-turn Clicky prompt context through plugin-owned gateway methods
 - appends prompt context for fresh, bound Clicky shells during prompt build without exposing it in raw user message payloads
-- prefers tool-driven Clicky presentation first, then mirrors the tool result as the final structured JSON reply for the app, while keeping the raw structured JSON reply path as fallback
+- teaches an observe-act-observe loop where the model owns window choice, element choice, sequencing, and recovery
+- keeps desktop control on the Clicky runtime path; generic `exec`, AppleScript, process, or browser automation is not part of the Clicky desktop-control contract
+- treats `clicky_present` as final presentation only; completion claims after runtime mutations require a fresh post-action `get_window_state`
 
 ## What it will do next
 
 - deepen shell trust semantics beyond freshness and transport scope
 - make registration state more durable than process-memory-only state
 - tighten stale-shell recovery behavior
-- add locator-style tools so OpenClaw can ask Clicky for grounded coordinates instead of inferring them unaided
 - continue maturing the installable bridge for local and remote OpenClaw
 
 ## Local install

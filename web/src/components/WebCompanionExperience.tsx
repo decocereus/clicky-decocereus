@@ -558,14 +558,14 @@ export function WebCompanionExperienceProvider({
 
       const width = canvas.width
       const height = canvas.height
-      context.fillStyle = '#F6F2EC'
+      context.fillStyle = '#FAFCFF'
       context.fillRect(0, 0, width, height)
 
-      context.fillStyle = '#1A1A1A'
+      context.fillStyle = '#16212B'
       context.font = '600 42px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
       context.fillText('Clicky website layout reference', 72, 88)
 
-      context.fillStyle = '#6E6A64'
+      context.fillStyle = '#5D7283'
       context.font = '24px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
       const modeLabel =
         experienceMode === 'mic-only'
@@ -578,9 +578,9 @@ export function WebCompanionExperienceProvider({
       const frameWidth = width - 144
       const frameHeight = 608
       drawRoundedRect(context, frameX, frameY, frameWidth, frameHeight, 28)
-      context.fillStyle = '#FFFCF8'
+      context.fillStyle = '#FFFFFF'
       context.fill()
-      context.strokeStyle = 'rgba(26,26,26,0.08)'
+      context.strokeStyle = 'rgba(52,120,246,0.10)'
       context.lineWidth = 2
       context.stroke()
 
@@ -591,7 +591,7 @@ export function WebCompanionExperienceProvider({
         1
       )
 
-      const palette = ['#DDD4F1', '#E8D8C3', '#D6E5D6', '#F0D6DC', '#D5E3F2']
+      const palette = ['#EAF8FF', '#D9FEFF', '#EDF1FF', '#FFF1F6', '#DDE8EE']
       const innerX = frameX + 36
       const innerY = frameY + 28
       const innerWidth = frameWidth - 72
@@ -625,16 +625,16 @@ export function WebCompanionExperienceProvider({
         context.globalAlpha = 1
 
         if (isActiveSection) {
-          context.strokeStyle = '#7A9BC4'
+          context.strokeStyle = '#3478F6'
           context.lineWidth = 4
           context.stroke()
         }
 
-        context.fillStyle = '#1A1A1A'
+        context.fillStyle = '#16212B'
         context.font = '600 26px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
         context.fillText(section?.title ?? sectionId, innerX + 24, blockY + 40)
 
-        context.fillStyle = '#5E5A55'
+        context.fillStyle = '#5D7283'
         context.font = '20px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
         context.fillText(
           isActiveSection
@@ -647,11 +647,11 @@ export function WebCompanionExperienceProvider({
         )
       })
 
-      context.fillStyle = '#1A1A1A'
+      context.fillStyle = '#16212B'
       context.font = '600 22px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
       context.fillText('Known live controls', 72, 834)
 
-      context.fillStyle = '#6E6A64'
+      context.fillStyle = '#5D7283'
       context.font = '20px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
       context.fillText(
         'Hero: Download for macOS, Try Clicky. Pricing and footer also contain download CTAs.',
