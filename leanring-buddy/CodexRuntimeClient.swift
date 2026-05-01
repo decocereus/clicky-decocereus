@@ -280,11 +280,17 @@ final class CodexRuntimeClient {
                 }
                 return "\(server).\(tool) status=\(status)"
             }
-            .prefix(12)
-            .joined(separator: " | ")
+        let trimmedMCPEventSummaries: [String]
+        if mcpEventSummaries.count > 24 {
+            trimmedMCPEventSummaries = Array(mcpEventSummaries.prefix(8))
+                + ["... \(mcpEventSummaries.count - 16) earlier/later events omitted ..."]
+                + Array(mcpEventSummaries.suffix(8))
+        } else {
+            trimmedMCPEventSummaries = mcpEventSummaries
+        }
 
-        if !mcpEventSummaries.isEmpty {
-            ClickyLogger.notice(.agent, "Codex MCP events \(mcpEventSummaries)")
+        if !trimmedMCPEventSummaries.isEmpty {
+            ClickyLogger.notice(.agent, "Codex MCP events count=\(mcpEventSummaries.count) \(trimmedMCPEventSummaries.joined(separator: " | "))")
         }
     }
 
