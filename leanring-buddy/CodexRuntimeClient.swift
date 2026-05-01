@@ -117,13 +117,14 @@ final class CodexRuntimeClient {
                 request.imageAttachments,
                 into: temporaryDirectoryURL
             )
+            let usesBackgroundComputerUse = request.mcpServers.contains { $0.name == "background-computer-use" }
+            let codexWorkingDirectoryURL = usesBackgroundComputerUse ? temporaryDirectoryURL : homeDirectoryURL
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executablePath)
-            process.currentDirectoryURL = homeDirectoryURL
+            process.currentDirectoryURL = codexWorkingDirectoryURL
             process.environment = executionEnvironment
 
-            let usesBackgroundComputerUse = request.mcpServers.contains { $0.name == "background-computer-use" }
             var arguments: [String]
             if usesBackgroundComputerUse {
                 arguments = [
@@ -133,7 +134,7 @@ final class CodexRuntimeClient {
                     "--json",
                     "--skip-git-repo-check",
                     "--ephemeral",
-                    "-C", homeDirectoryURL.path,
+                    "-C", codexWorkingDirectoryURL.path,
                     "-o", outputFileURL.path
                 ]
             } else {
@@ -144,7 +145,7 @@ final class CodexRuntimeClient {
                     "--skip-git-repo-check",
                     "--ephemeral",
                     "-s", "read-only",
-                    "-C", homeDirectoryURL.path,
+                    "-C", codexWorkingDirectoryURL.path,
                     "-o", outputFileURL.path
                 ]
             }
@@ -184,7 +185,7 @@ final class CodexRuntimeClient {
             process.arguments = arguments
             ClickyLogger.notice(
                 .agent,
-                "Codex launch prepared executable=\(executablePath) usesBackgroundComputerUse=\(usesBackgroundComputerUse) mcpServerCount=\(request.mcpServers.count) mcpServers=\(Self.mcpServerNames(for: request.mcpServers)) mcpArgumentCount=\(mcpArguments.count) imageCount=\(imageFileURLs.count)"
+                "Codex launch prepared executable=\(executablePath) usesBackgroundComputerUse=\(usesBackgroundComputerUse) workingDirectory=\(codexWorkingDirectoryURL.path) mcpServerCount=\(request.mcpServers.count) mcpServers=\(Self.mcpServerNames(for: request.mcpServers)) mcpArgumentCount=\(mcpArguments.count) imageCount=\(imageFileURLs.count)"
             )
 
             let stdoutCapture = PipeCapture()
@@ -223,6 +224,11 @@ final class CodexRuntimeClient {
                 outputFileURL: outputFileURL,
                 stdoutData: stdoutData
             )
+            let duration = Date().timeIntervalSince(startTime)
+            ClickyLogger.notice(
+                .agent,
+                "Codex runtime completed usesBackgroundComputerUse=\(usesBackgroundComputerUse) durationMs=\(Int(duration * 1000)) finalMessageLength=\(finalMessageText.count)"
+            )
 
             await MainActor.run {
                 onTextChunk(finalMessageText)
@@ -230,7 +236,7 @@ final class CodexRuntimeClient {
 
             return ClickyAssistantTurnResponse(
                 text: finalMessageText,
-                duration: Date().timeIntervalSince(startTime)
+                duration: duration
             )
         }
 
@@ -260,15 +266,15 @@ final class CodexRuntimeClient {
             return
         }
 
-        let mcpEventSummaries = stdoutText
+        let mcpEvents = stdoutText
             .split(whereSeparator: \.isNewline)
-            .compactMap { line -> String? in
+            .compactMap { line -> (summary: String, server: String, tool: String, status: String)? in
                 guard line.contains("\"type\":\"mcp_tool_call\"") else { return nil }
                 guard let lineData = String(line).data(using: .utf8),
                       let payload = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
                       let item = payload["item"] as? [String: Any],
                       item["type"] as? String == "mcp_tool_call" else {
-                    return "unparsed-mcp-event"
+                    return ("unparsed-mcp-event", "unknown-server", "unknown-tool", "unknown-status")
                 }
 
                 let server = item["server"] as? String ?? "unknown-server"
@@ -276,10 +282,11 @@ final class CodexRuntimeClient {
                 let status = item["status"] as? String ?? "unknown-status"
                 let errorMessage = (item["error"] as? [String: Any])?["message"] as? String
                 if let errorMessage {
-                    return "\(server).\(tool) status=\(status) error=\(errorMessage)"
+                    return ("\(server).\(tool) status=\(status) error=\(errorMessage)", server, tool, status)
                 }
-                return "\(server).\(tool) status=\(status)"
+                return ("\(server).\(tool) status=\(status)", server, tool, status)
             }
+        let mcpEventSummaries = mcpEvents.map(\.summary)
         let trimmedMCPEventSummaries: [String]
         if mcpEventSummaries.count > 24 {
             trimmedMCPEventSummaries = Array(mcpEventSummaries.prefix(8))
@@ -291,6 +298,14 @@ final class CodexRuntimeClient {
 
         if !trimmedMCPEventSummaries.isEmpty {
             ClickyLogger.notice(.agent, "Codex MCP events count=\(mcpEventSummaries.count) \(trimmedMCPEventSummaries.joined(separator: " | "))")
+            let completedCounts = Dictionary(
+                grouping: mcpEvents.filter { $0.status == "completed" },
+                by: { "\($0.server).\($0.tool)" }
+            )
+                .map { key, events in "\(key)=\(events.count)" }
+                .sorted()
+                .joined(separator: ",")
+            ClickyLogger.notice(.agent, "Codex MCP completed counts \(completedCounts.isEmpty ? "(none)" : completedCounts)")
         }
     }
 
