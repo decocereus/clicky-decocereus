@@ -79,7 +79,8 @@ struct ClickyTutorialLessonCompiler {
             userPrompt: userPrompt,
             conversationHistory: [],
             imageAttachments: [],
-            focusContext: nil
+            focusContext: nil,
+            mcpServers: []
         )
 
         let response = try await assistantTurnExecutor.execute(

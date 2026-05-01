@@ -105,6 +105,12 @@ final class CompanionManager: ObservableObject {
         },
         refreshCodexRuntimeStatus: { [weak self] in
             self?.codexRuntimeCoordinator.refreshRuntimeStatus()
+        },
+        refreshComputerUseRuntimeStatus: { [weak self] mode in
+            self?.computerUseMCPRuntimeCoordinator.refreshRuntimeStatus(permissionMode: mode)
+        },
+        denyPendingComputerUseReviewRequests: { [weak self] reason in
+            self?.computerUseReviewCoordinator.denyAllPendingRequests(reason: reason)
         }
     )
 
@@ -139,6 +145,12 @@ final class CompanionManager: ObservableObject {
     lazy var codexRuntimeCoordinator = ClickyCodexRuntimeCoordinator(
         backendRoutingController: backendRoutingController,
         runtimeClient: codexRuntimeClient
+    )
+    lazy var computerUseMCPRuntimeCoordinator = ClickyComputerUseMCPRuntimeCoordinator(
+        routingController: backendRoutingController
+    )
+    lazy var computerUseReviewCoordinator = ClickyComputerUseReviewCoordinator(
+        routingController: backendRoutingController
     )
     lazy var permissionCoordinator = ClickyPermissionCoordinator(
         surfaceController: surfaceController,
@@ -205,7 +217,14 @@ final class CompanionManager: ObservableObject {
     private lazy var assistantTurnContextBuilder = ClickyAssistantTurnContextBuilder(
         focusContextProvider: assistantFocusContextProvider,
         basePromptSource: assistantBasePromptSource,
-        systemPromptPlanner: assistantSystemPromptPlanner
+        systemPromptPlanner: assistantSystemPromptPlanner,
+        mcpServerConfigurationProvider: { [weak self] in
+            guard let self else { return [] }
+            guard let descriptor = computerUseMCPRuntimeCoordinator.descriptor(
+                for: preferences.clickyComputerUsePermissionMode
+            ) else { return [] }
+            return [descriptor.assistantConfiguration]
+        }
     )
 
     private lazy var elevenLabsTTSClient: ElevenLabsTTSClient = {
@@ -319,6 +338,8 @@ final class CompanionManager: ObservableObject {
         openClawShellLifecycleController: openClawShellLifecycleController,
         openClawStudioCoordinator: openClawStudioCoordinator,
         codexRuntimeCoordinator: codexRuntimeCoordinator,
+        computerUseMCPRuntimeCoordinator: computerUseMCPRuntimeCoordinator,
+        computerUseReviewCoordinator: computerUseReviewCoordinator,
         onboardingMusicController: onboardingMusicController,
         assistantTurnTaskController: assistantTurnTaskController,
         stopTutorialPlayback: { [weak self] in

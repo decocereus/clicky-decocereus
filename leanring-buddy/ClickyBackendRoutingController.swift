@@ -12,6 +12,7 @@ import Foundation
 final class ClickyBackendRoutingController: ObservableObject {
     @Published var openClawConnectionStatus: OpenClawConnectionStatus = .idle
     @Published var codexRuntimeStatus: CodexRuntimeStatus = .idle
+    @Published var computerUseRuntimeStatus: ClickyComputerUseRuntimeStatus = .idle
     @Published var clickyShellRegistrationStatus: ClickyShellRegistrationStatus = .idle
     @Published var clickyShellServerFreshnessState: String?
     @Published var clickyShellServerStatusSummary: String?
@@ -25,4 +26,9 @@ final class ClickyBackendRoutingController: ObservableObject {
     @Published var codexConfiguredModelName: String?
     @Published var codexExecutablePath: String?
     @Published var codexAuthModeLabel: String?
+    @Published var computerUseMCPCommandPath: String?
+    @Published var computerUseMCPArguments: [String] = []
+    @Published var computerUseMCPWorkingDirectoryPath: String?
+    @Published var computerUseMCPInstructionResourceURI: String?
+    @Published var computerUsePendingReviewRequest: ClickyComputerUseReviewRequest?
 }

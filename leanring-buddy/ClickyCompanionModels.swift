@@ -30,6 +30,28 @@ enum CodexRuntimeStatus {
     case failed(message: String)
 }
 
+enum ClickyComputerUseRuntimeStatus {
+    case idle
+    case checking
+    case ready(summary: String)
+    case failed(message: String)
+}
+
+enum ClickyComputerUsePermissionMode: String, CaseIterable {
+    case off
+    case observeOnly
+    case review
+    case direct
+}
+
+struct ClickyComputerUseReviewRequest: Identifiable, Equatable {
+    let id: String
+    let toolName: String
+    let argumentsSummary: String
+    let requestDigest: String
+    let createdAt: Date?
+}
+
 enum ClickyOpenClawPluginStatus {
     case notConfigured
     case disabled

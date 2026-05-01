@@ -18,12 +18,21 @@ struct ClickyAssistantImageAttachment: Sendable {
     let mimeType: String?
 }
 
+struct ClickyAssistantMCPServerConfiguration: Sendable {
+    let name: String
+    let commandPath: String
+    let arguments: [String]
+    let workingDirectoryPath: String?
+    let instructionResourceURI: String
+}
+
 struct ClickyAssistantTurnRequest: Sendable {
     let systemPrompt: String
     let userPrompt: String
     let conversationHistory: [ClickyAssistantConversationTurn]
     let imageAttachments: [ClickyAssistantImageAttachment]
     let focusContext: ClickyAssistantFocusContext?
+    let mcpServers: [ClickyAssistantMCPServerConfiguration]
 }
 
 struct ClickyAssistantTurnResponse: Sendable {

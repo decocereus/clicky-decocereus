@@ -22,6 +22,8 @@ final class ClickyCompanionLifecycleCoordinator {
     private let openClawShellLifecycleController: ClickyOpenClawShellLifecycleController
     private let openClawStudioCoordinator: ClickyOpenClawStudioCoordinator
     private let codexRuntimeCoordinator: ClickyCodexRuntimeCoordinator
+    private let computerUseMCPRuntimeCoordinator: ClickyComputerUseMCPRuntimeCoordinator
+    private let computerUseReviewCoordinator: ClickyComputerUseReviewCoordinator
     private let onboardingMusicController: ClickyOnboardingMusicController
     private let assistantTurnTaskController: ClickyAssistantTurnTaskController
     private let stopTutorialPlayback: () -> Void
@@ -43,6 +45,8 @@ final class ClickyCompanionLifecycleCoordinator {
         openClawShellLifecycleController: ClickyOpenClawShellLifecycleController,
         openClawStudioCoordinator: ClickyOpenClawStudioCoordinator,
         codexRuntimeCoordinator: ClickyCodexRuntimeCoordinator,
+        computerUseMCPRuntimeCoordinator: ClickyComputerUseMCPRuntimeCoordinator,
+        computerUseReviewCoordinator: ClickyComputerUseReviewCoordinator,
         onboardingMusicController: ClickyOnboardingMusicController,
         assistantTurnTaskController: ClickyAssistantTurnTaskController,
         stopTutorialPlayback: @escaping () -> Void,
@@ -63,6 +67,8 @@ final class ClickyCompanionLifecycleCoordinator {
         self.openClawShellLifecycleController = openClawShellLifecycleController
         self.openClawStudioCoordinator = openClawStudioCoordinator
         self.codexRuntimeCoordinator = codexRuntimeCoordinator
+        self.computerUseMCPRuntimeCoordinator = computerUseMCPRuntimeCoordinator
+        self.computerUseReviewCoordinator = computerUseReviewCoordinator
         self.onboardingMusicController = onboardingMusicController
         self.assistantTurnTaskController = assistantTurnTaskController
         self.stopTutorialPlayback = stopTutorialPlayback
@@ -100,6 +106,8 @@ final class ClickyCompanionLifecycleCoordinator {
         openClawShellLifecycleController.refreshLifecycle()
         openClawStudioCoordinator.refreshAgentIdentity()
         codexRuntimeCoordinator.refreshRuntimeStatus()
+        computerUseMCPRuntimeCoordinator.refreshRuntimeStatus(permissionMode: preferences.clickyComputerUsePermissionMode)
+        computerUseReviewCoordinator.start()
         surfaceLifecycleCoordinator.showOverlayIfReady()
 
         ClickyUnifiedTelemetry.lifecycle.info(
@@ -111,6 +119,7 @@ final class ClickyCompanionLifecycleCoordinator {
         shortcutMonitor.stop()
         dictationManager.cancelCurrentDictation()
         overlayWindowManager.hideOverlay()
+        computerUseReviewCoordinator.stop()
         stopTutorialPlayback()
         voiceSessionCoordinator.cancelTransientHide()
         launchRuntimeCoordinator.stop()

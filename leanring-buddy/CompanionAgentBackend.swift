@@ -22,4 +22,13 @@ enum CompanionAgentBackend: String, CaseIterable {
             return "OpenClaw"
         }
     }
+
+    var supportsMCPServerConfiguration: Bool {
+        switch self {
+        case .codex:
+            return true
+        case .claude, .openClaw:
+            return false
+        }
+    }
 }

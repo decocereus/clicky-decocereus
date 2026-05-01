@@ -106,6 +106,8 @@ final class CodexRuntimeClient {
                 arguments.append(contentsOf: ["-m", configuredModel])
             }
 
+            arguments.append(contentsOf: Self.mcpConfigurationArguments(for: request.mcpServers))
+
             for imageFileURL in imageFileURLs {
                 arguments.append(contentsOf: ["--image", imageFileURL.path])
             }
@@ -154,6 +156,42 @@ final class CodexRuntimeClient {
         }
 
         return try await executionTask.value
+    }
+
+    private nonisolated static func mcpConfigurationArguments(
+        for servers: [ClickyAssistantMCPServerConfiguration]
+    ) -> [String] {
+        servers.flatMap { server in
+            var arguments: [String] = [
+                "-c", "mcp_servers.\(server.name).command=\(tomlStringLiteral(server.commandPath))"
+            ]
+
+            if !server.arguments.isEmpty {
+                let encodedArguments = server.arguments
+                    .map(tomlStringLiteral)
+                    .joined(separator: ", ")
+                arguments.append(contentsOf: [
+                    "-c", "mcp_servers.\(server.name).args=[\(encodedArguments)]"
+                ])
+            }
+
+            if let workingDirectoryPath = server.workingDirectoryPath?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !workingDirectoryPath.isEmpty {
+                arguments.append(contentsOf: [
+                    "-c", "mcp_servers.\(server.name).cwd=\(tomlStringLiteral(workingDirectoryPath))"
+                ])
+            }
+
+            return arguments
+        }
+    }
+
+    private nonisolated static func tomlStringLiteral(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 
     private nonisolated func resolveExecutablePath() -> String? {

@@ -15,6 +15,8 @@ final class ClickySettingsMutationCoordinator {
     private let openClawShellLifecycleController: ClickyOpenClawShellLifecycleController
     private let refreshOpenClawAgentIdentity: () -> Void
     private let refreshCodexRuntimeStatus: () -> Void
+    private let refreshComputerUseRuntimeStatus: (ClickyComputerUsePermissionMode) -> Void
+    private let denyPendingComputerUseReviewRequests: (String) -> Void
 
     init(
         preferences: ClickyPreferencesStore,
@@ -22,7 +24,9 @@ final class ClickySettingsMutationCoordinator {
         claudeAPI: ClaudeAPI,
         openClawShellLifecycleController: ClickyOpenClawShellLifecycleController,
         refreshOpenClawAgentIdentity: @escaping () -> Void,
-        refreshCodexRuntimeStatus: @escaping () -> Void
+        refreshCodexRuntimeStatus: @escaping () -> Void,
+        refreshComputerUseRuntimeStatus: @escaping (ClickyComputerUsePermissionMode) -> Void = { _ in },
+        denyPendingComputerUseReviewRequests: @escaping (String) -> Void = { _ in }
     ) {
         self.preferences = preferences
         self.backendRoutingController = backendRoutingController
@@ -30,6 +34,8 @@ final class ClickySettingsMutationCoordinator {
         self.openClawShellLifecycleController = openClawShellLifecycleController
         self.refreshOpenClawAgentIdentity = refreshOpenClawAgentIdentity
         self.refreshCodexRuntimeStatus = refreshCodexRuntimeStatus
+        self.refreshComputerUseRuntimeStatus = refreshComputerUseRuntimeStatus
+        self.denyPendingComputerUseReviewRequests = denyPendingComputerUseReviewRequests
     }
 
     func setPersonaPreset(_ preset: ClickyPersonaPreset) {
@@ -84,6 +90,15 @@ final class ClickySettingsMutationCoordinator {
         }
 
         refreshOpenClawAgentIdentity()
+    }
+
+    func setComputerUsePermissionMode(_ mode: ClickyComputerUsePermissionMode) {
+        guard preferences.clickyComputerUsePermissionMode != mode else { return }
+        if preferences.clickyComputerUsePermissionMode == .review && mode != .review {
+            denyPendingComputerUseReviewRequests("mode_changed_to_\(mode.rawValue)")
+        }
+        preferences.clickyComputerUsePermissionMode = mode
+        refreshComputerUseRuntimeStatus(mode)
     }
 
     private func refreshGatewaySensitiveOpenClawState() {

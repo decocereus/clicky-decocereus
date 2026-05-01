@@ -30,6 +30,14 @@ SIGNAL: When triggered → Apply ALL rules below systematically
 ```
 </rule_2>
 
+<rule_computer_use priority="HIGH">
+**COMPUTER USE BOUNDARY**: BackgroundComputerUse owns the desktop-control API through MCP.
+- Clicky may host, locate, status-check, and permission-gate the MCP helper.
+- Production builds bundle `BackgroundComputerUseMCP` and Clicky's MCP policy proxy in `Clicky.app/Contents/Helpers`; sibling checkouts and `swift run` are development fallbacks only.
+- Clicky must not duplicate BackgroundComputerUse route schemas, action clients, or tool wrappers.
+- Provider integrations should consume the shared MCP tool/resource contract instead of adding provider-specific computer-use APIs.
+</rule_computer_use>
+
 <rule_3 priority="HIGH">
 **COMPREHENSIVE ERROR HANDLING**: Make impossible states unrepresentable
 - Use exhaustive enums with associated values

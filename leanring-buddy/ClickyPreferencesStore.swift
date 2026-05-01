@@ -31,6 +31,7 @@ final class ClickyPreferencesStore: ObservableObject {
         static let elevenLabsSelectedVoiceName = "elevenLabsSelectedVoiceName"
         static let clickyThemePreset = "clickyThemePreset"
         static let isClickyCursorEnabled = "isClickyCursorEnabled"
+        static let clickyComputerUsePermissionMode = "clickyComputerUsePermissionMode"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
     }
 
@@ -116,6 +117,10 @@ final class ClickyPreferencesStore: ObservableObject {
         didSet { defaults.set(isClickyCursorEnabled, forKey: Key.isClickyCursorEnabled) }
     }
 
+    @Published var clickyComputerUsePermissionMode: ClickyComputerUsePermissionMode {
+        didSet { defaults.set(clickyComputerUsePermissionMode.rawValue, forKey: Key.clickyComputerUsePermissionMode) }
+    }
+
     @Published var hasCompletedOnboarding: Bool {
         didSet { defaults.set(hasCompletedOnboarding, forKey: Key.hasCompletedOnboarding) }
     }
@@ -158,6 +163,9 @@ final class ClickyPreferencesStore: ObservableObject {
         isClickyCursorEnabled = defaults.object(forKey: Key.isClickyCursorEnabled) == nil
             ? true
             : defaults.bool(forKey: Key.isClickyCursorEnabled)
+        clickyComputerUsePermissionMode = ClickyComputerUsePermissionMode(
+            rawValue: defaults.string(forKey: Key.clickyComputerUsePermissionMode) ?? ""
+        ) ?? .off
         hasCompletedOnboarding = defaults.bool(forKey: Key.hasCompletedOnboarding)
     }
 

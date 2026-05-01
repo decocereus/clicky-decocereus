@@ -18,16 +18,19 @@ final class ClickyAssistantTurnContextBuilder {
     private let focusContextProvider: ClickyAssistantFocusContextProvider
     private let basePromptSource: ClickyAssistantBasePromptSource
     private let systemPromptPlanner: ClickyAssistantSystemPromptPlanner
+    private let mcpServerConfigurationProvider: @MainActor () -> [ClickyAssistantMCPServerConfiguration]
     private let turnBuilder = ClickyAssistantTurnBuilder()
 
     init(
         focusContextProvider: ClickyAssistantFocusContextProvider,
         basePromptSource: ClickyAssistantBasePromptSource,
-        systemPromptPlanner: ClickyAssistantSystemPromptPlanner
+        systemPromptPlanner: ClickyAssistantSystemPromptPlanner,
+        mcpServerConfigurationProvider: @escaping @MainActor () -> [ClickyAssistantMCPServerConfiguration] = { [] }
     ) {
         self.focusContextProvider = focusContextProvider
         self.basePromptSource = basePromptSource
         self.systemPromptPlanner = systemPromptPlanner
+        self.mcpServerConfigurationProvider = mcpServerConfigurationProvider
     }
 
     func captureContext(backend: CompanionAgentBackend) async throws -> ClickyAssistantTurnContext {
@@ -67,9 +70,11 @@ final class ClickyAssistantTurnContextBuilder {
         context: ClickyAssistantTurnContext,
         conversationHistory: [(userTranscript: String, assistantResponse: String)]
     ) -> ClickyAssistantTurnPlan {
+        let mcpServers = backend.supportsMCPServerConfiguration ? mcpServerConfigurationProvider() : []
         let systemPrompt = systemPromptPlanner.buildSystemPrompt(
             basePrompt: basePromptSource.basePrompt(for: backend),
-            launchMode: authorization.promptMode
+            launchMode: authorization.promptMode,
+            mcpServers: mcpServers
         )
 
         let request = turnBuilder.buildRequest(
@@ -83,7 +88,8 @@ final class ClickyAssistantTurnContextBuilder {
                     mimeType: "image/jpeg"
                 )
             },
-            focusContext: context.focusContext
+            focusContext: context.focusContext,
+            mcpServers: mcpServers
         )
 
         ClickyAgentTurnDiagnostics.logCanonicalRequest(

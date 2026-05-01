@@ -19,7 +19,8 @@ struct ClickyAssistantTurnBuilder {
         userPrompt: String,
         conversationHistory: [(userTranscript: String, assistantResponse: String)],
         labeledImages: [ClickyAssistantLabeledImage],
-        focusContext: ClickyAssistantFocusContext?
+        focusContext: ClickyAssistantFocusContext?,
+        mcpServers: [ClickyAssistantMCPServerConfiguration] = []
     ) -> ClickyAssistantTurnRequest {
         ClickyAssistantTurnRequest(
             systemPrompt: systemPrompt,
@@ -37,7 +38,8 @@ struct ClickyAssistantTurnBuilder {
                     mimeType: labeledImage.mimeType
                 )
             },
-            focusContext: focusContext
+            focusContext: focusContext,
+            mcpServers: mcpServers
         )
     }
 }

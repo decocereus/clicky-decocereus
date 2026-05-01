@@ -1,0 +1,15 @@
+{
+  "originHash" : "0df4d0fd6db52581b5a8fe8c52e2a4bf0c1039bef3f2fa7d88571ee7d75b7a98",
+  "pins" : [
+    {
+      "identity" : "clicky-background-computer-use",
+      "kind" : "remoteSourceControl",
+      "location" : "git@github.com:decocereus/clicky-background-computer-use.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "d2a7cf6dec64c26056dbc32414fe7eefbae74bdc"
+      }
+    }
+  ],
+  "version" : 3
+}

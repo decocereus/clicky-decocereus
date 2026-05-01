@@ -26,7 +26,8 @@ final class CodexAssistantProvider: ClickyAssistantProvider {
             userPrompt: appendFocusContext(to: request.userPrompt, focusContext: request.focusContext),
             conversationHistory: request.conversationHistory,
             imageAttachments: request.imageAttachments,
-            focusContext: request.focusContext
+            focusContext: request.focusContext,
+            mcpServers: request.mcpServers
         )
 
         ClickyAgentTurnDiagnostics.logProviderRequest(

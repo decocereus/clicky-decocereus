@@ -16,14 +16,20 @@ enum ClickyAssistantLaunchPromptMode: Sendable {
 struct ClickyAssistantSystemPromptPlanner {
     func buildSystemPrompt(
         basePrompt: String,
-        launchMode: ClickyAssistantLaunchPromptMode
+        launchMode: ClickyAssistantLaunchPromptMode,
+        mcpServers: [ClickyAssistantMCPServerConfiguration] = []
     ) -> String {
+        let promptWithRuntimeCapabilities = appendRuntimeCapabilities(
+            to: basePrompt,
+            mcpServers: mcpServers
+        )
+
         switch launchMode {
         case .standard:
-            return basePrompt
+            return promptWithRuntimeCapabilities
         case .welcome:
             return """
-            \(basePrompt)
+            \(promptWithRuntimeCapabilities)
 
             launch onboarding override:
             - this is the first real clicky turn after setup completed.
@@ -35,7 +41,7 @@ struct ClickyAssistantSystemPromptPlanner {
             """
         case .paywall:
             return """
-            \(basePrompt)
+            \(promptWithRuntimeCapabilities)
 
             launch commerce override:
             - the user's clicky launch trial is exhausted.
@@ -47,5 +53,25 @@ struct ClickyAssistantSystemPromptPlanner {
             - return the structured response contract with an empty points array.
             """
         }
+    }
+
+    private func appendRuntimeCapabilities(
+        to basePrompt: String,
+        mcpServers: [ClickyAssistantMCPServerConfiguration]
+    ) -> String {
+        guard !mcpServers.isEmpty else { return basePrompt }
+
+        let resourceLines = mcpServers.map { server in
+            "- \(server.name): read \(server.instructionResourceURI) before using its tools."
+        }
+
+        return """
+        \(basePrompt)
+
+        runtime tool capabilities:
+        \(resourceLines.joined(separator: "\n"))
+        - use tool/resource contracts exposed by the MCP server as the source of truth.
+        - do not invent tool names, route schemas, or argument values.
+        """
     }
 }
