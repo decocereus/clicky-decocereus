@@ -7,6 +7,39 @@
 
 import Foundation
 
+private final class PipeCapture: @unchecked Sendable {
+    let pipe = Pipe()
+
+    private let lock = NSLock()
+    private var chunks = Data()
+
+    func start() {
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard data.isEmpty == false else { return }
+            self?.append(data)
+        }
+    }
+
+    func finish() -> Data {
+        pipe.fileHandleForReading.readabilityHandler = nil
+        let remaining = pipe.fileHandleForReading.readDataToEndOfFile()
+        if remaining.isEmpty == false {
+            append(remaining)
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+        return chunks
+    }
+
+    private func append(_ data: Data) {
+        lock.lock()
+        chunks.append(data)
+        lock.unlock()
+    }
+}
+
 struct CodexRuntimeStatusSnapshot {
     let isInstalled: Bool
     let executablePath: String?
@@ -90,37 +123,79 @@ final class CodexRuntimeClient {
             process.currentDirectoryURL = homeDirectoryURL
             process.environment = executionEnvironment
 
-            var arguments = [
-                "-a", "never",
-                "exec",
-                "--json",
-                "--skip-git-repo-check",
-                "--ephemeral",
-                "-s", "read-only",
-                "-C", homeDirectoryURL.path,
-                "-o", outputFileURL.path
-            ]
+            let usesBackgroundComputerUse = request.mcpServers.contains { $0.name == "background-computer-use" }
+            var arguments: [String]
+            if usesBackgroundComputerUse {
+                arguments = [
+                    "--dangerously-bypass-approvals-and-sandbox",
+                    "--disable", "shell_tool",
+                    "exec",
+                    "--json",
+                    "--skip-git-repo-check",
+                    "--ephemeral",
+                    "-C", homeDirectoryURL.path,
+                    "-o", outputFileURL.path
+                ]
+            } else {
+                arguments = [
+                    "-a", "never",
+                    "exec",
+                    "--json",
+                    "--skip-git-repo-check",
+                    "--ephemeral",
+                    "-s", "read-only",
+                    "-C", homeDirectoryURL.path,
+                    "-o", outputFileURL.path
+                ]
+            }
 
             if let configuredModel,
                !configuredModel.isEmpty {
                 arguments.append(contentsOf: ["-m", configuredModel])
             }
 
-            arguments.append(contentsOf: Self.mcpConfigurationArguments(for: request.mcpServers))
+            let mcpArguments = Self.mcpConfigurationArguments(for: request.mcpServers)
+            arguments.append(contentsOf: mcpArguments)
+            if usesBackgroundComputerUse {
+                let requestMCPServerNames = Set(
+                    request.mcpServers.flatMap { server in
+                        [server.name, Self.codexMCPServerName(for: server.name)]
+                    }
+                )
+                let userConfiguredMCPServersToDisable = Self.userConfiguredMCPServerNames(
+                    homeDirectoryURL: homeDirectoryURL
+                )
+                    .filter { !requestMCPServerNames.contains($0) }
+                    .sorted()
+                for serverName in userConfiguredMCPServersToDisable {
+                    arguments.append(contentsOf: [
+                        "-c", "mcp_servers.\(Self.codexConfigKeyPathSegment(serverName)).enabled=false"
+                    ])
+                }
+                arguments.append(contentsOf: [
+                    "-c", #"plugins."computer-use@openai-bundled".enabled=false"#
+                ])
+            }
 
             for imageFileURL in imageFileURLs {
                 arguments.append(contentsOf: ["--image", imageFileURL.path])
             }
 
             process.arguments = arguments
+            ClickyLogger.notice(
+                .agent,
+                "Codex launch prepared executable=\(executablePath) usesBackgroundComputerUse=\(usesBackgroundComputerUse) mcpServerCount=\(request.mcpServers.count) mcpServers=\(Self.mcpServerNames(for: request.mcpServers)) mcpArgumentCount=\(mcpArguments.count) imageCount=\(imageFileURLs.count)"
+            )
 
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
+            let stdoutCapture = PipeCapture()
+            let stderrCapture = PipeCapture()
             let stdinPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
+            process.standardOutput = stdoutCapture.pipe
+            process.standardError = stderrCapture.pipe
             process.standardInput = stdinPipe
 
+            stdoutCapture.start()
+            stderrCapture.start()
             try process.run()
             if let promptData = prompt.data(using: .utf8) {
                 stdinPipe.fileHandleForWriting.write(promptData)
@@ -128,9 +203,13 @@ final class CodexRuntimeClient {
             stdinPipe.fileHandleForWriting.closeFile()
             process.waitUntilExit()
 
-            let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            let stdoutData = stdoutCapture.finish()
+            let stderrData = stderrCapture.finish()
             let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
+            Self.logRuntimeDiagnostics(
+                stdoutData: stdoutData,
+                stderrText: stderrText
+            )
 
             if process.terminationStatus != 0 {
                 throw NSError(
@@ -158,12 +237,64 @@ final class CodexRuntimeClient {
         return try await executionTask.value
     }
 
+    private nonisolated static func logRuntimeDiagnostics(
+        stdoutData: Data,
+        stderrText: String
+    ) {
+        let stderrSummary = stderrText
+            .split(whereSeparator: \.isNewline)
+            .filter { line in
+                let lowercasedLine = line.lowercased()
+                return lowercasedLine.contains("mcp")
+                    || lowercasedLine.contains("error")
+                    || lowercasedLine.contains("warn")
+            }
+            .prefix(8)
+            .joined(separator: " | ")
+        if !stderrSummary.isEmpty {
+            ClickyLogger.notice(.agent, "Codex runtime diagnostics stderr=\(stderrSummary)")
+        }
+
+        guard let stdoutText = String(data: stdoutData, encoding: .utf8),
+              !stdoutText.isEmpty else {
+            return
+        }
+
+        let mcpEventSummaries = stdoutText
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> String? in
+                guard line.contains("\"type\":\"mcp_tool_call\"") else { return nil }
+                guard let lineData = String(line).data(using: .utf8),
+                      let payload = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                      let item = payload["item"] as? [String: Any],
+                      item["type"] as? String == "mcp_tool_call" else {
+                    return "unparsed-mcp-event"
+                }
+
+                let server = item["server"] as? String ?? "unknown-server"
+                let tool = item["tool"] as? String ?? "unknown-tool"
+                let status = item["status"] as? String ?? "unknown-status"
+                let errorMessage = (item["error"] as? [String: Any])?["message"] as? String
+                if let errorMessage {
+                    return "\(server).\(tool) status=\(status) error=\(errorMessage)"
+                }
+                return "\(server).\(tool) status=\(status)"
+            }
+            .prefix(12)
+            .joined(separator: " | ")
+
+        if !mcpEventSummaries.isEmpty {
+            ClickyLogger.notice(.agent, "Codex MCP events \(mcpEventSummaries)")
+        }
+    }
+
     private nonisolated static func mcpConfigurationArguments(
         for servers: [ClickyAssistantMCPServerConfiguration]
     ) -> [String] {
         servers.flatMap { server in
+            let serverName = codexMCPServerName(for: server.name)
             var arguments: [String] = [
-                "-c", "mcp_servers.\(server.name).command=\(tomlStringLiteral(server.commandPath))"
+                "-c", "mcp_servers.\(codexConfigKeyPathSegment(serverName)).command=\(tomlStringLiteral(server.commandPath))"
             ]
 
             if !server.arguments.isEmpty {
@@ -171,20 +302,92 @@ final class CodexRuntimeClient {
                     .map(tomlStringLiteral)
                     .joined(separator: ", ")
                 arguments.append(contentsOf: [
-                    "-c", "mcp_servers.\(server.name).args=[\(encodedArguments)]"
+                    "-c", "mcp_servers.\(codexConfigKeyPathSegment(serverName)).args=[\(encodedArguments)]"
                 ])
             }
 
             if let workingDirectoryPath = server.workingDirectoryPath?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
-               !workingDirectoryPath.isEmpty {
+                !workingDirectoryPath.isEmpty {
                 arguments.append(contentsOf: [
-                    "-c", "mcp_servers.\(server.name).cwd=\(tomlStringLiteral(workingDirectoryPath))"
+                    "-c", "mcp_servers.\(codexConfigKeyPathSegment(serverName)).cwd=\(tomlStringLiteral(workingDirectoryPath))"
                 ])
             }
 
             return arguments
         }
+    }
+
+    private nonisolated static func codexMCPServerName(for serverName: String) -> String {
+        if serverName == "background-computer-use" {
+            return "computer-use"
+        }
+
+        return serverName
+    }
+
+    private nonisolated static func mcpServerNames(
+        for servers: [ClickyAssistantMCPServerConfiguration]
+    ) -> String {
+        let names = servers.map(\.name).joined(separator: ",")
+        return names.isEmpty ? "(none)" : names
+    }
+
+    private nonisolated static func userConfiguredMCPServerNames(
+        homeDirectoryURL: URL
+    ) -> Set<String> {
+        let configURL = homeDirectoryURL
+            .appendingPathComponent(".codex", isDirectory: true)
+            .appendingPathComponent("config.toml")
+        guard let configText = try? String(contentsOf: configURL, encoding: .utf8) else {
+            return []
+        }
+
+        var serverNames = Set<String>()
+        for line in configText.split(whereSeparator: \.isNewline) {
+            let trimmedLine = String(line).trimmingCharacters(in: .whitespaces)
+            guard trimmedLine.hasPrefix("[mcp_servers."),
+                  trimmedLine.hasSuffix("]") else {
+                continue
+            }
+
+            let serverNameStart = trimmedLine.index(trimmedLine.startIndex, offsetBy: "[mcp_servers.".count)
+            let serverNameEnd = trimmedLine.index(before: trimmedLine.endIndex)
+            let rawServerName = String(trimmedLine[serverNameStart..<serverNameEnd])
+            let serverName = unquotedCodexConfigKeyPathSegment(rawServerName)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !serverName.isEmpty {
+                serverNames.insert(serverName)
+            }
+        }
+
+        return serverNames
+    }
+
+    private nonisolated static func codexConfigKeyPathSegment(_ value: String) -> String {
+        let allowedCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        if value.unicodeScalars.allSatisfy({ allowedCharacters.contains($0) }) {
+            return value
+        }
+
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+
+    private nonisolated static func unquotedCodexConfigKeyPathSegment(_ value: String) -> String {
+        guard value.hasPrefix("\""),
+              value.hasSuffix("\""),
+              value.count >= 2 else {
+            return value
+        }
+
+        let start = value.index(after: value.startIndex)
+        let end = value.index(before: value.endIndex)
+        return String(value[start..<end])
+            .replacingOccurrences(of: "\\\"", with: "\"")
+            .replacingOccurrences(of: "\\\\", with: "\\")
     }
 
     private nonisolated static func tomlStringLiteral(_ value: String) -> String {

@@ -26,6 +26,16 @@ enum ClickyAgentTurnDiagnostics {
         request: ClickyAssistantTurnRequest
     ) {
         let imageLabels = request.imageAttachments.map(\.label).joined(separator: "\n- ")
+        let mcpServerDescriptions = request.mcpServers.map { server in
+            let arguments = server.arguments.isEmpty ? "(none)" : server.arguments.joined(separator: " ")
+            return """
+            - \(server.name)
+              command: \(server.commandPath)
+              arguments: \(arguments)
+              workingDirectory: \(server.workingDirectoryPath ?? "(none)")
+              instructionResource: \(server.instructionResourceURI)
+            """
+        }.joined(separator: "\n")
         let conversationHistory = request.conversationHistory.enumerated().map { index, turn in
             """
             exchange \(index + 1):
@@ -45,6 +55,9 @@ enum ClickyAgentTurnDiagnostics {
             userPromptLength=\(request.userPrompt.count)
             conversationHistoryCount=\(request.conversationHistory.count)
             imageCount=\(request.imageAttachments.count)
+            mcpServerCount=\(request.mcpServers.count)
+            mcpServers:
+            \(mcpServerDescriptions.isEmpty ? "(none)" : mcpServerDescriptions)
             imageLabels:
             \(imageLabels.isEmpty ? "(none)" : "- \(imageLabels)")
 

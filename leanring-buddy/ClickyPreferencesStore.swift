@@ -32,6 +32,7 @@ final class ClickyPreferencesStore: ObservableObject {
         static let clickyThemePreset = "clickyThemePreset"
         static let isClickyCursorEnabled = "isClickyCursorEnabled"
         static let clickyComputerUsePermissionMode = "clickyComputerUsePermissionMode"
+        static let legacyComputerUsePermissionLevel = "computerUsePermissionLevel"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
     }
 
@@ -163,9 +164,7 @@ final class ClickyPreferencesStore: ObservableObject {
         isClickyCursorEnabled = defaults.object(forKey: Key.isClickyCursorEnabled) == nil
             ? true
             : defaults.bool(forKey: Key.isClickyCursorEnabled)
-        clickyComputerUsePermissionMode = ClickyComputerUsePermissionMode(
-            rawValue: defaults.string(forKey: Key.clickyComputerUsePermissionMode) ?? ""
-        ) ?? .off
+        clickyComputerUsePermissionMode = Self.resolvedInitialComputerUsePermissionMode(defaults: defaults)
         hasCompletedOnboarding = defaults.bool(forKey: Key.hasCompletedOnboarding)
     }
 
@@ -201,5 +200,30 @@ final class ClickyPreferencesStore: ObservableObject {
         }
 
         return storedBackendBaseURL
+    }
+
+    private static func resolvedInitialComputerUsePermissionMode(defaults: UserDefaults) -> ClickyComputerUsePermissionMode {
+        if let storedMode = ClickyComputerUsePermissionMode(
+            rawValue: defaults.string(forKey: Key.clickyComputerUsePermissionMode) ?? ""
+        ) {
+            defaults.removeObject(forKey: Key.legacyComputerUsePermissionLevel)
+            return storedMode
+        }
+
+        let migratedMode: ClickyComputerUsePermissionMode
+        switch defaults.string(forKey: Key.legacyComputerUsePermissionLevel) {
+        case "autoApproved":
+            migratedMode = .direct
+        case "review":
+            migratedMode = .review
+        case "off", "disabled":
+            migratedMode = .off
+        default:
+            migratedMode = .off
+        }
+
+        defaults.set(migratedMode.rawValue, forKey: Key.clickyComputerUsePermissionMode)
+        defaults.removeObject(forKey: Key.legacyComputerUsePermissionLevel)
+        return migratedMode
     }
 }

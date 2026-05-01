@@ -228,6 +228,51 @@ struct ClickyRefactorTests {
 
     @Test
     @MainActor
+    func preferencesStoreMigratesLegacyAutoApprovedComputerUseMode() throws {
+        let suiteName = "ClickyComputerUseModeMigrationTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated defaults suite")
+            return
+        }
+
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("autoApproved", forKey: "computerUsePermissionLevel")
+
+        let store = ClickyPreferencesStore(defaults: defaults)
+
+        #expect(store.clickyComputerUsePermissionMode == .direct)
+        #expect(defaults.string(forKey: "clickyComputerUsePermissionMode") == "direct")
+        #expect(defaults.string(forKey: "computerUsePermissionLevel") == nil)
+    }
+
+    @Test
+    @MainActor
+    func preferencesStorePreservesExplicitComputerUseModeOverLegacyValue() throws {
+        let suiteName = "ClickyComputerUseModeExplicitTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Failed to create isolated defaults suite")
+            return
+        }
+
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("autoApproved", forKey: "computerUsePermissionLevel")
+        defaults.set("review", forKey: "clickyComputerUsePermissionMode")
+
+        let store = ClickyPreferencesStore(defaults: defaults)
+
+        #expect(store.clickyComputerUsePermissionMode == .review)
+        #expect(defaults.string(forKey: "clickyComputerUsePermissionMode") == "review")
+        #expect(defaults.string(forKey: "computerUsePermissionLevel") == nil)
+    }
+
+    @Test
+    @MainActor
     func launchTurnGateRequiresSignInOnlyAfterSetupIsReady() {
         let accessController = ClickyLaunchAccessController()
         let sessionService = ClickyLaunchSessionService(
