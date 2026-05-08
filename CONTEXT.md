@@ -29,8 +29,8 @@ The locally persisted current tutorial import draft plus current-step session pr
 _Avoid_: tutorial cache, backend tutorial history
 
 **Studio chrome**:
-The reusable shell, card, and row primitives shared by Studio scenes.
-_Avoid_: one-off Studio styling, duplicated Studio cards
+The reusable Studio shell family: window/header chrome, palette, button modifiers, shared cards/rows, and access/account visuals.
+_Avoid_: one-off Studio styling, duplicated Studio cards, one giant shared chrome file
 
 **Studio scene**:
 A dedicated SwiftUI surface inside the Studio window for one configuration or support area.

@@ -66,10 +66,6 @@ struct CompanionStudioNextView: View {
         _surfaceController = ObservedObject(wrappedValue: companionManager.surfaceController)
     }
 
-    private var theme: ClickyTheme {
-        preferences.clickyThemePreset.theme
-    }
-
     private var launchAccess: CompanionStudioLaunchAccessSnapshot {
         CompanionStudioLaunchAccessSnapshot(
             authState: launchAccessController.clickyLaunchAuthState,
@@ -109,11 +105,10 @@ struct CompanionStudioNextView: View {
 
     var body: some View {
         ZStack {
-            CompanionStudioNextBackdrop(theme: theme, palette: palette)
+            CompanionStudioNextBackdrop(palette: palette)
 
             VStack(alignment: .leading, spacing: 18) {
                 CompanionStudioWindowHeader(
-                    theme: theme,
                     palette: palette,
                     sections: availableSections,
                     selection: $selection,
