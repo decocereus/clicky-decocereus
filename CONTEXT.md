@@ -36,6 +36,10 @@ _Avoid_: one-off Studio styling, duplicated Studio cards
 A dedicated SwiftUI surface inside the Studio window for one configuration or support area.
 _Avoid_: giant Studio root section, inline Studio tab
 
+**Companion panel chrome**:
+The reusable menu-bar panel screen models, permission rows, button styles, shell styling, transitions, and status chips.
+_Avoid_: inline panel styles, duplicated menu-bar panel enums
+
 ## Relationships
 
 - An **Assistant response contract** may contain zero or more **Point targets**.
@@ -44,6 +48,7 @@ _Avoid_: giant Studio root section, inline Studio tab
 - An **Onboarding point tag** is converted into a **Point target** before the overlay is queued.
 - A **Tutorial state snapshot** restores one current tutorial draft and its current-step progress on this Mac.
 - A **Studio scene** composes **Studio chrome** instead of redefining shared cards or rows.
+- The menu-bar companion surface composes **Companion panel chrome** instead of redefining screen models or styles inline.
 
 ## Example Dialogue
 

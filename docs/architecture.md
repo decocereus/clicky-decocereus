@@ -79,6 +79,7 @@ Key files:
 - [leanring_buddyApp.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/leanring_buddyApp.swift)
 - [CompanionManager.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionManager.swift)
 - [CompanionPanelView.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionPanelView.swift)
+- [CompanionPanelChrome.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionPanelChrome.swift)
 - [CompanionStudioNextView.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionStudioNextView.swift)
 - [CompanionStudioChrome.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionStudioChrome.swift)
 - [CompanionStudioCompanionScene.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionStudioCompanionScene.swift)
