@@ -492,7 +492,12 @@ struct ClickyRefactorTests {
     @Test
     @MainActor
     func tutorialImportVoiceIntentPromptsPanelAndSpeech() async {
-        let tutorialController = ClickyTutorialController()
+        let fileURL = temporaryTutorialStateFileURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        let tutorialController = ClickyTutorialController(
+            stateStore: ClickyTutorialStateStore(fileURL: fileURL)
+        )
         let surfaceController = ClickySurfaceController()
         var spokenText: String?
         let coordinator = ClickyTutorialImportVoiceIntentCoordinator(
@@ -533,6 +538,99 @@ struct ClickyRefactorTests {
         #expect(history.exchanges.count == 10)
         #expect(history.exchanges.first?.userTranscript == "user 2")
         #expect(history.exchanges.last?.assistantResponse == "assistant 11")
+    }
+
+    @Test
+    @MainActor
+    func tutorialControllerPersistsAndRestoresCurrentDraft() throws {
+        let fileURL = temporaryTutorialStateFileURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        let store = ClickyTutorialStateStore(fileURL: fileURL)
+        let draft = TutorialImportDraft(
+            sourceURL: "https://www.youtube.com/watch?v=abc123",
+            status: .failed,
+            extractionError: "Could not extract tutorial."
+        )
+
+        let controller = ClickyTutorialController(stateStore: store)
+        controller.currentTutorialImportDraft = draft
+
+        let restoredController = ClickyTutorialController(stateStore: store)
+
+        #expect(restoredController.currentTutorialImportDraft?.id == draft.id)
+        #expect(restoredController.currentTutorialImportDraft?.status == .failed)
+        #expect(restoredController.currentTutorialImportDraft?.extractionError == "Could not extract tutorial.")
+    }
+
+    @Test
+    func tutorialStateStoreNormalizesInterruptedImportsOnLoad() throws {
+        let fileURL = temporaryTutorialStateFileURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        let store = ClickyTutorialStateStore(fileURL: fileURL)
+        try store.save(
+            ClickyTutorialStateSnapshot(
+                currentImportDraft: TutorialImportDraft(
+                    sourceURL: "https://www.youtube.com/watch?v=abc123",
+                    status: .compiling
+                ),
+                sessionState: nil
+            )
+        )
+
+        let restoredSnapshot = store.load()
+
+        #expect(restoredSnapshot?.currentImportDraft?.status == .failed)
+        #expect(restoredSnapshot?.currentImportDraft?.extractionError == "Tutorial import was interrupted. Try again to continue.")
+        #expect(restoredSnapshot?.sessionState == nil)
+    }
+
+    @Test
+    func tutorialStateStoreRestoresValidSessionProgress() throws {
+        let fileURL = temporaryTutorialStateFileURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        let store = ClickyTutorialStateStore(fileURL: fileURL)
+        let evidenceBundle = makeTutorialEvidenceBundle()
+        let lessonDraft = TutorialLessonDraft(
+            title: "Demo lesson",
+            summary: "A tiny tutorial lesson.",
+            steps: [
+                TutorialLessonStep(title: "First", instruction: "Do the first thing."),
+                TutorialLessonStep(title: "Second", instruction: "Do the second thing."),
+            ],
+            createdAt: Date()
+        )
+        let draft = TutorialImportDraft(
+            sourceURL: evidenceBundle.source.url,
+            videoID: evidenceBundle.videoID,
+            title: evidenceBundle.source.title,
+            embedURL: evidenceBundle.source.embedURL,
+            status: .ready,
+            evidenceBundle: evidenceBundle,
+            compiledLessonDraft: lessonDraft
+        )
+        let sessionState = TutorialSessionState(
+            draftID: draft.id,
+            lessonDraft: lessonDraft,
+            evidenceBundle: evidenceBundle,
+            currentStepIndex: 99,
+            isActive: true
+        )
+
+        try store.save(
+            ClickyTutorialStateSnapshot(
+                currentImportDraft: draft,
+                sessionState: sessionState
+            )
+        )
+
+        let restoredSnapshot = store.load()
+
+        #expect(restoredSnapshot?.sessionState?.draftID == draft.id)
+        #expect(restoredSnapshot?.sessionState?.currentStepIndex == 1)
+        #expect(restoredSnapshot?.sessionState?.isActive == true)
     }
 
     @Test
@@ -967,6 +1065,59 @@ struct ClickyRefactorTests {
             environment: [:],
             arguments: ["/Applications/Clicky.app/Contents/MacOS/Clicky"]
         ))
+    }
+
+    private func temporaryTutorialStateFileURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClickyTutorialStateStoreTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("tutorial-state.json")
+    }
+
+    private func makeTutorialEvidenceBundle() -> TutorialEvidenceBundle {
+        TutorialEvidenceBundle(
+            videoID: "abc123",
+            source: TutorialEvidenceSource(
+                url: "https://www.youtube.com/watch?v=abc123",
+                embedURL: "https://www.youtube.com/embed/abc123",
+                title: "Demo Tutorial",
+                durationSeconds: 120,
+                channel: "Demo Channel",
+                thumbnailURL: nil
+            ),
+            transcript: TutorialEvidenceTranscript(
+                source: .youtubeSubtitles,
+                language: "en",
+                segments: [
+                    TutorialTranscriptSegment(
+                        startSeconds: 0,
+                        endSeconds: 10,
+                        text: "Do the first thing."
+                    ),
+                ]
+            ),
+            visualContext: TutorialEvidenceVisualContext(
+                source: .youtubeThumbnails,
+                frames: []
+            ),
+            structureSource: .youtubeChapters,
+            structureMarkers: [
+                TutorialStructureMarker(
+                    startSeconds: 0,
+                    endSeconds: 60,
+                    title: "First",
+                    confidence: 0.9,
+                    source: "test",
+                    visualAnchorTimestamps: [5]
+                ),
+            ],
+            quality: TutorialEvidenceQuality(
+                level: .fast,
+                hasCreatorChapters: true,
+                hasCaptions: true,
+                hasVisualAnchors: true
+            ),
+            createdAt: Date()
+        )
     }
 }
 

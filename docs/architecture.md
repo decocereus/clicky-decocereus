@@ -593,12 +593,13 @@ Local storage currently includes:
 
 - settings and shell preferences in `UserDefaults`
 - launch auth session snapshot in Keychain-backed store
-- some runtime-only in-memory state inside `CompanionManager`
+- current tutorial draft and session progress in Application Support JSON
+- runtime-only in-memory state inside `CompanionManager`
 
 Important note:
 
-- tutorial import/session state is currently much more session-local than the
-  plans imply; durable tutorial persistence still needs work
+- tutorial draft and current-step progress persist locally; backend-backed or
+  cross-device tutorial history is still future work
 
 ### backend
 
@@ -619,7 +620,7 @@ The main known gaps are:
 - live verification of auth, billing, restore, and Sparkle against real public
   infrastructure
 - stronger trust semantics for the OpenClaw shell beyond registration freshness
-- durable tutorial draft/progress persistence
+- backend-backed tutorial history beyond the current local draft/progress store
 - deeper automated coverage across backend, web companion, and tutorial flows
 
 ## Non-Goals Right Now

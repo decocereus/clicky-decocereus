@@ -24,12 +24,17 @@ _Avoid_: fallback narration, inferred narration
 The legacy `[POINT:x,y:label|bubble]` text format used only by the first-launch onboarding demo.
 _Avoid_: assistant contract, backend response format
 
+**Tutorial state snapshot**:
+The locally persisted current tutorial import draft plus current-step session progress.
+_Avoid_: tutorial cache, backend tutorial history
+
 ## Relationships
 
 - An **Assistant response contract** may contain zero or more **Point targets**.
 - The **Assistant runtime graph** produces and repairs an **Assistant response contract**.
 - **Managed pointing narration** requires one explicit explanation per **Point target**.
 - An **Onboarding point tag** is converted into a **Point target** before the overlay is queued.
+- A **Tutorial state snapshot** restores one current tutorial draft and its current-step progress on this Mac.
 
 ## Example Dialogue
 
