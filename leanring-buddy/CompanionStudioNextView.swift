@@ -2210,118 +2210,6 @@ private struct CompanionStudioProfileScene: View {
     }
 }
 
-private struct CompanionStudioSupportScene: View {
-    let companionManager: CompanionManager
-    @ObservedObject private var preferences: ClickyPreferencesStore
-    @ObservedObject private var launchAccessController: ClickyLaunchAccessController
-    @ObservedObject private var backendRoutingController: ClickyBackendRoutingController
-    @ObservedObject private var surfaceController: ClickySurfaceController
-    @ObservedObject private var speechProviderController: ClickySpeechProviderController
-    @Binding var isSupportModeEnabled: Bool
-    private let palette = CompanionStudioScalaPalette()
-
-    init(companionManager: CompanionManager, isSupportModeEnabled: Binding<Bool>) {
-        self.companionManager = companionManager
-        _preferences = ObservedObject(wrappedValue: companionManager.preferences)
-        _launchAccessController = ObservedObject(wrappedValue: companionManager.launchAccessController)
-        _backendRoutingController = ObservedObject(wrappedValue: companionManager.backendRoutingController)
-        _surfaceController = ObservedObject(wrappedValue: companionManager.surfaceController)
-        _speechProviderController = ObservedObject(wrappedValue: companionManager.speechProviderController)
-        _isSupportModeEnabled = isSupportModeEnabled
-    }
-
-    private var effectiveVoiceOutputDisplayName: String {
-        switch preferences.clickySpeechProviderMode {
-        case .system:
-            return "System Speech · \(preferences.clickyVoicePreset.displayName)"
-        case .elevenLabsBYO:
-            let label = preferences.elevenLabsSelectedVoiceName.trimmingCharacters(in: .whitespacesAndNewlines)
-            return "ElevenLabs · \(label.isEmpty ? "No voice selected" : label)"
-        }
-    }
-
-    private var speechFallbackSummary: String? {
-        if let lastSpeechFallbackMessage = speechProviderController.lastSpeechFallbackMessage {
-            return lastSpeechFallbackMessage
-        }
-
-        guard preferences.clickySpeechProviderMode == .elevenLabsBYO else {
-            return nil
-        }
-
-        if !companionManager.speechProviderCoordinator.hasStoredElevenLabsAPIKey {
-            return "ElevenLabs is selected, but Clicky is speaking with System Speech for now. Add your ElevenLabs API key. Clicky stores it only in Keychain on this Mac."
-        }
-
-        let selectedVoiceID = preferences.elevenLabsSelectedVoiceID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if selectedVoiceID.isEmpty {
-            if case .loaded = speechProviderController.elevenLabsVoiceFetchStatus,
-               speechProviderController.elevenLabsAvailableVoices.isEmpty {
-                return "ElevenLabs is selected, but Clicky is speaking with System Speech for now. This ElevenLabs account does not have any voices available yet."
-            }
-
-            return "ElevenLabs is selected, but Clicky is speaking with System Speech for now. Load voices and choose the one you want Clicky to use."
-        }
-
-        if speechProviderController.isElevenLabsCreditExhausted {
-            return "ElevenLabs is selected, but Clicky is speaking with System Speech for now. Your ElevenLabs credits are exhausted right now, so Clicky is using System Speech until you top up or switch voices."
-        }
-
-        return nil
-    }
-
-    private var clickyOpenClawPluginStatusLabel: String {
-        companionManager.openClawStudioCoordinator.pluginStatusLabel
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            CompanionStudioReadableCard(
-                eyebrow: "Support",
-                title: "Backstage Tools"
-            ) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("This page is for troubleshooting and support work. It stays separate so the rest of Studio can stay calm and user-facing.")
-                        .font(ClickyTypography.body(size: 14))
-                        .foregroundColor(palette.cardSecondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Toggle("Show support tools", isOn: $isSupportModeEnabled)
-                        .toggleStyle(.switch)
-                }
-            }
-
-            HStack(alignment: .top, spacing: 18) {
-                CompanionStudioReadableCard(
-                    eyebrow: "Current State",
-                    title: "What Clicky Is Reporting"
-                ) {
-                    VStack(spacing: 12) {
-                        CompanionStudioKeyValueRow(label: "Speech", value: effectiveVoiceOutputDisplayName)
-                        CompanionStudioKeyValueRow(label: "Bridge", value: clickyOpenClawPluginStatusLabel)
-                    }
-                }
-
-                CompanionStudioReadableCard(
-                    eyebrow: "When To Use This",
-                    title: "What Support Mode Is For"
-                ) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Use this when you are helping someone restore access, checking a connection issue, or confirming what Clicky is currently using behind the scenes.")
-                            .font(.body)
-                            .foregroundColor(palette.cardPrimaryText)
-
-                        Text(speechFallbackSummary ?? "No voice fallback is active right now.")
-                            .font(.caption)
-                            .foregroundColor(palette.cardSecondaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
-    }
-}
-
 private struct CompanionStudioProviderPopover: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var preferences: ClickyPreferencesStore
@@ -3020,52 +2908,6 @@ private struct CompanionStudioNextBackdrop: View {
     }
 }
 
-private struct CompanionStudioReadableCard<Content: View>: View {
-    let palette = CompanionStudioScalaPalette()
-
-    let eyebrow: String
-    let title: String
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(eyebrow)
-                    .font(ClickyTypography.mono(size: 11, weight: .semibold))
-                    .foregroundColor(palette.cardSecondaryText)
-                    .tracking(1.0)
-
-                Text(title)
-                    .font(ClickyTypography.section(size: 30))
-                    .foregroundColor(palette.cardPrimaryText)
-            }
-
-            content
-        }
-        .padding(22)
-        .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(palette.cardBackground)
-                .overlay(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.10),
-                            palette.cardAccent.opacity(0.12),
-                            .clear
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .stroke(palette.cardBorder.opacity(0.72), lineWidth: 0.9)
-                )
-        )
-    }
-}
-
 private struct CompanionStudioGlassChip: View {
     let text: String
     private let palette = CompanionStudioScalaPalette()
@@ -3235,30 +3077,6 @@ private struct CompanionStudioMiniMetric: View {
                         .stroke(palette.cardBorder.opacity(0.40), lineWidth: 0.8)
                 )
         )
-    }
-}
-
-private struct CompanionStudioKeyValueRow: View {
-    let label: String
-    let value: String
-    private let palette = CompanionStudioScalaPalette()
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label)
-                .font(ClickyTypography.mono(size: 11, weight: .semibold))
-                .foregroundColor(palette.cardSecondaryText)
-                .frame(width: 96, alignment: .leading)
-
-            Text(value)
-                .font(ClickyTypography.body(size: 14, weight: .semibold))
-                .foregroundColor(palette.cardPrimaryText)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .minimumScaleFactor(0.85)
-
-            Spacer(minLength: 0)
-        }
     }
 }
 

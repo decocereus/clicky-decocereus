@@ -80,6 +80,8 @@ Key files:
 - [CompanionManager.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionManager.swift)
 - [CompanionPanelView.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionPanelView.swift)
 - [CompanionStudioNextView.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionStudioNextView.swift)
+- [CompanionStudioChrome.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionStudioChrome.swift)
+- [CompanionStudioSupportScene.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionStudioSupportScene.swift)
 - [OverlayWindow.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/OverlayWindow.swift)
 
 ### 2. AI proxy worker
@@ -231,6 +233,7 @@ The app shell itself is split into:
 
 - menu bar panel
 - Studio window
+- Studio scene files that compose shared Studio chrome
 - full-screen overlay window for cursor presence and pointing
 
 ### Main app state domains

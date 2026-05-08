@@ -28,6 +28,14 @@ _Avoid_: assistant contract, backend response format
 The locally persisted current tutorial import draft plus current-step session progress.
 _Avoid_: tutorial cache, backend tutorial history
 
+**Studio chrome**:
+The reusable shell, card, and row primitives shared by Studio scenes.
+_Avoid_: one-off Studio styling, duplicated Studio cards
+
+**Studio scene**:
+A dedicated SwiftUI surface inside the Studio window for one configuration or support area.
+_Avoid_: giant Studio root section, inline Studio tab
+
 ## Relationships
 
 - An **Assistant response contract** may contain zero or more **Point targets**.
@@ -35,6 +43,7 @@ _Avoid_: tutorial cache, backend tutorial history
 - **Managed pointing narration** requires one explicit explanation per **Point target**.
 - An **Onboarding point tag** is converted into a **Point target** before the overlay is queued.
 - A **Tutorial state snapshot** restores one current tutorial draft and its current-step progress on this Mac.
+- A **Studio scene** composes **Studio chrome** instead of redefining shared cards or rows.
 
 ## Example Dialogue
 

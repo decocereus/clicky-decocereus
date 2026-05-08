@@ -84,3 +84,73 @@ struct CompanionStudioSceneShell<Content: View>: View {
         .scrollContentBackground(.hidden)
     }
 }
+
+struct CompanionStudioReadableCard<Content: View>: View {
+    let palette = CompanionStudioScalaPalette()
+
+    let eyebrow: String
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(eyebrow)
+                    .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                    .foregroundColor(palette.cardSecondaryText)
+                    .tracking(1.0)
+
+                Text(title)
+                    .font(ClickyTypography.section(size: 30))
+                    .foregroundColor(palette.cardPrimaryText)
+            }
+
+            content
+        }
+        .padding(22)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(palette.cardBackground)
+                .overlay(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.10),
+                            palette.cardAccent.opacity(0.12),
+                            .clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .stroke(palette.cardBorder.opacity(0.72), lineWidth: 0.9)
+                )
+        )
+    }
+}
+
+struct CompanionStudioKeyValueRow: View {
+    let label: String
+    let value: String
+    private let palette = CompanionStudioScalaPalette()
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+                .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                .foregroundColor(palette.cardSecondaryText)
+                .frame(width: 96, alignment: .leading)
+
+            Text(value)
+                .font(ClickyTypography.body(size: 14, weight: .semibold))
+                .foregroundColor(palette.cardPrimaryText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .minimumScaleFactor(0.85)
+
+            Spacer(minLength: 0)
+        }
+    }
+}
