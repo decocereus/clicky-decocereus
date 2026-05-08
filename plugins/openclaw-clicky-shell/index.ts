@@ -143,7 +143,8 @@ function statusSummary(config: unknown, includeRegistrations: boolean) {
 function buildPromptInstructions() {
   return [
     "clicky desktop shell:",
-    "- use clicky_present when a Clicky turn needs a structured final response for speech or cursor pointing.",
+    "- call clicky_present for every Clicky shell response, including answer-only turns, before the final assistant message.",
+    "- after clicky_present returns, emit exactly the JSON object it gives you as the final assistant message.",
     "- desktop action tools are intentionally not exposed in this plugin right now. do not claim to click, type, scroll, or operate the user's Mac through Clicky.",
     "- if the user asks for desktop operation, give the safest manual guidance from the visible screen context.",
   ].join("\n");

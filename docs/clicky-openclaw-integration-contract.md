@@ -4,7 +4,7 @@ Status note:
 
 - the first stable plugin surface described here now exists in code
 - registration, heartbeat, status, bind-session, and prompt-injection behavior are implemented
-- tool-driven presentation selection for Clicky turns is now the preferred OpenClaw path
+- tool-driven presentation selection through `clicky_present` is the OpenClaw path for Clicky turns
 - live Gateway verification showed that a tool-only final response is treated as empty by the direct app-facing `agent` method, so `clicky_present` now instructs the model to emit the exact structured JSON envelope after the tool call
 - the main remaining gap is deeper trust semantics and stronger durability than process-memory registration alone
 
@@ -64,7 +64,7 @@ The `clicky-shell` plugin should own:
 - Clicky status/introspection command/tool surfaces
 - prompt injection for bound/fresh Clicky shells so OpenClaw runs automatically understand the active shell capabilities
 - the server-side path for per-turn Clicky runtime/system prompt context, so Clicky does not serialize that prompt into raw user message payloads
-- the preferred tool-driven presentation surface for answer-only, single-point, and walkthrough-style Clicky replies, with the tool result mirrored as the final structured JSON assistant message for Clicky's app parser
+- the tool-driven presentation surface for answer-only, single-point, and walkthrough-style Clicky replies, with the tool result mirrored as the final structured JSON assistant message for Clicky's app parser
 - the future handshake that tells OpenClaw what Clicky capabilities are currently online
 
 The plugin should **not** own:
@@ -109,7 +109,7 @@ The plugin should **not** own:
 - `clicky_status`
   Agent-visible tool that reports whether a Clicky shell is connected and what it can do.
 - `clicky_present`
-  Agent-visible tool that lets OpenClaw choose a Clicky turn presentation in `answer`, `point`, `walkthrough`, or `tutorial` mode using one explicit schema. The tool returns finalization instructions so the model emits the same structured envelope as the final assistant message for Clicky's app-facing Gateway path.
+  Agent-visible tool that OpenClaw uses to choose a Clicky turn presentation in `answer`, `point`, `walkthrough`, or `tutorial` mode using one explicit schema. The tool returns finalization instructions so the model emits the same structured envelope as the final assistant message for Clicky's app-facing Gateway path.
 
 Desktop action tools are not part of the current plugin surface. OpenClaw should use `clicky_present` for answer, point, walkthrough, or tutorial presentation only.
 
@@ -160,7 +160,7 @@ The long-term capability split should be:
 Concrete interpretation:
 - OpenClaw decides what to say and what to point at
 - Clicky decides how that is spoken, shown, and animated on the user’s machine
-- For OpenClaw-backed Clicky turns, the preferred finish path is now a `clicky_present` tool call followed by the model emitting the same structured envelope as the final assistant message. Raw structured JSON without the tool remains a fallback during migration.
+- For OpenClaw-backed Clicky turns, the finish path is a `clicky_present` tool call followed by the model emitting the same structured envelope as the final assistant message.
 
 ## Remote-Ready Behavior
 

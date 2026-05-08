@@ -9,7 +9,7 @@ Native OpenClaw plugin scaffold for connecting OpenClaw to the Clicky desktop sh
 - registers Clicky-namespaced Gateway methods
 - registers a simple `/clicky` command
 - registers a `clicky_status` tool
-- registers a `clicky_present` tool as the preferred presentation-mode surface for Clicky turns
+- registers a `clicky_present` tool as the presentation-mode surface for Clicky turns
 - accepts real shell registrations
 - tracks shell heartbeat freshness in memory
 - reports shell status and session binding state

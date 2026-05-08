@@ -146,7 +146,7 @@ Role:
 - stores in-memory shell registrations
 - exposes Clicky-specific gateway methods
 - injects Clicky shell prompt context for fresh bound sessions
-- prefers tool-driven presentation selection via `clicky_present`, then mirrors the tool result as final structured JSON for the app, while keeping raw structured JSON as migration fallback
+- requires tool-driven presentation selection via `clicky_present`, then mirrors the tool result as final structured JSON for the app
 
 Key file:
 
@@ -354,14 +354,12 @@ It also:
 
 - exposes `/clicky`
 - exposes `clicky_status`
-- exposes `clicky_present` as the preferred presentation-mode tool for Clicky turns
+- exposes `clicky_present` as the presentation-mode tool for Clicky turns
 - injects Clicky shell prompt context on `before_prompt_build` when a shell is
   fresh and bound
 - instructs the model to emit the `clicky_present` result as final structured
   JSON because direct Gateway `agent` runs treat tool-only final responses as
   empty
-- keeps raw structured JSON without the tool as the fallback response shape
-  during migration
 
 This is enough for a working shell loop, but not yet a final trust model.
 
