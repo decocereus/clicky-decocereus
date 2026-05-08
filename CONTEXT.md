@@ -52,6 +52,10 @@ _Avoid_: inline headline switch, duplicated panel copy cards
 The tutorial-specific secondary cards for YouTube import, lesson compilation, ready state, playback, and failure recovery inside the menu-bar panel.
 _Avoid_: tutorial flow UI inside the root panel view
 
+**Companion panel access cards**:
+The onboarding, sign-in, permission repair, active-summary, and locked-state secondary cards inside the menu-bar panel.
+_Avoid_: setup/access UI inside the root panel view
+
 **Overlay indicators**:
 The reusable cursor overlay waveform, spinner, halo, and pulsing-orb views.
 _Avoid_: inline cursor animation helpers
@@ -71,6 +75,7 @@ _Avoid_: inline AVPlayer/WKWebView wrappers
 - The menu-bar companion surface composes **Companion panel chrome** instead of redefining screen models or styles inline.
 - **Companion panel flow state** chooses which **Companion panel chrome** screen model the menu-bar companion surface renders.
 - **Companion panel primary content** owns the top narrative card for each **Companion panel flow state** screen.
+- **Companion panel access cards** own setup, permission, active summary, and locked-state secondary surfaces.
 - **Companion panel tutorial cards** own tutorial-specific secondary surfaces while **Companion panel flow state** decides when those surfaces appear.
 - `BlueCursorView` composes **Overlay indicators** and **Overlay video bridges** while `OverlayWindow` owns window lifecycle.
 
