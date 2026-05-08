@@ -44,6 +44,14 @@ _Avoid_: inline panel styles, duplicated menu-bar panel enums
 The pure state snapshot that resolves the menu-bar panel's active screen from onboarding, auth, permission, paywall, and tutorial import inputs.
 _Avoid_: inline panel screen resolver, scattered panel flow switches
 
+**Overlay indicators**:
+The reusable cursor overlay waveform, spinner, halo, and pulsing-orb views.
+_Avoid_: inline cursor animation helpers
+
+**Overlay video bridges**:
+The SwiftUI/AppKit player bridges for onboarding and tutorial video playback inside the overlay.
+_Avoid_: inline AVPlayer/WKWebView wrappers
+
 ## Relationships
 
 - An **Assistant response contract** may contain zero or more **Point targets**.
@@ -54,6 +62,7 @@ _Avoid_: inline panel screen resolver, scattered panel flow switches
 - A **Studio scene** composes **Studio chrome** instead of redefining shared cards or rows.
 - The menu-bar companion surface composes **Companion panel chrome** instead of redefining screen models or styles inline.
 - **Companion panel flow state** chooses which **Companion panel chrome** screen model the menu-bar companion surface renders.
+- `BlueCursorView` composes **Overlay indicators** and **Overlay video bridges** while `OverlayWindow` owns window lifecycle.
 
 ## Example Dialogue
 

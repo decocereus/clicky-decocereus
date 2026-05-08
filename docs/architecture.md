@@ -89,6 +89,8 @@ Key files:
 - [CompanionStudioProfileScene.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionStudioProfileScene.swift)
 - [CompanionStudioSupportScene.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/CompanionStudioSupportScene.swift)
 - [OverlayWindow.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/OverlayWindow.swift)
+- [OverlayIndicators.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/OverlayIndicators.swift)
+- [OverlayVideoPlayers.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/OverlayVideoPlayers.swift)
 
 ### 2. AI proxy worker
 
