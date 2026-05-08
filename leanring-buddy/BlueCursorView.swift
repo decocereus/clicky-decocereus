@@ -8,39 +8,6 @@
 import AppKit
 import SwiftUI
 
-// Cursor-like triangle shape (equilateral)
-struct Triangle: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let size = min(rect.width, rect.height)
-        let height = size * sqrt(3.0) / 2.0
-
-        // Top vertex
-        path.move(to: CGPoint(x: rect.midX, y: rect.midY - height / 1.5))
-        // Bottom left vertex
-        path.addLine(to: CGPoint(x: rect.midX - size / 2, y: rect.midY + height / 3))
-        // Bottom right vertex
-        path.addLine(to: CGPoint(x: rect.midX + size / 2, y: rect.midY + height / 3))
-        path.closeSubpath()
-        return path
-    }
-}
-
-// PreferenceKey for tracking bubble size
-struct SizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
-struct NavigationBubbleSizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
 /// The buddy's behavioral mode. Controls whether it follows the cursor,
 /// is flying toward a detected UI element, or is pointing at an element.
 enum BuddyNavigationMode: Equatable {
@@ -141,11 +108,6 @@ struct BlueCursorView: View {
     @State private var isReturningToCursor: Bool = false
     @State private var sequenceReturnPosition: CGPoint?
 
-    // MARK: - Onboarding Video Layout
-
-    private let onboardingVideoPlayerWidth: CGFloat = 330
-    private let onboardingVideoPlayerHeight: CGFloat = 186
-
     private let fullWelcomeMessage = "hey! i'm clicky"
 
     private let navigationPointerPhrases = [
@@ -172,74 +134,39 @@ struct BlueCursorView: View {
 
             // Welcome speech bubble (first launch only)
             if isCursorOnThisScreen && showWelcome && !welcomeText.isEmpty {
-                Text(welcomeText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(cursorAccentColor)
-                            .shadow(color: cursorAccentColor.opacity(0.5), radius: 6, x: 0, y: 0)
-                    )
-                    .fixedSize()
-                    .overlay(
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(key: SizePreferenceKey.self, value: geo.size)
-                        }
-                    )
+                BlueCursorMeasuredSpeechBubble(text: welcomeText, accentColor: cursorAccentColor)
                     .opacity(bubbleOpacity)
                     .position(x: cursorPosition.x + 10 + (bubbleSize.width / 2), y: cursorPosition.y + 18)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.easeOut(duration: 0.5), value: bubbleOpacity)
-                    .onPreferenceChange(SizePreferenceKey.self) { newSize in
+                    .onPreferenceChange(BlueCursorBubbleSizePreferenceKey.self) { newSize in
                         bubbleSize = newSize
                     }
             }
 
-            // Onboarding video — always in the view tree so opacity animation works
-            // reliably. When no player exists or opacity is 0, nothing is visible.
-            // allowsHitTesting(false) prevents it from intercepting clicks.
-            OnboardingVideoPlayerView(player: surfaceController.onboardingVideoPlayer)
-                .frame(width: onboardingVideoPlayerWidth, height: onboardingVideoPlayerHeight)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .shadow(color: Color.black.opacity(0.4 * surfaceController.onboardingVideoOpacity), radius: 12, x: 0, y: 6)
-                .opacity(isCursorOnThisScreen ? surfaceController.onboardingVideoOpacity : 0)
-                .position(
-                    x: cursorPosition.x + 10 + (onboardingVideoPlayerWidth / 2),
-                    y: cursorPosition.y + 18 + (onboardingVideoPlayerHeight / 2)
-                )
-                .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                .animation(.easeInOut(duration: 2.0), value: surfaceController.onboardingVideoOpacity)
-                .allowsHitTesting(false)
+            BlueCursorOnboardingVideoSurface(
+                player: surfaceController.onboardingVideoPlayer,
+                opacity: surfaceController.onboardingVideoOpacity,
+                cursorPosition: cursorPosition,
+                isCursorOnThisScreen: isCursorOnThisScreen
+            )
 
-            tutorialInlinePlayerSurface
+            BlueCursorTutorialInlinePlayerSurface(
+                tutorialController: tutorialController,
+                cursorPosition: cursorPosition,
+                isCursorOnThisScreen: isCursorOnThisScreen,
+                accentColor: cursorAccentColor,
+                bubbleSize: $bubbleSize
+            )
 
             // Onboarding prompt — "press control + option and say hi" streamed after video ends
             if isCursorOnThisScreen && surfaceController.showOnboardingPrompt && !surfaceController.onboardingPromptText.isEmpty {
-                Text(surfaceController.onboardingPromptText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(cursorAccentColor)
-                            .shadow(color: cursorAccentColor.opacity(0.5), radius: 6, x: 0, y: 0)
-                    )
-                    .fixedSize()
-                    .overlay(
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(key: SizePreferenceKey.self, value: geo.size)
-                        }
-                    )
+                BlueCursorMeasuredSpeechBubble(text: surfaceController.onboardingPromptText, accentColor: cursorAccentColor)
                     .opacity(surfaceController.onboardingPromptOpacity)
                     .position(x: cursorPosition.x + 10 + (bubbleSize.width / 2), y: cursorPosition.y + 18)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.easeOut(duration: 0.4), value: surfaceController.onboardingPromptOpacity)
-                    .onPreferenceChange(SizePreferenceKey.self) { newSize in
+                    .onPreferenceChange(BlueCursorBubbleSizePreferenceKey.self) { newSize in
                         bubbleSize = newSize
                     }
             }
@@ -248,34 +175,18 @@ struct BlueCursorView: View {
             // Pops in with a scale-bounce (0.5x → 1.0x spring) and a bright initial
             // glow that settles, creating a "materializing" effect.
             if buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty {
-                Text(navigationBubbleText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(cursorAccentColor)
-                            .shadow(
-                                color: cursorAccentColor.opacity(0.5 + (1.0 - navigationBubbleScale) * 1.0),
-                                radius: 6 + (1.0 - navigationBubbleScale) * 16,
-                                x: 0, y: 0
-                            )
-                    )
-                    .fixedSize()
-                    .overlay(
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(key: NavigationBubbleSizePreferenceKey.self, value: geo.size)
-                        }
-                    )
+                BlueCursorMeasuredNavigationBubble(
+                    text: navigationBubbleText,
+                    accentColor: cursorAccentColor,
+                    scale: navigationBubbleScale
+                )
                     .scaleEffect(navigationBubbleScale)
                     .opacity(navigationBubbleOpacity)
                     .position(x: cursorPosition.x + 10 + (navigationBubbleSize.width / 2), y: cursorPosition.y + 18)
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.spring(response: 0.4, dampingFraction: 0.6), value: navigationBubbleScale)
                     .animation(.easeOut(duration: 0.5), value: navigationBubbleOpacity)
-                    .onPreferenceChange(NavigationBubbleSizePreferenceKey.self) { newSize in
+                    .onPreferenceChange(BlueCursorNavigationBubbleSizePreferenceKey.self) { newSize in
                         navigationBubbleSize = newSize
                     }
             }
@@ -425,66 +336,6 @@ struct BlueCursorView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 guard self.buddyNavigationMode == .pointingAtTarget else { return }
                 self.startFlyingBackToCursor()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var tutorialInlinePlayerSurface: some View {
-        if isCursorOnThisScreen,
-           let tutorialPlaybackState = tutorialController.tutorialPlaybackState,
-           tutorialPlaybackState.isVisible {
-            TutorialInlineYouTubePlayerView(
-                embedURL: tutorialPlaybackState.embedURL,
-                isPlaying: tutorialPlaybackState.isPlaying,
-                commandNonce: tutorialController.tutorialPlaybackCommandNonce,
-                lastCommand: tutorialController.tutorialPlaybackLastCommand,
-                startAtSeconds: tutorialPlaybackState.lastPromptTimestampSeconds
-            )
-            .frame(
-                width: tutorialPlaybackState.preferredInlinePlayerWidth,
-                height: tutorialPlaybackState.preferredInlinePlayerHeight
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 6)
-            .position(
-                x: cursorPosition.x + 10 + (tutorialPlaybackState.preferredInlinePlayerWidth / 2),
-                y: cursorPosition.y + 18 + (tutorialPlaybackState.preferredInlinePlayerHeight / 2)
-            )
-            .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-            .allowsHitTesting(false)
-            .opacity(tutorialPlaybackState.surfaceMode == .pointerGuidance ? 0.92 : 1.0)
-
-            if tutorialPlaybackState.surfaceMode == .inlineVideoWithBubble,
-               let bubbleText = tutorialPlaybackState.bubbleText,
-               !bubbleText.isEmpty {
-                Text(bubbleText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(cursorAccentColor)
-                            .shadow(color: cursorAccentColor.opacity(0.5), radius: 6, x: 0, y: 0)
-                    )
-                    .fixedSize()
-                    .overlay(
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(key: SizePreferenceKey.self, value: geo.size)
-                        }
-                    )
-                    .opacity(tutorialController.tutorialPlaybackBubbleOpacity)
-                    .position(
-                        x: cursorPosition.x + 10 + (bubbleSize.width / 2),
-                        y: cursorPosition.y + 18 - (bubbleSize.height / 2) - 12
-                    )
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                    .animation(.easeOut(duration: 0.2), value: tutorialController.tutorialPlaybackBubbleOpacity)
-                    .onPreferenceChange(SizePreferenceKey.self) { newSize in
-                        bubbleSize = newSize
-                    }
             }
         }
     }
