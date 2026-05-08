@@ -561,6 +561,52 @@ struct ClickyRefactorTests {
     }
 
     @Test
+    func companionPanelPermissionRowsShowMissingSetupPermissions() {
+        let rows = makePermissionRows(
+            hasAccessibilityPermission: false,
+            hasMicrophonePermission: false,
+            hasScreenRecordingPermission: false,
+            hasScreenContentPermission: false
+        )
+
+        #expect(rows.map(\.kind) == [.accessibility, .microphone, .screenRecording])
+        #expect(rows.allSatisfy { $0.state == .missing })
+        #expect(rows.first?.secondaryTitle == "Find App")
+    }
+
+    @Test
+    func companionPanelPermissionRowsShowScreenContentAfterScreenRecording() {
+        let rows = makePermissionRows(
+            hasScreenRecordingPermission: true,
+            hasScreenContentPermission: false,
+            isRequestingScreenContent: true
+        )
+
+        #expect(rows.map(\.kind) == [.screenContent])
+        #expect(rows.first?.primaryTitle == "Waiting…")
+    }
+
+    @Test
+    func companionPanelPermissionRowsKeepRecentlyGrantedRowsVisible() {
+        let rows = makePermissionRows(
+            recentlyGrantedPermissions: [.microphone]
+        )
+
+        #expect(rows.map(\.kind) == [.microphone])
+        #expect(rows.first?.state == .granted)
+        #expect(rows.first?.detail == "Resolved and quiet again.")
+    }
+
+    @Test
+    func companionPanelPermissionRowsShowAllSetWhenNothingNeedsAttention() {
+        let rows = makePermissionRows()
+
+        #expect(rows.count == 1)
+        #expect(rows.first?.title == "All set")
+        #expect(rows.first?.state == .granted)
+    }
+
+    @Test
     @MainActor
     func tutorialImportVoiceIntentPromptsPanelAndSpeech() async {
         let fileURL = temporaryTutorialStateFileURL()
@@ -1216,6 +1262,36 @@ struct ClickyRefactorTests {
             isTutorialImportRunning: isTutorialImportRunning,
             tutorialImportStatus: tutorialImportStatus,
             isTutorialExtractorConfigured: isTutorialExtractorConfigured
+        )
+    }
+
+    private func makePermissionRows(
+        hasCompletedOnboarding: Bool = true,
+        hasAccessibilityPermission: Bool = true,
+        hasMicrophonePermission: Bool = true,
+        hasScreenRecordingPermission: Bool = true,
+        hasScreenContentPermission: Bool = true,
+        isRequestingScreenContent: Bool = false,
+        recentlyGrantedPermissions: Set<CompanionPermissionKind> = []
+    ) -> [CompanionPanelPermissionRow] {
+        CompanionPanelPermissionRows.makeRows(
+            snapshot: CompanionPanelPermissionRowSnapshot(
+                hasCompletedOnboarding: hasCompletedOnboarding,
+                hasAccessibilityPermission: hasAccessibilityPermission,
+                hasMicrophonePermission: hasMicrophonePermission,
+                hasScreenRecordingPermission: hasScreenRecordingPermission,
+                hasScreenContentPermission: hasScreenContentPermission,
+                isRequestingScreenContent: isRequestingScreenContent,
+                recentlyGrantedPermissions: recentlyGrantedPermissions
+            ),
+            actions: CompanionPanelPermissionRowActions(
+                requestAccessibilityPermission: {},
+                revealAppAndOpenAccessibilitySettings: {},
+                requestMicrophonePermission: {},
+                requestScreenRecordingPermission: {},
+                requestScreenContentPermission: {},
+                continueFromPermissions: {}
+            )
         )
     }
 }

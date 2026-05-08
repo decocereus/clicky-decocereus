@@ -536,122 +536,25 @@ struct CompanionPanelView: View {
     }
 
     private var permissionRows: [CompanionPanelPermissionRow] {
-        var rows: [CompanionPanelPermissionRow] = []
-
-        if !surfaceController.hasAccessibilityPermission {
-            rows.append(
-                CompanionPanelPermissionRow(
-                    kind: .accessibility,
-                    title: "Accessibility",
-                    detail: hasCompletedOnboarding
-                        ? "So Clicky can continue helping you act inside software."
-                        : "So Clicky can guide and act inside software when you ask.",
-                    primaryTitle: "Grant",
-                    primaryAction: requestAccessibilityPermission,
-                    secondaryTitle: "Find App",
-                    secondaryAction: {
-                        WindowPositionManager.revealAppInFinder()
-                        WindowPositionManager.openAccessibilitySettings()
-                    }
-                ).withState(rowState(for: .accessibility, isGranted: false))
+        CompanionPanelPermissionRows.makeRows(
+            snapshot: CompanionPanelPermissionRowSnapshot(
+                hasCompletedOnboarding: hasCompletedOnboarding,
+                hasAccessibilityPermission: surfaceController.hasAccessibilityPermission,
+                hasMicrophonePermission: surfaceController.hasMicrophonePermission,
+                hasScreenRecordingPermission: surfaceController.hasScreenRecordingPermission,
+                hasScreenContentPermission: surfaceController.hasScreenContentPermission,
+                isRequestingScreenContent: companionManager.isRequestingScreenContent,
+                recentlyGrantedPermissions: recentlyGrantedPermissions
+            ),
+            actions: CompanionPanelPermissionRowActions(
+                requestAccessibilityPermission: requestAccessibilityPermission,
+                revealAppAndOpenAccessibilitySettings: revealAppAndOpenAccessibilitySettings,
+                requestMicrophonePermission: requestMicrophonePermission,
+                requestScreenRecordingPermission: requestScreenRecordingPermission,
+                requestScreenContentPermission: companionManager.permissionCoordinator.requestScreenContentPermission,
+                continueFromPermissions: continueFromPermissions
             )
-        } else if recentlyGrantedPermissions.contains(.accessibility) {
-            rows.append(
-                CompanionPanelPermissionRow(
-                    kind: .accessibility,
-                    title: "Accessibility",
-                    detail: "Resolved and quiet again.",
-                    primaryTitle: "Grant",
-                    primaryAction: {}
-                ).withState(.granted)
-            )
-        }
-
-        if !surfaceController.hasMicrophonePermission {
-            rows.append(
-                CompanionPanelPermissionRow(
-                    kind: .microphone,
-                    title: "Microphone",
-                    detail: "So Clicky can listen when you use push-to-talk.",
-                    primaryTitle: "Grant",
-                    primaryAction: requestMicrophonePermission
-                ).withState(rowState(for: .microphone, isGranted: false))
-            )
-        } else if recentlyGrantedPermissions.contains(.microphone) {
-            rows.append(
-                CompanionPanelPermissionRow(
-                    kind: .microphone,
-                    title: "Microphone",
-                    detail: "Resolved and quiet again.",
-                    primaryTitle: "Grant",
-                    primaryAction: {}
-                ).withState(.granted)
-            )
-        }
-
-        if !surfaceController.hasScreenRecordingPermission {
-            rows.append(
-                CompanionPanelPermissionRow(
-                    kind: .screenRecording,
-                    title: "Screen Recording",
-                    detail: hasCompletedOnboarding
-                        ? "So Clicky can continue seeing enough context to guide and act safely."
-                        : "So Clicky can see enough context to guide and act safely.",
-                    primaryTitle: "Grant",
-                    primaryAction: requestScreenRecordingPermission
-                ).withState(rowState(for: .screenRecording, isGranted: false))
-            )
-        } else if recentlyGrantedPermissions.contains(.screenRecording) {
-            rows.append(
-                CompanionPanelPermissionRow(
-                    kind: .screenRecording,
-                    title: "Screen Recording",
-                    detail: "Resolved and quiet again.",
-                    primaryTitle: "Grant",
-                    primaryAction: {}
-                ).withState(.granted)
-            )
-        }
-
-        if surfaceController.hasScreenRecordingPermission && !surfaceController.hasScreenContentPermission {
-            rows.append(
-                CompanionPanelPermissionRow(
-                    kind: .screenContent,
-                    title: "Screen Content",
-                    detail: hasCompletedOnboarding
-                        ? "So Clicky can still understand the text and interfaces in front of you."
-                        : "So Clicky can still understand the text and interfaces in front of you.",
-                    primaryTitle: companionManager.isRequestingScreenContent ? "Waiting…" : "Grant",
-                    primaryAction: {
-                        companionManager.permissionCoordinator.requestScreenContentPermission()
-                    }
-                ).withState(rowState(for: .screenContent, isGranted: false))
-            )
-        } else if surfaceController.hasScreenRecordingPermission && recentlyGrantedPermissions.contains(.screenContent) {
-            rows.append(
-                CompanionPanelPermissionRow(
-                    kind: .screenContent,
-                    title: "Screen Content",
-                    detail: "Resolved and quiet again.",
-                    primaryTitle: "Grant",
-                    primaryAction: {}
-                ).withState(.granted)
-            )
-        }
-
-        if rows.isEmpty {
-            rows.append(
-                CompanionPanelPermissionRow(
-                    kind: .accessibility,
-                    title: "All set",
-                    detail: "Everything Clicky needs is already available.",
-                    primaryTitle: "Continue",
-                    primaryAction: continueFromPermissions
-                ).withState(.granted)
-            )
-        }
-
-        return rows
+        )
     }
 
     private var footerSection: some View {
@@ -782,6 +685,11 @@ struct CompanionPanelView: View {
     private func requestScreenRecordingPermission() {
         _ = WindowPositionManager.requestScreenRecordingPermission()
         companionManager.permissionCoordinator.refreshAllPermissions()
+    }
+
+    private func revealAppAndOpenAccessibilitySettings() {
+        WindowPositionManager.revealAppInFinder()
+        WindowPositionManager.openAccessibilitySettings()
     }
 
     private func handleSignInPrimaryAction() {
@@ -932,14 +840,6 @@ struct CompanionPanelView: View {
 
     private func requestPanelRelayout(animated: Bool) {
         NotificationCenter.default.post(name: .clickyPanelNeedsLayout, object: nil)
-    }
-
-    private func rowState(for kind: CompanionPermissionKind, isGranted: Bool) -> CompanionPermissionRowState {
-        if isGranted || recentlyGrantedPermissions.contains(kind) {
-            return .granted
-        }
-
-        return .missing
     }
 
     private func handlePermissionStateChange(_ kind: CompanionPermissionKind, isGranted: Bool) {
