@@ -34,16 +34,33 @@ final class CompanionManager: ObservableObject {
     // Response text is now displayed inline on the cursor overlay via
     // streamingResponseText, so no separate response overlay manager is needed.
 
-    private lazy var claudeAPI: ClaudeAPI = {
-        return ClaudeAPI(proxyURL: "\(CompanionRuntimeConfiguration.workerBaseURL)/chat", model: preferences.selectedModel)
-    }()
+    private lazy var assistantRuntime = ClickyAssistantRuntime(
+        preferences: preferences,
+        openClawShellIdentifierProvider: { [weak self] in
+            self?.openClawShellLifecycleController.shellIdentifier ?? ""
+        }
+    )
 
-    private lazy var claudeAssistantProvider: ClaudeAssistantProvider = {
-        ClaudeAssistantProvider(claudeAPI: claudeAPI)
-    }()
+    private var claudeAPI: ClaudeAPI {
+        assistantRuntime.claudeAPI
+    }
 
-    private let openClawGatewayCompanionAgent = OpenClawGatewayCompanionAgent()
-    private let codexRuntimeClient = CodexRuntimeClient()
+    private var openClawGatewayCompanionAgent: OpenClawGatewayCompanionAgent {
+        assistantRuntime.openClawGatewayCompanionAgent
+    }
+
+    private var codexRuntimeClient: CodexRuntimeClient {
+        assistantRuntime.codexRuntimeClient
+    }
+
+    private var assistantTurnExecutor: ClickyAssistantTurnExecutor {
+        assistantRuntime.turnExecutor
+    }
+
+    private var assistantResponseProcessor: ClickyAssistantResponseProcessor {
+        assistantRuntime.responseProcessor
+    }
+
     private lazy var openClawShellLifecycleController = ClickyOpenClawShellLifecycleController(
         gatewayAgent: openClawGatewayCompanionAgent,
         routingController: backendRoutingController,
@@ -114,34 +131,6 @@ final class CompanionManager: ObservableObject {
         }
     )
 
-    private lazy var openClawAssistantProvider: OpenClawAssistantProvider = {
-        OpenClawAssistantProvider(
-            gatewayAgent: openClawGatewayCompanionAgent,
-            configurationProvider: { [weak self] in
-                guard let self else {
-                    return OpenClawAssistantProviderConfiguration(
-                        gatewayURLString: "",
-                        gatewayAuthToken: nil,
-                        agentIdentifier: "",
-                        sessionKey: "",
-                        shellIdentifier: ""
-                    )
-                }
-
-                return OpenClawAssistantProviderConfiguration(
-                    gatewayURLString: self.preferences.openClawGatewayURL,
-                    gatewayAuthToken: self.preferences.openClawGatewayAuthToken,
-                    agentIdentifier: self.preferences.openClawAgentIdentifier,
-                    sessionKey: self.preferences.openClawSessionKey,
-                    shellIdentifier: self.openClawShellLifecycleController.shellIdentifier
-                )
-            }
-        )
-    }()
-
-    private lazy var codexAssistantProvider: CodexAssistantProvider = {
-        CodexAssistantProvider(runtimeClient: codexRuntimeClient)
-    }()
     lazy var codexRuntimeCoordinator = ClickyCodexRuntimeCoordinator(
         backendRoutingController: backendRoutingController,
         runtimeClient: codexRuntimeClient
@@ -195,25 +184,6 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private lazy var assistantProviderRegistry: ClickyAssistantProviderRegistry = {
-        ClickyAssistantProviderRegistry(
-            providers: [
-                claudeAssistantProvider,
-                codexAssistantProvider,
-                openClawAssistantProvider,
-            ]
-        )
-    }()
-
-    private lazy var assistantTurnExecutor: ClickyAssistantTurnExecutor = {
-        ClickyAssistantTurnExecutor(providerRegistry: assistantProviderRegistry)
-    }()
-    private lazy var assistantResponseRepairer = ClickyAssistantResponseRepairer(
-        assistantTurnExecutor: assistantTurnExecutor
-    )
-    private lazy var assistantResponseProcessor = ClickyAssistantResponseProcessor(
-        repairer: assistantResponseRepairer
-    )
     private lazy var assistantTurnContextBuilder = ClickyAssistantTurnContextBuilder(
         focusContextProvider: assistantFocusContextProvider,
         basePromptSource: assistantBasePromptSource,

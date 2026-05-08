@@ -165,7 +165,9 @@ The repo consistently tries to preserve this split:
 
 The macOS app no longer assembles provider-specific requests directly in the
 main manager. It now uses a shared assistant turn model and per-provider
-adapters.
+adapters. `CompanionManager` owns app state and lifecycle coordination, while
+`ClickyAssistantRuntime` assembles the assistant backend adapters, turn
+executor, response repairer, and shared response processor.
 
 Claude and Codex both use the shared structured JSON response contract directly
 through their normal text-generation paths. OpenClaw uses the `clicky_present`
@@ -176,6 +178,7 @@ backends through the same parser.
 Important files:
 
 - [ClickyAssistantTurn.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/ClickyAssistantTurn.swift)
+- [ClickyAssistantRuntime.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/ClickyAssistantRuntime.swift)
 - [ClickyAssistantTurnBuilder.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/ClickyAssistantTurnBuilder.swift)
 - [ClickyAssistantTurnExecutor.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/ClickyAssistantTurnExecutor.swift)
 - [ClaudeAssistantProvider.swift](/Users/amartyasingh/Documents/projects/clicky-decocereus/leanring-buddy/ClaudeAssistantProvider.swift)

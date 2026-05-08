@@ -8,6 +8,10 @@ This context names Clicky-specific product concepts so architecture work can reu
 The structured JSON envelope every assistant backend returns to Clicky, containing spoken text and optional ordered point targets.
 _Avoid_: raw answer text, point-tag response
 
+**Assistant runtime graph**:
+The assembled set of assistant backend adapters, turn execution, response repair, and response processing used by normal and tutorial turns.
+_Avoid_: provider setup in CompanionManager, backend wiring
+
 **Point target**:
 A screenshot-pixel location plus label and bubble metadata that Clicky can resolve into a cursor overlay destination.
 _Avoid_: coordinate tag, pointer marker
@@ -23,6 +27,7 @@ _Avoid_: assistant contract, backend response format
 ## Relationships
 
 - An **Assistant response contract** may contain zero or more **Point targets**.
+- The **Assistant runtime graph** produces and repairs an **Assistant response contract**.
 - **Managed pointing narration** requires one explicit explanation per **Point target**.
 - An **Onboarding point tag** is converted into a **Point target** before the overlay is queued.
 
