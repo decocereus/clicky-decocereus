@@ -300,6 +300,26 @@ struct CompanionStudioGlassChip: View {
     }
 }
 
+struct CompanionStudioHairline: View {
+    private let palette = CompanionStudioScalaPalette()
+
+    var body: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.clear,
+                        palette.cardBorder.opacity(0.65),
+                        Color.clear
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(height: 1)
+    }
+}
+
 struct CompanionStudioPrimaryButtonModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
