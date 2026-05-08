@@ -338,3 +338,54 @@ struct CompanionStudioPrimaryButtonModifier: ViewModifier {
         }
     }
 }
+
+struct CompanionStudioSecondaryButtonModifier: ViewModifier {
+    private let palette = CompanionStudioScalaPalette()
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .buttonStyle(.glass)
+                .buttonBorderShape(.roundedRectangle(radius: 16))
+        } else {
+            content
+                .font(ClickyTypography.body(size: 13, weight: .semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(palette.cardAccent.opacity(0.45))
+                )
+        }
+    }
+}
+
+struct CompanionStudioModeButtonModifier: ViewModifier {
+    private let palette = CompanionStudioScalaPalette()
+    let isSelected: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            if isSelected {
+                content
+                    .foregroundColor(palette.cardPrimaryText)
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.roundedRectangle(radius: 14))
+            } else {
+                content
+                    .foregroundColor(palette.cardPrimaryText)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.roundedRectangle(radius: 14))
+            }
+        } else {
+            content
+                .foregroundColor(isSelected ? .white : palette.cardPrimaryText)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(isSelected ? palette.sage : palette.cardAccent.opacity(0.50))
+                )
+        }
+    }
+}
