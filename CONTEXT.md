@@ -72,6 +72,14 @@ _Avoid_: inline AVPlayer/WKWebView wrappers
 The AppKit lifecycle owner that creates one transparent overlay window per screen and hosts `BlueCursorView`.
 _Avoid_: cursor composition inside the window manager
 
+**Blue cursor surfaces**:
+The reusable speech bubble, measured bubble, onboarding video, and tutorial inline-player surfaces used by `BlueCursorView`.
+_Avoid_: inline bubble/media rendering in the cursor root
+
+**Blue cursor navigation**:
+The cursor buddy's navigation mode and Bezier flight-plan math.
+_Avoid_: flight-path math inside timer callbacks
+
 ## Relationships
 
 - An **Assistant response contract** may contain zero or more **Point targets**.
@@ -86,7 +94,7 @@ _Avoid_: cursor composition inside the window manager
 - **Companion panel access cards** own setup, permission, active summary, and locked-state secondary surfaces.
 - **Companion panel permission rows** feed permission repair rows into **Companion panel access cards**.
 - **Companion panel tutorial cards** own tutorial-specific secondary surfaces while **Companion panel flow state** decides when those surfaces appear.
-- `BlueCursorView` composes **Overlay indicators** and **Overlay video bridges** while **Overlay window manager** owns window lifecycle.
+- `BlueCursorView` composes **Overlay indicators**, **Overlay video bridges**, **Blue cursor surfaces**, and **Blue cursor navigation** while **Overlay window manager** owns window lifecycle.
 
 ## Example Dialogue
 

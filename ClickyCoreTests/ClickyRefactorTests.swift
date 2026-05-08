@@ -607,6 +607,47 @@ struct ClickyRefactorTests {
     }
 
     @Test
+    func blueCursorFlightPlanUsesBoundedDurationAndEndsAtDestination() {
+        let shortPlan = BlueCursorFlightPlan(
+            startPosition: .zero,
+            endPosition: CGPoint(x: 10, y: 0)
+        )
+        let longPlan = BlueCursorFlightPlan(
+            startPosition: .zero,
+            endPosition: CGPoint(x: 2_000, y: 0)
+        )
+
+        #expect(shortPlan.durationSeconds == 0.6)
+        #expect(longPlan.durationSeconds == 1.4)
+
+        guard let finalFrame = longPlan.frame(at: longPlan.totalFrames) else {
+            Issue.record("Expected final flight frame.")
+            return
+        }
+        #expect(abs(finalFrame.position.x - 2_000) < 0.001)
+        #expect(abs(finalFrame.position.y) < 0.001)
+        if longPlan.frame(at: longPlan.totalFrames + 1) != nil {
+            Issue.record("Expected frame after final index to be nil.")
+        }
+    }
+
+    @Test
+    func blueCursorFlightPlanArcsAboveTheLinearPath() {
+        let plan = BlueCursorFlightPlan(
+            startPosition: CGPoint(x: 0, y: 100),
+            endPosition: CGPoint(x: 800, y: 100)
+        )
+
+        guard let middleFrame = plan.frame(at: plan.totalFrames / 2) else {
+            Issue.record("Expected middle flight frame.")
+            return
+        }
+
+        #expect(middleFrame.position.y < 100)
+        #expect(middleFrame.scale > 1.0)
+    }
+
+    @Test
     @MainActor
     func tutorialImportVoiceIntentPromptsPanelAndSpeech() async {
         let fileURL = temporaryTutorialStateFileURL()
