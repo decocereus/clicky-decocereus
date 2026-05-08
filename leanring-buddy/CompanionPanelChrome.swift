@@ -96,6 +96,140 @@ enum PanelInlineStatusTone {
     case info
 }
 
+struct CompanionPanelHairline: View {
+    @Environment(\.clickyTheme) private var theme
+
+    var body: some View {
+        Rectangle()
+            .fill(theme.strokeSoft)
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
+    }
+}
+
+struct CompanionPanelSectionEyebrow: View {
+    let text: String
+    @Environment(\.clickyTheme) private var theme
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(ClickyTypography.mono(size: 10, weight: .semibold))
+            .foregroundColor(theme.contentSurfaceTheme.textMuted)
+            .tracking(1.2)
+    }
+}
+
+struct CompanionPanelInlineStatus: View {
+    let label: String
+    let tone: PanelInlineStatusTone
+
+    @Environment(\.clickyTheme) private var theme
+
+    var body: some View {
+        Text(label)
+            .font(ClickyTypography.mono(size: 10, weight: .semibold))
+            .foregroundColor(foregroundColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(backgroundColor)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(borderColor, lineWidth: 0.8)
+            )
+    }
+
+    private var foregroundColor: Color {
+        switch tone {
+        case .neutral:
+            return theme.textSecondary
+        case .success:
+            return theme.success
+        case .warning:
+            return theme.warning
+        case .info:
+            return theme.accentStrong
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch tone {
+        case .neutral:
+            return Color.white.opacity(0.02)
+        case .success:
+            return theme.success.opacity(0.12)
+        case .warning:
+            return theme.warning.opacity(0.12)
+        case .info:
+            return theme.primary.opacity(0.12)
+        }
+    }
+
+    private var borderColor: Color {
+        switch tone {
+        case .neutral:
+            return theme.strokeSoft
+        case .success:
+            return theme.success.opacity(0.3)
+        case .warning:
+            return theme.warning.opacity(0.3)
+        case .info:
+            return theme.primary.opacity(0.3)
+        }
+    }
+}
+
+struct CompanionPanelOnboardingBullet: View {
+    let text: String
+
+    @Environment(\.clickyTheme) private var theme
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(ClickyTypography.body(size: 13))
+            .foregroundColor(theme.contentSurfaceTheme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+struct CompanionPanelShortcutKeycap: View {
+    let label: String
+
+    @Environment(\.clickyTheme) private var theme
+
+    init(_ label: String) {
+        self.label = label
+    }
+
+    var body: some View {
+        let contentTheme = theme.contentSurfaceTheme
+
+        Text(label)
+            .font(ClickyTypography.mono(size: 13, weight: .semibold))
+            .foregroundColor(contentTheme.textPrimary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(contentTheme.card.opacity(0.9))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(contentTheme.border.opacity(0.85), lineWidth: 0.9)
+            )
+    }
+}
+
 enum ClickyPanelContentTone {
     case regular
     case hero

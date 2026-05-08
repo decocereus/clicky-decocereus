@@ -44,6 +44,14 @@ _Avoid_: inline panel styles, duplicated menu-bar panel enums
 The pure state snapshot that resolves the menu-bar panel's active screen from onboarding, auth, permission, paywall, and tutorial import inputs.
 _Avoid_: inline panel screen resolver, scattered panel flow switches
 
+**Companion panel primary content**:
+The screen-aware narrative card rendered at the top of the menu-bar panel body.
+_Avoid_: inline headline switch, duplicated panel copy cards
+
+**Companion panel tutorial cards**:
+The tutorial-specific secondary cards for YouTube import, lesson compilation, ready state, playback, and failure recovery inside the menu-bar panel.
+_Avoid_: tutorial flow UI inside the root panel view
+
 **Overlay indicators**:
 The reusable cursor overlay waveform, spinner, halo, and pulsing-orb views.
 _Avoid_: inline cursor animation helpers
@@ -62,6 +70,8 @@ _Avoid_: inline AVPlayer/WKWebView wrappers
 - A **Studio scene** composes **Studio chrome** instead of redefining shared cards or rows.
 - The menu-bar companion surface composes **Companion panel chrome** instead of redefining screen models or styles inline.
 - **Companion panel flow state** chooses which **Companion panel chrome** screen model the menu-bar companion surface renders.
+- **Companion panel primary content** owns the top narrative card for each **Companion panel flow state** screen.
+- **Companion panel tutorial cards** own tutorial-specific secondary surfaces while **Companion panel flow state** decides when those surfaces appear.
 - `BlueCursorView` composes **Overlay indicators** and **Overlay video bridges** while `OverlayWindow` owns window lifecycle.
 
 ## Example Dialogue

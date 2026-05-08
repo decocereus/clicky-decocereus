@@ -268,9 +268,9 @@ struct CompanionPanelView: View {
     private var panelShell: some View {
         VStack(alignment: .leading, spacing: 16) {
             panelHeader
-            panelHairline
+            CompanionPanelHairline()
             panelBody
-            panelHairline
+            CompanionPanelHairline()
             footerSection
         }
         .modifier(ClickyPanelShellStyle())
@@ -366,77 +366,10 @@ struct CompanionPanelView: View {
 
     @ViewBuilder
     private var primaryContentCard: some View {
-        switch panelScreen {
-        case .welcome:
-            primaryCopyCard(
-                title: "A companion that sees what you see and helps while you work.",
-                body: "Hold Control+Option, ask naturally, and let Clicky understand your screen, answer in voice, and guide your attention when it matters."
-            )
-        case .signIn:
-            primaryCopyCard(
-                title: "Sign in so Clicky can stay with you.",
-                body: "You get a free taste first. Upgrade only after you've felt the value. Sign-in keeps your credits, restore access, and purchase state attached to you."
-            )
-        case .permissions:
-            primaryCopyCard(
-                title: "Give Clicky the access it needs to help in context.",
-                body: "These permissions let Clicky listen, understand what's on screen, guide your attention, and act when you approve it. Only show what still needs attention."
-            )
-        case .ready:
-            primaryCopyCard(
-                title: "Clicky is ready to join you in the work.",
-                body: "From here on, the product should teach itself through use. Hold Control+Option whenever you want help."
-            )
-        case .active:
-            activeHeroCard
-        case .locked:
-            primaryCopyCard(
-                title: "You've felt what Clicky can do.",
-                body: "Unlock it to keep this companion with you while you work.",
-                tone: .subtle
-            )
-        case .repair:
-            primaryCopyCard(
-                title: "Clicky lost some of the access it uses to help.",
-                body: "This is a quick repair moment. Restore what's missing and Clicky can keep guiding you in context."
-            )
-        case .tutorialEntry:
-            primaryCopyCard(
-                title: "Hold Control+Option whenever you want Clicky with you.",
-                body: "The everyday state stays quiet, but Clicky can also turn a YouTube tutorial into something you can follow step by step."
-            )
-        case .tutorialImportEntry, .tutorialImportMissingSetup:
-            primaryCopyCard(
-                title: "Learn from YouTube",
-                body: "Paste a tutorial URL and Clicky will turn it into a guided flow beside your cursor."
-            )
-        case .tutorialExtracting:
-            primaryCopyCard(
-                title: "Pulling out the useful parts of the tutorial.",
-                body: "Clicky is extracting transcript, timestamps, and visual evidence so it can guide you later instead of just dumping a video on you."
-            )
-        case .tutorialCompiling:
-            primaryCopyCard(
-                title: "Turning the tutorial into a guided lesson.",
-                body: "The selected backend is compiling the evidence bundle into clear steps that Clicky can teach through, not just quote back."
-            )
-        case .tutorialReady:
-            primaryCopyCard(
-                title: "Your guided lesson is ready.",
-                body: "Clicky has turned the tutorial into a step-by-step lesson you can follow beside your cursor."
-            )
-        case .tutorialPlayback:
-            primaryCopyCard(
-                title: tutorialPlaybackTitle,
-                body: "Clicky can explain this step, answer questions, or point you at the right part of the UI."
-            )
-        case .tutorialFailed:
-            primaryCopyCard(
-                title: "Clicky couldn't turn this tutorial into a lesson yet.",
-                body: "The import draft is still safe locally, so you can retry, switch sources, or inspect what failed in Studio.",
-                tone: .subtle
-            )
-        }
+        CompanionPanelPrimaryContentCard(
+            screen: panelScreen,
+            tutorialPlaybackTitle: tutorialPlaybackTitle
+        )
     }
 
     @ViewBuilder
@@ -483,68 +416,14 @@ struct CompanionPanelView: View {
         }
     }
 
-    private func primaryCopyCard(title: String, body: String, tone: ClickyPanelContentTone = .hero) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(ClickyTypography.section(size: 22))
-                .foregroundColor(contentTheme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(body)
-                .font(ClickyTypography.body(size: 13))
-                .foregroundColor(contentTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .modifier(ClickyPanelContentCardStyle(tone: tone, padding: 18))
-    }
-
-    private var activeHeroCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text("Hold")
-                    .font(ClickyTypography.section(size: 21))
-                    .foregroundColor(contentTheme.textPrimary)
-
-                shortcutKeycap("⌃")
-                shortcutKeycap("⌥")
-
-                Text("to talk.")
-                    .font(ClickyTypography.section(size: 21))
-                    .foregroundColor(contentTheme.textPrimary)
-            }
-
-            Text("Ask naturally and Clicky will guide your attention, answer in voice, and keep your place.")
-                .font(ClickyTypography.body(size: 12))
-                .foregroundColor(contentTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .modifier(ClickyPanelContentCardStyle(tone: .hero, padding: 18))
-    }
-
-    private func shortcutKeycap(_ label: String) -> some View {
-        Text(label)
-            .font(ClickyTypography.mono(size: 13, weight: .semibold))
-            .foregroundColor(contentTheme.textPrimary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(contentTheme.card.opacity(0.9))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(contentTheme.border.opacity(0.85), lineWidth: 0.9)
-            )
-    }
-
     private var onboardingWelcomeCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 10) {
-                panelSectionEyebrow("What Clicky Does")
+                CompanionPanelSectionEyebrow("What Clicky Does")
 
-                onboardingBullet("Understand the software in front of you.")
-                onboardingBullet("Teach you the next step in plain language.")
-                onboardingBullet("Point exactly where you should look or click.")
+                CompanionPanelOnboardingBullet("Understand the software in front of you.")
+                CompanionPanelOnboardingBullet("Teach you the next step in plain language.")
+                CompanionPanelOnboardingBullet("Point exactly where you should look or click.")
             }
 
             HStack(spacing: 10) {
@@ -608,11 +487,11 @@ struct CompanionPanelView: View {
     private var onboardingReadyCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 10) {
-                panelSectionEyebrow("You Can Now")
+                CompanionPanelSectionEyebrow("You Can Now")
 
-                onboardingBullet("Ask what this software is doing.")
-                onboardingBullet("Learn the next step while staying in context.")
-                onboardingBullet("Follow the pointer when Clicky wants to show you where to look.")
+                CompanionPanelOnboardingBullet("Ask what this software is doing.")
+                CompanionPanelOnboardingBullet("Learn the next step while staying in context.")
+                CompanionPanelOnboardingBullet("Follow the pointer when Clicky wants to show you where to look.")
             }
 
             HStack(spacing: 10) {
@@ -648,7 +527,7 @@ struct CompanionPanelView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    panelSectionEyebrow("Current Feel")
+                    CompanionPanelSectionEyebrow("Current Feel")
 
                     Text(activeClickyPersonaLabel)
                         .font(ClickyTypography.section(size: 20))
@@ -667,10 +546,10 @@ struct CompanionPanelView: View {
                 )
             }
 
-            panelHairline
+            CompanionPanelHairline()
 
             VStack(alignment: .leading, spacing: 8) {
-                panelSectionEyebrow("Companion")
+                CompanionPanelSectionEyebrow("Companion")
                 companionBackendButtons
             }
         }
@@ -678,304 +557,61 @@ struct CompanionPanelView: View {
     }
 
     private var tutorialEntryPointCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    panelSectionEyebrow("Learn")
-                    Text("Turn a tutorial into a guided flow")
-                        .font(ClickyTypography.section(size: 20))
-                        .foregroundColor(contentTheme.textPrimary)
-                    Text("Paste a YouTube URL and Clicky will teach it beside your cursor.")
-                        .font(ClickyTypography.body(size: 12))
-                        .foregroundColor(contentTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer()
-
-                panelInlineStatus(label: "New", tone: .info)
-            }
-
-            if showsTutorialEntryExplainer {
-                Text("Clicky extracts the useful parts, compiles them into a lesson, then guides you step by step with inline video and voice help.")
-                    .font(ClickyTypography.body(size: 12))
-                    .foregroundColor(contentTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-
-            HStack(spacing: 10) {
-                Button(action: {
-                    withAnimation(panelCardAnimation) {
-                        isShowingTutorialFlow = true
-                        showsTutorialEntryExplainer = false
-                    }
-                }) {
-                    Text("Start Learning")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickyProminentActionStyle())
-                .pointerCursor()
-
-                Button(action: {
-                    withAnimation(panelCardAnimation) {
-                        showsTutorialEntryExplainer.toggle()
-                    }
-                }) {
-                    Text("How it works")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-                .frame(width: 148)
-            }
-        }
-        .modifier(ClickyPanelContentCardStyle(padding: 16))
+        CompanionPanelTutorialEntryPointCard(
+            showsExplainer: showsTutorialEntryExplainer,
+            startLearning: enterTutorialFlow,
+            toggleExplainer: toggleTutorialEntryExplainer
+        )
     }
 
     private var tutorialImportEntryCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("YouTube URL")
-                    .font(ClickyTypography.body(size: 13, weight: .semibold))
-                    .foregroundColor(contentTheme.textPrimary)
-
-                CompanionPanelTutorialURLField(
-                    tutorialController: tutorialController,
-                    placeholder: "https://youtube.com/watch?v=...",
-                    theme: theme,
-                    contentTheme: contentTheme,
-                    onSubmit: companionManager.tutorialImportCoordinator.startImportFromPanel
-                )
-            }
-
-            Text("Clicky will extract the useful parts, compile a lesson, and guide you through it on your own screen.")
-                .font(ClickyTypography.body(size: 12))
-                .foregroundColor(contentTheme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button(action: {
-                companionManager.tutorialImportCoordinator.startImportFromPanel()
-            }) {
-                Text("Start Learning")
-                    .frame(maxWidth: .infinity)
-            }
-            .modifier(ClickyProminentActionStyle())
-            .pointerCursor()
-        }
-        .modifier(ClickyPanelContentCardStyle(padding: 16))
+        CompanionPanelTutorialImportEntryCard(
+            tutorialController: tutorialController,
+            startImport: companionManager.tutorialImportCoordinator.startImportFromPanel
+        )
     }
 
     private var tutorialImportMissingSetupCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("YouTube URL")
-                    .font(ClickyTypography.body(size: 13, weight: .semibold))
-                    .foregroundColor(contentTheme.textPrimary)
-
-                CompanionPanelTutorialURLField(
-                    tutorialController: tutorialController,
-                    placeholder: "https://youtube.com/watch?v=dQw4w9WgXcQ",
-                    theme: theme,
-                    contentTheme: contentTheme,
-                    onSubmit: companionManager.tutorialImportCoordinator.startImportFromPanel
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("The tutorial extraction service API key is missing.")
-                    .font(ClickyTypography.body(size: 13, weight: .semibold))
-                    .foregroundColor(contentTheme.textPrimary)
-                Text("Add it in Studio first, then come back here to start learning from tutorials.")
-                    .font(ClickyTypography.body(size: 12))
-                    .foregroundColor(contentTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(2)
-
-            Button(action: openStudio) {
-                Text("Open Studio")
-                    .frame(maxWidth: .infinity)
-            }
-            .modifier(ClickyProminentActionStyle())
-            .pointerCursor()
-        }
-        .modifier(ClickyPanelContentCardStyle(padding: 16))
+        CompanionPanelTutorialImportMissingSetupCard(
+            tutorialController: tutorialController,
+            startImport: companionManager.tutorialImportCoordinator.startImportFromPanel,
+            openStudio: openStudio
+        )
     }
 
     private var tutorialExtractingCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                panelSectionEyebrow("Current Step")
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(theme.success.opacity(0.75))
-                        .frame(width: 8, height: 8)
-                    Text("Extracting transcript")
-                        .font(ClickyTypography.body(size: 13, weight: .medium))
-                        .foregroundColor(contentTheme.textPrimary)
-                }
-
-                ProgressView(value: tutorialExtractionProgress)
-                    .tint(theme.success)
-
-                Text("Next: representative frames and structure.")
-                    .font(ClickyTypography.body(size: 12))
-                    .foregroundColor(contentTheme.textSecondary)
-            }
-
-            HStack {
-                Button(action: {
-                    isShowingTutorialFlow = false
-                }) {
-                    Text("Cancel")
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-
-                Spacer()
-            }
-        }
-        .modifier(ClickyPanelContentCardStyle(padding: 16))
+        CompanionPanelTutorialExtractingCard(
+            tutorialController: tutorialController,
+            cancel: leaveTutorialImportFlow
+        )
     }
 
     private var tutorialCompilingCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                panelSectionEyebrow("Lesson Draft")
-                Text("Building step titles, instructions, and verification hints…")
-                    .font(ClickyTypography.body(size: 13))
-                    .foregroundColor(contentTheme.textPrimary)
-                HStack(spacing: 6) {
-                    Circle().fill(contentTheme.textMuted.opacity(0.6)).frame(width: 6, height: 6)
-                    Circle().fill(contentTheme.textMuted.opacity(0.85)).frame(width: 6, height: 6)
-                    Circle().fill(contentTheme.textMuted.opacity(0.45)).frame(width: 6, height: 6)
-                }
-            }
-
-            HStack {
-                Button(action: {
-                    isShowingTutorialFlow = false
-                }) {
-                    Text("Cancel")
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-
-                Spacer()
-            }
-        }
-        .modifier(ClickyPanelContentCardStyle(padding: 16))
+        CompanionPanelTutorialCompilingCard(cancel: leaveTutorialImportFlow)
     }
 
     private var tutorialReadyCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                panelSectionEyebrow("Lesson Snapshot")
-                Text(tutorialLessonTitle)
-                    .font(ClickyTypography.body(size: 13, weight: .semibold))
-                    .foregroundColor(contentTheme.textPrimary)
-                Text(tutorialLessonSummaryLine)
-                    .font(ClickyTypography.body(size: 12))
-                    .foregroundColor(contentTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(spacing: 10) {
-                Button(action: {
-                    companionManager.tutorialPlaybackCoordinator.startLessonFromReadyState()
-                }) {
-                    Text("Start Lesson")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickyProminentActionStyle())
-                .pointerCursor()
-
-                Button(action: openStudio) {
-                    Text("Open Studio")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-            }
-        }
-        .modifier(ClickyPanelContentCardStyle(padding: 16))
+        CompanionPanelTutorialReadyCard(
+            tutorialController: tutorialController,
+            startLesson: companionManager.tutorialPlaybackCoordinator.startLessonFromReadyState,
+            openStudio: openStudio
+        )
     }
 
     private var tutorialPlaybackCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                panelSectionEyebrow("Video Context")
-                Text("Source clip available inline beside the cursor. Space to pause, arrows to seek, Escape to dismiss.")
-                    .font(ClickyTypography.body(size: 12))
-                    .foregroundColor(contentTheme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(spacing: 10) {
-                Button(action: {
-                    companionManager.tutorialPlaybackCoordinator.repeatLessonStepFromPanel()
-                }) {
-                    Text("Repeat")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-
-                Button(action: {
-                    companionManager.tutorialPlaybackCoordinator.rewindLessonFromPanel()
-                }) {
-                    Text("Back")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-
-                Button(action: {
-                    companionManager.tutorialPlaybackCoordinator.advanceLessonFromPanel()
-                }) {
-                    Text("Next Step")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickyProminentActionStyle())
-                .pointerCursor()
-            }
-        }
-        .modifier(ClickyPanelContentCardStyle(padding: 16))
+        CompanionPanelTutorialPlaybackCard(
+            repeatStep: companionManager.tutorialPlaybackCoordinator.repeatLessonStepFromPanel,
+            rewind: companionManager.tutorialPlaybackCoordinator.rewindLessonFromPanel,
+            advance: companionManager.tutorialPlaybackCoordinator.advanceLessonFromPanel
+        )
     }
 
     private var tutorialFailedCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                panelSectionEyebrow("Failure Reason")
-                Text(tutorialFailureReason)
-                    .font(ClickyTypography.body(size: 13))
-                    .foregroundColor(contentTheme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Try again or inspect diagnostics in Studio.")
-                    .font(ClickyTypography.body(size: 12))
-                    .foregroundColor(contentTheme.textSecondary)
-            }
-
-            HStack(spacing: 10) {
-                Button(action: {
-                    companionManager.tutorialImportCoordinator.retryImportFromPanel()
-                }) {
-                    Text("Try Again")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickyProminentActionStyle())
-                .pointerCursor()
-
-                Button(action: openStudio) {
-                    Text("Open Studio")
-                        .frame(maxWidth: .infinity)
-                }
-                .modifier(ClickySecondaryGlassButtonStyle())
-                .pointerCursor()
-            }
-        }
-        .modifier(ClickyPanelContentCardStyle(padding: 16))
+        CompanionPanelTutorialFailedCard(
+            tutorialController: tutorialController,
+            retryImport: companionManager.tutorialImportCoordinator.retryImportFromPanel,
+            openStudio: openStudio
+        )
     }
 
     private var lockedStateCard: some View {
@@ -983,7 +619,7 @@ struct CompanionPanelView: View {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .top) {
-                        panelSectionEyebrow("Unlock Clicky")
+                        CompanionPanelSectionEyebrow("Unlock Clicky")
                         Spacer()
                         Text("$49")
                             .font(ClickyTypography.section(size: 20))
@@ -1019,10 +655,10 @@ struct CompanionPanelView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    panelSectionEyebrow("Studio")
+                    CompanionPanelSectionEyebrow("Studio")
                     Spacer()
                     if showsLockedStudioChip {
-                        panelInlineStatus(label: "Locked", tone: .warning)
+                        CompanionPanelInlineStatus(label: "Locked", tone: .warning)
                             .transition(.opacity)
                     }
                 }
@@ -1048,7 +684,7 @@ struct CompanionPanelView: View {
                     panelPermissionRow(row)
                         .transition(.opacity)
                     if row.id != permissionRows.last?.id {
-                        panelHairline
+                        CompanionPanelHairline()
                     }
                 }
             }
@@ -1100,7 +736,7 @@ struct CompanionPanelView: View {
 
             HStack(spacing: 8) {
                 if row.state == .granted {
-                    panelInlineStatus(label: "Granted", tone: .success)
+                    CompanionPanelInlineStatus(label: "Granted", tone: .success)
                         .transition(.opacity)
                 } else {
                     Button(action: row.primaryAction) {
@@ -1131,13 +767,6 @@ struct CompanionPanelView: View {
                 .stroke(row.state.borderColor(theme), lineWidth: 0.8)
         )
         .animation(.easeInOut(duration: 0.22), value: row.state)
-    }
-
-    private func onboardingBullet(_ text: String) -> some View {
-        Text(text)
-            .font(ClickyTypography.body(size: 13))
-            .foregroundColor(contentTheme.textPrimary)
-            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var permissionRows: [CompanionPanelPermissionRow] {
@@ -1349,40 +978,6 @@ struct CompanionPanelView: View {
         return clickyLaunchTrialStatusLabel
     }
 
-    private var tutorialExtractionProgress: Double {
-        guard let draft = tutorialController.currentTutorialImportDraft else { return 0.22 }
-
-        switch draft.status {
-        case .extracting:
-            return 0.48
-        case .extracted:
-            return 0.66
-        case .compiling:
-            return 0.84
-        case .ready:
-            return 1.0
-        case .failed:
-            return 0.18
-        case .pending:
-            return 0.08
-        }
-    }
-
-    private var tutorialLessonTitle: String {
-        tutorialController.currentTutorialImportDraft?.compiledLessonDraft?.title
-            ?? tutorialController.currentTutorialImportDraft?.title
-            ?? "Your guided lesson"
-    }
-
-    private var tutorialLessonSummaryLine: String {
-        if let lessonDraft = tutorialController.currentTutorialImportDraft?.compiledLessonDraft {
-            let stepCount = lessonDraft.steps.count
-            return "\(stepCount) steps · \(tutorialController.currentTutorialImportDraft?.channelName ?? "guided help") · answer questions as you go"
-        }
-
-        return "Guided help is ready beside your cursor."
-    }
-
     private var tutorialPlaybackTitle: String {
         if let session = tutorialController.tutorialSessionState,
            session.lessonDraft.steps.indices.contains(session.currentStepIndex) {
@@ -1390,20 +985,6 @@ struct CompanionPanelView: View {
         }
 
         return "Continue the lesson."
-    }
-
-    private var tutorialFailureReason: String {
-        tutorialController.currentTutorialImportDraft?.extractionError
-            ?? tutorialController.currentTutorialImportDraft?.compileError
-            ?? tutorialController.tutorialImportStatusMessage
-            ?? "The extraction service returned an incomplete evidence bundle."
-    }
-
-    private var panelHairline: some View {
-        Rectangle()
-            .fill(theme.strokeSoft)
-            .frame(height: 1)
-            .frame(maxWidth: .infinity)
     }
 
     private var statusText: String {
@@ -1525,6 +1106,23 @@ struct CompanionPanelView: View {
         }
     }
 
+    private func enterTutorialFlow() {
+        withAnimation(panelCardAnimation) {
+            isShowingTutorialFlow = true
+            showsTutorialEntryExplainer = false
+        }
+    }
+
+    private func toggleTutorialEntryExplainer() {
+        withAnimation(panelCardAnimation) {
+            showsTutorialEntryExplainer.toggle()
+        }
+    }
+
+    private func leaveTutorialImportFlow() {
+        isShowingTutorialFlow = false
+    }
+
     private func exitTutorialFlow() {
         if tutorialController.tutorialPlaybackState?.isVisible == true {
             companionManager.tutorialPlaybackCoordinator.stopPlayback()
@@ -1545,68 +1143,6 @@ struct CompanionPanelView: View {
             selectedBackend: preferences.selectedAgentBackend,
             setSelectedBackend: companionManager.settingsMutationCoordinator.setSelectedBackend
         )
-    }
-
-    private func panelSectionEyebrow(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(ClickyTypography.mono(size: 10, weight: .semibold))
-            .foregroundColor(contentTheme.textMuted)
-            .tracking(1.2)
-    }
-
-    private func panelInlineStatus(label: String, tone: PanelInlineStatusTone) -> some View {
-        Text(label)
-            .font(ClickyTypography.mono(size: 10, weight: .semibold))
-            .foregroundColor(panelInlineStatusForeground(tone))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(panelInlineStatusBackground(tone))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(panelInlineStatusBorder(tone), lineWidth: 0.8)
-            )
-    }
-
-    private func panelInlineStatusForeground(_ tone: PanelInlineStatusTone) -> Color {
-        switch tone {
-        case .neutral:
-            return theme.textSecondary
-        case .success:
-            return theme.success
-        case .warning:
-            return theme.warning
-        case .info:
-            return theme.accentStrong
-        }
-    }
-
-    private func panelInlineStatusBackground(_ tone: PanelInlineStatusTone) -> Color {
-        switch tone {
-        case .neutral:
-            return Color.white.opacity(0.02)
-        case .success:
-            return theme.success.opacity(0.12)
-        case .warning:
-            return theme.warning.opacity(0.12)
-        case .info:
-            return theme.primary.opacity(0.12)
-        }
-    }
-
-    private func panelInlineStatusBorder(_ tone: PanelInlineStatusTone) -> Color {
-        switch tone {
-        case .neutral:
-            return theme.strokeSoft
-        case .success:
-            return theme.success.opacity(0.3)
-        case .warning:
-            return theme.warning.opacity(0.3)
-        case .info:
-            return theme.primary.opacity(0.3)
-        }
     }
 
     private var panelScreenKey: String {
