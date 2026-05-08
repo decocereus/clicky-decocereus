@@ -5,6 +5,7 @@
 //  Shared shell chrome for the Studio window.
 //
 
+import AppKit
 import SwiftUI
 
 struct CompanionStudioWindowHeader: View {
@@ -386,6 +387,349 @@ struct CompanionStudioModeButtonModifier: ViewModifier {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(isSelected ? palette.sage : palette.cardAccent.opacity(0.50))
                 )
+        }
+    }
+}
+
+struct CompanionStudioNextBackdrop: View {
+    let theme: ClickyTheme
+    let palette: CompanionStudioScalaPalette
+
+    var body: some View {
+        Group {
+            if #available(macOS 26.0, *) {
+                Color.clear
+            } else {
+                LinearGradient(
+                    colors: [
+                        palette.shellBackgroundTop.opacity(0.92),
+                        palette.shellBackgroundMid.opacity(0.90),
+                        palette.shellBackgroundBottom.opacity(0.88)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+
+struct CompanionStudioJourneyStep: View {
+    let step: String
+    let title: String
+    let copy: String
+
+    private let palette = CompanionStudioScalaPalette()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text(step)
+                    .font(ClickyTypography.mono(size: 11, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(palette.cardPrimaryText)
+                    )
+
+                Text(title)
+                    .font(ClickyTypography.body(size: 14, weight: .semibold))
+                    .foregroundColor(palette.cardPrimaryText)
+            }
+
+            Text(copy)
+                .font(ClickyTypography.body(size: 13))
+                .foregroundColor(palette.cardSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(palette.cardAccent.opacity(0.52))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(palette.cardBorder.opacity(0.48), lineWidth: 0.8)
+                )
+        )
+    }
+}
+
+struct CompanionStudioPreferenceRow: View {
+    let title: String
+    let subtitle: String
+    let control: AnyView
+
+    private let palette = CompanionStudioScalaPalette()
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(ClickyTypography.body(size: 14, weight: .semibold))
+                    .foregroundColor(palette.cardPrimaryText)
+
+                Text(subtitle)
+                    .font(ClickyTypography.body(size: 12))
+                    .foregroundColor(palette.cardSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            control
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(palette.cardAccent.opacity(0.42))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(palette.cardBorder.opacity(0.40), lineWidth: 0.8)
+                )
+        )
+    }
+}
+
+struct CompanionStudioPreferenceBlock: View {
+    let title: String
+    let subtitle: String
+    let content: AnyView
+
+    private let palette = CompanionStudioScalaPalette()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(ClickyTypography.body(size: 14, weight: .semibold))
+                .foregroundColor(palette.cardPrimaryText)
+
+            Text(subtitle)
+                .font(ClickyTypography.body(size: 12))
+                .foregroundColor(palette.cardSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            content
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(palette.cardAccent.opacity(0.42))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(palette.cardBorder.opacity(0.40), lineWidth: 0.8)
+                )
+        )
+    }
+}
+
+struct CompanionStudioMiniMetric: View {
+    let title: String
+    let value: String
+    var allowExpansion: Bool = false
+
+    private let palette = CompanionStudioScalaPalette()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(ClickyTypography.mono(size: 10, weight: .semibold))
+                .foregroundColor(palette.cardSecondaryText)
+                .tracking(0.8)
+
+            Text(value)
+                .font(ClickyTypography.body(size: 14, weight: .semibold))
+                .foregroundColor(palette.cardPrimaryText)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: allowExpansion ? .infinity : nil, alignment: .leading)
+        .frame(minWidth: 0, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(palette.cardAccent.opacity(0.42))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(palette.cardBorder.opacity(0.40), lineWidth: 0.8)
+                )
+        )
+    }
+}
+
+struct CompanionStudioSelectableRowButtonModifier: ViewModifier {
+    private let palette = CompanionStudioScalaPalette()
+    let isSelected: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            if isSelected {
+                content
+                    .foregroundColor(palette.cardPrimaryText)
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.roundedRectangle(radius: 14))
+            } else {
+                content
+                    .foregroundColor(palette.cardPrimaryText)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.roundedRectangle(radius: 14))
+            }
+        } else {
+            content
+                .foregroundColor(palette.cardPrimaryText)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(isSelected ? palette.sage.opacity(0.18) : Color.white.opacity(0.52))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(
+                                    isSelected ? palette.sage.opacity(0.45) : palette.cardBorder.opacity(0.28),
+                                    lineWidth: 0.9
+                                )
+                        )
+                )
+        }
+    }
+}
+
+struct CompanionStudioToolbarIconButtonModifier: ViewModifier {
+    private let palette = CompanionStudioScalaPalette()
+    let isSelected: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+
+        if #available(macOS 26.0, *) {
+            if isSelected {
+                content
+                    .foregroundColor(palette.cardPrimaryText)
+                    .background(
+                        shape
+                            .fill(palette.cardBackground.opacity(0.94))
+                    )
+                    .overlay(
+                        shape
+                            .stroke(Color.white.opacity(0.30), lineWidth: 0.8)
+                    )
+                    .shadow(color: Color.black.opacity(0.10), radius: 8, y: 3)
+            } else {
+                content
+                    .foregroundColor(Color.white.opacity(0.88))
+                    .background(
+                        shape
+                            .fill(Color.white.opacity(0.05))
+                    )
+                    .overlay(
+                        shape
+                            .stroke(Color.white.opacity(0.08), lineWidth: 0.6)
+                    )
+            }
+        } else {
+            content
+                .foregroundColor(isSelected ? palette.cardPrimaryText : Color.white.opacity(0.88))
+                .background(
+                    shape
+                        .fill(isSelected ? palette.cardBackground.opacity(0.94) : Color.white.opacity(0.05))
+                )
+                .overlay(
+                    shape
+                        .stroke(isSelected ? Color.white.opacity(0.28) : Color.white.opacity(0.08), lineWidth: 0.6)
+                )
+        }
+    }
+}
+
+struct CompanionStudioScalaPalette {
+    let shellBackgroundTop = Color(hex: "#F2FCFF")
+    let shellBackgroundMid = Color(hex: "#EAF8FF")
+    let shellBackgroundBottom = Color(hex: "#DDE8EE")
+
+    let shellTint = Color(hex: "#4FE7EE")
+    let shellPrimaryText = Color(hex: "#16212B")
+    let shellSecondaryText = Color(hex: "#5D7283")
+
+    let cardBackground = Color(hex: "#FAFCFF")
+    let cardPrimaryText = Color(hex: "#16212B")
+    let cardSecondaryText = Color(hex: "#5D7283")
+    let cardBorder = Color(hex: "#DDE8EE")
+    let cardAccent = Color(hex: "#EAF8FF")
+
+    let lavender = Color(hex: "#8EA2FF")
+    let sage = Color(hex: "#4FE7EE")
+    let sageText = Color(hex: "#3478F6")
+    let brandWordmark = Color(hex: "#16212B")
+}
+
+struct CompanionStudioNextWindowConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+
+            positionTrafficLights(for: window)
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = .clear
+            window.isOpaque = false
+            window.toolbar = nil
+            window.styleMask.insert(.fullSizeContentView)
+            if #available(macOS 11.0, *) {
+                window.titlebarSeparatorStyle = .none
+            }
+        }
+
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = nsView.window else { return }
+
+            positionTrafficLights(for: window)
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.backgroundColor = .clear
+            window.isOpaque = false
+            window.toolbar = nil
+            window.styleMask.insert(.fullSizeContentView)
+            if #available(macOS 11.0, *) {
+                window.titlebarSeparatorStyle = .none
+            }
+        }
+    }
+
+    private func positionTrafficLights(for window: NSWindow) {
+        guard
+            let closeButton = window.standardWindowButton(.closeButton),
+            let miniButton = window.standardWindowButton(.miniaturizeButton),
+            let zoomButton = window.standardWindowButton(.zoomButton)
+        else {
+            return
+        }
+
+        let targetY: CGFloat = 14
+        let startX: CGFloat = 14
+        let spacing: CGFloat = 6
+
+        closeButton.setFrameOrigin(NSPoint(x: startX, y: targetY))
+        miniButton.setFrameOrigin(NSPoint(x: startX + closeButton.frame.width + spacing, y: targetY))
+        zoomButton.setFrameOrigin(NSPoint(x: startX + closeButton.frame.width + miniButton.frame.width + (spacing * 2), y: targetY))
+    }
+}
+
+struct CompanionStudioNextWindowBackgroundClearStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.containerBackground(Color.clear, for: .window)
+        } else {
+            content
         }
     }
 }
