@@ -100,32 +100,24 @@ struct CompanionPanelView: View {
         ClickyLaunchPresentation.trialStatusLabel(for: launchAccessController.clickyLaunchTrialState)
     }
 
+    private var panelFlowState: CompanionPanelFlowState {
+        CompanionPanelFlowState(
+            isLaunchPaywallActive: isClickyLaunchPaywallActive,
+            hasCompletedOnboarding: hasCompletedOnboarding,
+            isLaunchAuthPending: isClickyLaunchAuthPending,
+            requiresLaunchSignInForCompanionUse: requiresLaunchSignInForCompanionUse,
+            allPermissionsGranted: allPermissionsGranted,
+            onboardingStage: onboardingStage,
+            isShowingTutorialFlow: isShowingTutorialFlow,
+            hasVisibleTutorialPlayback: tutorialController.tutorialPlaybackState?.isVisible == true,
+            isTutorialImportRunning: tutorialController.isTutorialImportRunning,
+            tutorialImportStatus: tutorialController.currentTutorialImportDraft?.status,
+            isTutorialExtractorConfigured: CompanionRuntimeConfiguration.isTutorialExtractorConfigured
+        )
+    }
+
     private var panelScreen: CompanionPanelScreen {
-        if isClickyLaunchPaywallActive {
-            return .locked
-        }
-
-        if hasCompletedOnboarding {
-            if isClickyLaunchAuthPending || requiresLaunchSignInForCompanionUse {
-                return .signIn
-            }
-
-            if let tutorialPanelScreen {
-                return tutorialPanelScreen
-            }
-            return allPermissionsGranted ? .active : .repair
-        }
-
-        switch onboardingStage {
-        case .welcome:
-            return .welcome
-        case .signIn:
-            return .signIn
-        case .permissions:
-            return .permissions
-        case .ready:
-            return .ready
-        }
+        panelFlowState.panelScreen
     }
 
     private var onboardingProgressLabel: String {
@@ -216,55 +208,8 @@ struct CompanionPanelView: View {
         }
     }
 
-    private var tutorialPanelScreen: CompanionPanelScreen? {
-        let hasTutorialPlayback = tutorialController.tutorialPlaybackState?.isVisible == true
-
-        guard isShowingTutorialFlow || hasTutorialPlayback else {
-            return nil
-        }
-
-        if hasTutorialPlayback {
-            return .tutorialPlayback
-        }
-
-        if tutorialController.isTutorialImportRunning {
-            switch tutorialController.currentTutorialImportDraft?.status {
-            case .compiling:
-                return .tutorialCompiling
-            default:
-                return .tutorialExtracting
-            }
-        }
-
-        if let draft = tutorialController.currentTutorialImportDraft {
-            switch draft.status {
-            case .failed:
-                return .tutorialFailed
-            case .ready:
-                return .tutorialReady
-            case .compiling:
-                return .tutorialCompiling
-            case .extracting, .extracted:
-                return .tutorialExtracting
-            case .pending:
-                break
-            }
-        }
-
-        if !CompanionRuntimeConfiguration.isTutorialExtractorConfigured {
-            return .tutorialImportMissingSetup
-        }
-
-        return .tutorialImportEntry
-    }
-
     private var isInTutorialPanelFlow: Bool {
-        switch panelScreen {
-        case .tutorialEntry, .tutorialImportEntry, .tutorialImportMissingSetup, .tutorialExtracting, .tutorialCompiling, .tutorialReady, .tutorialPlayback, .tutorialFailed:
-            return true
-        case .welcome, .signIn, .permissions, .ready, .active, .locked, .repair:
-            return false
-        }
+        panelFlowState.isInTutorialPanelFlow
     }
 
     var body: some View {

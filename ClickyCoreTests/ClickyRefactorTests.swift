@@ -490,6 +490,77 @@ struct ClickyRefactorTests {
     }
 
     @Test
+    func companionPanelFlowUsesOnboardingStageBeforeCompletion() {
+        #expect(makePanelFlowState(onboardingStage: .welcome).panelScreen == .welcome)
+        #expect(makePanelFlowState(onboardingStage: .signIn).panelScreen == .signIn)
+        #expect(makePanelFlowState(onboardingStage: .permissions).panelScreen == .permissions)
+        #expect(makePanelFlowState(onboardingStage: .ready).panelScreen == .ready)
+    }
+
+    @Test
+    func companionPanelFlowPrioritizesLaunchGateAndPaywall() {
+        #expect(
+            makePanelFlowState(
+                hasCompletedOnboarding: true,
+                isLaunchAuthPending: true,
+                allPermissionsGranted: true
+            ).panelScreen == .signIn
+        )
+        #expect(
+            makePanelFlowState(
+                isLaunchPaywallActive: true,
+                hasCompletedOnboarding: true,
+                isLaunchAuthPending: true,
+                allPermissionsGranted: true
+            ).panelScreen == .locked
+        )
+    }
+
+    @Test
+    func companionPanelFlowRoutesReadyActiveAndRepairStates() {
+        #expect(
+            makePanelFlowState(
+                hasCompletedOnboarding: true,
+                allPermissionsGranted: true
+            ).panelScreen == .active
+        )
+        #expect(
+            makePanelFlowState(
+                hasCompletedOnboarding: true,
+                allPermissionsGranted: false
+            ).panelScreen == .repair
+        )
+    }
+
+    @Test
+    func companionPanelFlowRoutesTutorialImportStates() {
+        #expect(
+            makePanelFlowState(
+                hasCompletedOnboarding: true,
+                allPermissionsGranted: true,
+                isShowingTutorialFlow: true,
+                isTutorialExtractorConfigured: false
+            ).panelScreen == .tutorialImportMissingSetup
+        )
+        #expect(
+            makePanelFlowState(
+                hasCompletedOnboarding: true,
+                allPermissionsGranted: true,
+                isShowingTutorialFlow: true,
+                isTutorialImportRunning: true,
+                tutorialImportStatus: .compiling
+            ).panelScreen == .tutorialCompiling
+        )
+        #expect(
+            makePanelFlowState(
+                hasCompletedOnboarding: true,
+                allPermissionsGranted: true,
+                hasVisibleTutorialPlayback: true
+            ).panelScreen == .tutorialPlayback
+        )
+    }
+
+    @Test
     @MainActor
     func tutorialImportVoiceIntentPromptsPanelAndSpeech() async {
         let fileURL = temporaryTutorialStateFileURL()
@@ -1117,6 +1188,34 @@ struct ClickyRefactorTests {
                 hasVisualAnchors: true
             ),
             createdAt: Date()
+        )
+    }
+
+    private func makePanelFlowState(
+        isLaunchPaywallActive: Bool = false,
+        hasCompletedOnboarding: Bool = false,
+        isLaunchAuthPending: Bool = false,
+        requiresLaunchSignInForCompanionUse: Bool = false,
+        allPermissionsGranted: Bool = false,
+        onboardingStage: CompanionPanelOnboardingStage = .welcome,
+        isShowingTutorialFlow: Bool = false,
+        hasVisibleTutorialPlayback: Bool = false,
+        isTutorialImportRunning: Bool = false,
+        tutorialImportStatus: TutorialImportStatus? = nil,
+        isTutorialExtractorConfigured: Bool = true
+    ) -> CompanionPanelFlowState {
+        CompanionPanelFlowState(
+            isLaunchPaywallActive: isLaunchPaywallActive,
+            hasCompletedOnboarding: hasCompletedOnboarding,
+            isLaunchAuthPending: isLaunchAuthPending,
+            requiresLaunchSignInForCompanionUse: requiresLaunchSignInForCompanionUse,
+            allPermissionsGranted: allPermissionsGranted,
+            onboardingStage: onboardingStage,
+            isShowingTutorialFlow: isShowingTutorialFlow,
+            hasVisibleTutorialPlayback: hasVisibleTutorialPlayback,
+            isTutorialImportRunning: isTutorialImportRunning,
+            tutorialImportStatus: tutorialImportStatus,
+            isTutorialExtractorConfigured: isTutorialExtractorConfigured
         )
     }
 }

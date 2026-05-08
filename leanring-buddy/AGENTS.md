@@ -178,6 +178,7 @@ Apply these rules to every Swift/SwiftUI task in this target.
 - Treat Studio as a custom AppKit-managed window hosting SwiftUI, not as a normal Settings-scene surface. Preserve the real outer Studio window as the first shell and keep native traffic lights whenever possible.
 - Keep Studio tab content in dedicated scene files where practical, and compose shared cards, rows, and shell elements from `CompanionStudioChrome` instead of duplicating local styling inside the root Studio view.
 - Keep reusable menu-bar panel screen models, permission rows, button styles, shell styling, transitions, and status chips in `CompanionPanelChrome` instead of redefining them inline in the panel body.
+- `CompanionPanelFlowState` owns pure menu-bar panel screen selection from onboarding, auth, permission, paywall, and tutorial import inputs. Keep new screen-selection branches there rather than scattering switches through `CompanionPanelView`.
 - Default to plugin guidance for SwiftUI/AppKit structure, menu bar behavior, window activation, telemetry, window management, signing, packaging, and other desktop-specific choices.
 - Actively help the user take advantage of the plugin by suggesting tighter run/debug loops, Run button support, and unified logging or telemetry when those would materially help.
 - Preserve the existing state ownership style within the file or feature you are editing unless there is a clear benefit to changing it. Prefer the simplest SwiftUI-native state model that fits new local code.

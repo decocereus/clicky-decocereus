@@ -40,6 +40,10 @@ _Avoid_: giant Studio root section, inline Studio tab
 The reusable menu-bar panel screen models, permission rows, button styles, shell styling, transitions, and status chips.
 _Avoid_: inline panel styles, duplicated menu-bar panel enums
 
+**Companion panel flow state**:
+The pure state snapshot that resolves the menu-bar panel's active screen from onboarding, auth, permission, paywall, and tutorial import inputs.
+_Avoid_: inline panel screen resolver, scattered panel flow switches
+
 ## Relationships
 
 - An **Assistant response contract** may contain zero or more **Point targets**.
@@ -49,6 +53,7 @@ _Avoid_: inline panel styles, duplicated menu-bar panel enums
 - A **Tutorial state snapshot** restores one current tutorial draft and its current-step progress on this Mac.
 - A **Studio scene** composes **Studio chrome** instead of redefining shared cards or rows.
 - The menu-bar companion surface composes **Companion panel chrome** instead of redefining screen models or styles inline.
+- **Companion panel flow state** chooses which **Companion panel chrome** screen model the menu-bar companion surface renders.
 
 ## Example Dialogue
 
