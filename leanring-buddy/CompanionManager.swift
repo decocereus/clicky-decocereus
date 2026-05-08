@@ -644,10 +644,9 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - AI Response Pipeline
 
-    /// Captures a screenshot, sends it along with the transcript to Claude,
-    /// and plays the response aloud via ElevenLabs TTS. The cursor stays in
-    /// the spinner/processing state until TTS audio begins playing.
-    /// The assistant response should be a structured object with spoken text
+    /// Submits the transcript through the selected assistant backend and keeps
+    /// the cursor overlay in its processing state until speech playback starts.
+    /// Normal assistant responses use Clicky's structured contract: spoken text
     /// plus ordered point targets for the cursor overlay.
     private func submitTranscriptToSelectedAgent(
         _ transcript: String,
