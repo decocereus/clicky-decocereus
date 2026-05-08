@@ -82,10 +82,10 @@ struct ClickyRefactorTests {
     }
 
     @Test
-    func assistantResponseRepairerRequiresPointingForVisibleControlRequests() {
-        #expect(ClickyAssistantResponseRepairer.transcriptRequiresVisiblePointing("show me the button"))
-        #expect(ClickyAssistantResponseRepairer.transcriptRequiresVisiblePointing("where is the settings icon?"))
-        #expect(!ClickyAssistantResponseRepairer.transcriptRequiresVisiblePointing("tell me a joke"))
+    func assistantPresentationPolicyRequiresPointingForVisibleControlRequests() {
+        #expect(ClickyAssistantPresentationPolicy.transcriptRequiresVisiblePointing("show me the button"))
+        #expect(ClickyAssistantPresentationPolicy.transcriptRequiresVisiblePointing("where is the settings icon?"))
+        #expect(!ClickyAssistantPresentationPolicy.transcriptRequiresVisiblePointing("tell me a joke"))
     }
 
     @Test
@@ -100,7 +100,7 @@ struct ClickyRefactorTests {
 
         let audit = repairer.audit(
             responseText: response,
-            transcript: "walk me through the climate controls"
+            transcript: "walk me through the settings controls"
         )
 
         #expect(audit.needsRepair)
@@ -135,21 +135,57 @@ struct ClickyRefactorTests {
     }
 
     @Test
-    func pointingCoordinatorParsesLegacyPointTags() {
-        let result = ClickyPointingCoordinator.parsePointingCoordinates(
-            from: "look here [POINT:120,240:screen2:Save button|save]"
-        )
+    func assistantPresentationPolicyUsesOnlyExplicitNarrationSteps() {
+        let responsePoints = [
+            ClickyAssistantResponsePoint(
+                x: 100,
+                y: 120,
+                label: "Account",
+                bubbleText: "Account",
+                explanation: "Start with account settings.",
+                screenNumber: nil
+            ),
+            ClickyAssistantResponsePoint(
+                x: 200,
+                y: 220,
+                label: "Voice",
+                bubbleText: "Voice",
+                explanation: "Then check voice settings.",
+                screenNumber: nil
+            ),
+        ]
 
-        #expect(result.spokenText == "look here")
-        #expect(result.targets.count == 1)
-        #expect(result.targets[0].coordinate == CGPoint(x: 120, y: 240))
-        #expect(result.targets[0].screenNumber == 2)
-        #expect(result.targets[0].elementLabel == "Save button")
-        #expect(result.targets[0].bubbleText == "save")
+        let narrationSteps = ClickyAssistantPresentationPolicy.managedPointNarrationSteps(from: responsePoints)
+
+        #expect(narrationSteps.map(\.spokenText) == [
+            "Start with account settings.",
+            "Then check voice settings.",
+        ])
+
+        let missingExplanationPoints = [
+            ClickyAssistantResponsePoint(
+                x: 100,
+                y: 120,
+                label: "Account",
+                bubbleText: "Account",
+                explanation: "Start with account settings.",
+                screenNumber: nil
+            ),
+            ClickyAssistantResponsePoint(
+                x: 200,
+                y: 220,
+                label: "Voice",
+                bubbleText: "Voice",
+                explanation: nil,
+                screenNumber: nil
+            ),
+        ]
+
+        #expect(ClickyAssistantPresentationPolicy.managedPointNarrationSteps(from: missingExplanationPoints).isEmpty)
     }
 
     @Test
-    func pointingCoordinatorResolvesScreenshotPixelsToDisplayPoints() {
+    func assistantPresentationPolicyResolvesScreenshotPixelsToDisplayPoints() {
         let capture = CompanionScreenCapture(
             imageData: Data(),
             label: "primary focus",
@@ -161,7 +197,7 @@ struct ClickyRefactorTests {
             screenshotWidthInPixels: 1000,
             screenshotHeightInPixels: 500
         )
-        let targets = ClickyPointingCoordinator.resolvedPointingTargets(
+        let targets = ClickyAssistantPresentationPolicy.resolvedPointingTargets(
             from: [
                 ParsedPointingTarget(
                     coordinate: CGPoint(x: 500, y: 250),
@@ -176,6 +212,49 @@ struct ClickyRefactorTests {
         #expect(targets.count == 1)
         #expect(targets[0].screenLocation == CGPoint(x: 260, y: 145))
         #expect(targets[0].displayFrame == capture.displayFrame)
+    }
+
+    @Test
+    func processedAssistantResponseCanRefreshResolvedPointTargets() {
+        let response = ClickyAssistantStructuredResponse(
+            mode: .point,
+            spokenText: "Use the center control.",
+            points: [
+                ClickyAssistantResponsePoint(
+                    x: 500,
+                    y: 250,
+                    label: "Center control",
+                    bubbleText: "Center",
+                    explanation: "This is the control in the center.",
+                    screenNumber: nil
+                ),
+            ]
+        )
+        let processedResponse = ClickyProcessedAssistantResponse(
+            rawText: #"{"mode":"point","spokenText":"Use the center control.","points":[]}"#,
+            structuredResponse: response,
+            spokenText: response.spokenText,
+            resolvedTargets: [],
+            managedNarrationSteps: []
+        )
+        let capture = CompanionScreenCapture(
+            imageData: Data(),
+            label: "primary focus",
+            isCursorScreen: true,
+            capturedAt: Date(),
+            displayWidthInPoints: 500,
+            displayHeightInPoints: 250,
+            displayFrame: CGRect(x: 10, y: 20, width: 500, height: 250),
+            screenshotWidthInPixels: 1000,
+            screenshotHeightInPixels: 500
+        )
+
+        let refreshedResponse = processedResponse.resolvingPointTargets(with: [capture])
+
+        #expect(refreshedResponse.spokenText == processedResponse.spokenText)
+        #expect(refreshedResponse.resolvedTargets.count == 1)
+        #expect(refreshedResponse.resolvedTargets[0].screenLocation == CGPoint(x: 260, y: 145))
+        #expect(refreshedResponse.resolvedTargets[0].bubbleText == "Center")
     }
 
     @Test

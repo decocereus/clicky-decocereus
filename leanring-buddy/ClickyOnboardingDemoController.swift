@@ -6,6 +6,7 @@
 //  prompt and screenshot-analysis details.
 //
 
+import CoreGraphics
 import Foundation
 
 @MainActor
@@ -46,8 +47,8 @@ final class ClickyOnboardingDemoController {
                     onTextChunk: { _ in }
                 )
 
-                let parseResult = ClickyPointingCoordinator.parsePointingCoordinates(from: fullResponseText)
-                let resolvedTargets = ClickyPointingCoordinator.resolvedPointingTargets(
+                let parseResult = Self.parseLegacyPointTagResponse(fullResponseText)
+                let resolvedTargets = ClickyAssistantPresentationPolicy.resolvedPointingTargets(
                     from: parseResult.targets,
                     screenCaptures: [cursorScreenCapture]
                 )
@@ -85,4 +86,98 @@ final class ClickyOnboardingDemoController {
 
     the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. origin (0,0) is top-left. x increases rightward, y increases downward.
     """
+
+    private static func parseLegacyPointTagResponse(_ responseText: String) -> OnboardingPointTagParseResult {
+        let pattern = #"\[POINT:[^\]]+\]"#
+
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return OnboardingPointTagParseResult(spokenText: responseText, targets: [])
+        }
+
+        let matches = regex.matches(in: responseText, range: NSRange(responseText.startIndex..., in: responseText))
+        guard !matches.isEmpty else {
+            return OnboardingPointTagParseResult(spokenText: responseText, targets: [])
+        }
+
+        let strippedText = regex.stringByReplacingMatches(
+            in: responseText,
+            range: NSRange(responseText.startIndex..., in: responseText),
+            withTemplate: ""
+        )
+        let spokenText = strippedText
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let parsedTargets = matches.compactMap { match -> ParsedPointingTarget? in
+            guard let matchRange = Range(match.range, in: responseText) else {
+                return nil
+            }
+
+            let fullTag = String(responseText[matchRange])
+            let body = fullTag
+                .replacingOccurrences(of: "[POINT:", with: "")
+                .replacingOccurrences(of: "]", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard body.lowercased() != "none" else {
+                return nil
+            }
+
+            return parseLegacyPointTagBody(body)
+        }
+
+        return OnboardingPointTagParseResult(
+            spokenText: spokenText,
+            targets: parsedTargets
+        )
+    }
+
+    private static func parseLegacyPointTagBody(_ body: String) -> ParsedPointingTarget? {
+        let parts = body.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        let coordinateAndMetadata = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitBubbleText = parts.count > 1
+            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+
+        let coordinateSegments = coordinateAndMetadata.split(separator: ":", omittingEmptySubsequences: false)
+        guard let coordinateSegment = coordinateSegments.first else { return nil }
+
+        let coordinateParts = coordinateSegment.split(separator: ",", omittingEmptySubsequences: false)
+        guard coordinateParts.count == 2,
+              let x = Double(String(coordinateParts[0]).trimmingCharacters(in: .whitespacesAndNewlines)),
+              let y = Double(String(coordinateParts[1]).trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return nil
+        }
+
+        var screenNumber: Int?
+        var labelComponents: [String] = []
+
+        for segment in coordinateSegments.dropFirst() {
+            let trimmedSegment = String(segment).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedSegment.isEmpty else { continue }
+
+            if trimmedSegment.lowercased().hasPrefix("screen"),
+               let parsedScreenNumber = Int(trimmedSegment.dropFirst("screen".count)),
+               parsedScreenNumber >= 1 {
+                screenNumber = parsedScreenNumber
+            } else {
+                labelComponents.append(String(trimmedSegment))
+            }
+        }
+
+        let elementLabel = labelComponents.isEmpty ? nil : labelComponents.joined(separator: ":")
+        let bubbleText = explicitBubbleText.isEmpty ? elementLabel : explicitBubbleText
+
+        return ParsedPointingTarget(
+            coordinate: CGPoint(x: x, y: y),
+            elementLabel: elementLabel,
+            screenNumber: screenNumber,
+            bubbleText: bubbleText
+        )
+    }
+}
+
+private struct OnboardingPointTagParseResult {
+    let spokenText: String
+    let targets: [ParsedPointingTarget]
 }

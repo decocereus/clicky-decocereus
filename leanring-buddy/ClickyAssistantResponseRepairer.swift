@@ -35,10 +35,10 @@ struct ClickyAssistantResponseRepairer {
         do {
             let structuredResponse = try ClickyAssistantResponseContract.parse(
                 rawResponse: responseText,
-                requiresPoints: Self.transcriptRequiresVisiblePointing(transcript)
+                requiresPoints: ClickyAssistantPresentationPolicy.transcriptRequiresVisiblePointing(transcript)
             )
             var issues: [String] = []
-            if Self.transcriptWantsNarratedWalkthrough(transcript),
+            if ClickyAssistantPresentationPolicy.transcriptWantsNarratedWalkthrough(transcript),
                structuredResponse.points.count > 1,
                structuredResponse.points.contains(where: {
                    ($0.explanation?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
@@ -66,7 +66,7 @@ struct ClickyAssistantResponseRepairer {
         guard audit.needsRepair else {
             let structuredResponse = try ClickyAssistantResponseContract.parse(
                 rawResponse: originalResponseText,
-                requiresPoints: Self.transcriptRequiresVisiblePointing(transcript)
+                requiresPoints: ClickyAssistantPresentationPolicy.transcriptRequiresVisiblePointing(transcript)
             )
             return ClickyAssistantRepairedResponse(
                 rawText: originalResponseText,
@@ -108,7 +108,7 @@ struct ClickyAssistantResponseRepairer {
               - no markdown, no headings, no bullets, no numbered lists, no bold markers, no code fences
               - the transport must be json even though spokenText itself should sound natural
               - use this exact schema:
-                {"mode":"answer|point|walkthrough|tutorial","spokenText":"string","points":[{"x":741,"y":213,"label":"gearshift","bubbleText":"gearshift","explanation":"the gearshift is down in the lower middle of the cabin.","screenNumber":1}]}
+                {"mode":"answer|point|walkthrough|tutorial","spokenText":"string","points":[{"x":820,"y":460,"label":"Save button","bubbleText":"Save","explanation":"This saves your changes.","screenNumber":1}]}
               - spokenText is what clicky speaks aloud
               - mode is optional but preferred when you know whether this is an answer, point, walkthrough, or tutorial
               - points is an ordered array of point targets
@@ -160,7 +160,7 @@ struct ClickyAssistantResponseRepairer {
             do {
                 let structuredResponse = try ClickyAssistantResponseContract.parse(
                     rawResponse: trimmedResponse,
-                    requiresPoints: Self.transcriptRequiresVisiblePointing(transcript)
+                    requiresPoints: ClickyAssistantPresentationPolicy.transcriptRequiresVisiblePointing(transcript)
                 )
 
                 return ClickyAssistantRepairedResponse(
@@ -179,61 +179,4 @@ struct ClickyAssistantResponseRepairer {
         )
     }
 
-    static func transcriptRequiresVisiblePointing(_ transcript: String) -> Bool {
-        let normalizedTranscript = transcript.lowercased()
-        let requiredPointingSignals = [
-            "point",
-            "point out",
-            "show me",
-            "walk me through",
-            "walkthrough",
-            "walk through",
-            "tour",
-            "breakdown",
-            "overview",
-            "where is",
-            "which button",
-            "which buttons",
-            "which control",
-            "which controls",
-            "button",
-            "buttons",
-            "control",
-            "controls",
-            "climate",
-            "dashboard",
-            "interior",
-            "screen",
-            "icon",
-            "icons",
-        ]
-
-        return requiredPointingSignals.contains { normalizedTranscript.contains($0) }
-    }
-
-    static func transcriptWantsNarratedWalkthrough(_ transcript: String) -> Bool {
-        let normalizedTranscript = transcript.lowercased()
-        let walkthroughSignals = [
-            "walk me through",
-            "walk-through",
-            "walkthrough",
-            "walk through",
-            "give me a walkthrough",
-            "give me a walk-through",
-            "talk about a few features",
-            "point them out",
-            "few features",
-            "tour",
-            "breakdown",
-            "overview",
-            "what do they do",
-            "how to use them",
-            "how to use",
-            "how climate controls work",
-            "what are these buttons",
-            "interior",
-        ]
-
-        return walkthroughSignals.contains { normalizedTranscript.contains($0) }
-    }
 }

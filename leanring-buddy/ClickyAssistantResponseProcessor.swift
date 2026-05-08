@@ -13,6 +13,23 @@ struct ClickyProcessedAssistantResponse {
     let spokenText: String
     let resolvedTargets: [QueuedPointingTarget]
     let managedNarrationSteps: [ManagedPointNarrationStep]
+
+    func resolvingPointTargets(
+        with screenCaptures: [CompanionScreenCapture]
+    ) -> ClickyProcessedAssistantResponse {
+        ClickyProcessedAssistantResponse(
+            rawText: rawText,
+            structuredResponse: structuredResponse,
+            spokenText: spokenText,
+            resolvedTargets: ClickyAssistantPresentationPolicy.resolvedPointingTargets(
+                from: ClickyAssistantPresentationPolicy.parsedPointingTargets(
+                    from: structuredResponse.points
+                ),
+                screenCaptures: screenCaptures
+            ),
+            managedNarrationSteps: managedNarrationSteps
+        )
+    }
 }
 
 struct ClickyAssistantConversationHistory {
@@ -87,7 +104,7 @@ final class ClickyAssistantResponseProcessor {
             finalRawText = rawResponseText
             structuredResponse = try ClickyAssistantResponseContract.parse(
                 rawResponse: rawResponseText,
-                requiresPoints: ClickyAssistantResponseRepairer.transcriptRequiresVisiblePointing(transcript)
+                requiresPoints: ClickyAssistantPresentationPolicy.transcriptRequiresVisiblePointing(transcript)
             )
         }
 
@@ -99,11 +116,11 @@ final class ClickyAssistantResponseProcessor {
             points: structuredResponse.points
         )
 
-        let resolvedTargets = ClickyPointingCoordinator.resolvedPointingTargets(
-            from: ClickyPointingCoordinator.parsedPointingTargets(from: structuredResponse.points),
+        let resolvedTargets = ClickyAssistantPresentationPolicy.resolvedPointingTargets(
+            from: ClickyAssistantPresentationPolicy.parsedPointingTargets(from: structuredResponse.points),
             screenCaptures: screenCaptures
         )
-        let managedNarrationSteps = ClickyPointingCoordinator.managedPointNarrationSteps(
+        let managedNarrationSteps = ClickyAssistantPresentationPolicy.managedPointNarrationSteps(
             from: structuredResponse.points
         )
 

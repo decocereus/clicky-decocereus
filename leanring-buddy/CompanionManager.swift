@@ -231,8 +231,7 @@ final class CompanionManager: ObservableObject {
         return ElevenLabsTTSClient(proxyURL: "\(CompanionRuntimeConfiguration.workerBaseURL)/tts")
     }()
 
-    /// Conversation history so Claude remembers prior exchanges within a session.
-    /// Each entry is the user's transcript and Claude's response.
+    /// Drives queued cursor pointing after assistant responses resolve point targets.
     lazy var pointingSequenceController = ClickyPointingSequenceController(
         surfaceController: surfaceController
     )
@@ -536,7 +535,7 @@ final class CompanionManager: ObservableObject {
         tutorialController: tutorialController,
         playbackCoordinator: tutorialPlaybackCoordinator,
         assistantTurnExecutor: assistantTurnExecutor,
-        assistantResponseRepairer: assistantResponseRepairer,
+        assistantResponseProcessor: assistantResponseProcessor,
         focusContextProvider: assistantFocusContextProvider,
         selectedBackendProvider: { [weak self] in
             self?.preferences.selectedAgentBackend ?? .claude

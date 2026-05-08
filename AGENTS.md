@@ -25,7 +25,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Screen Capture**: ScreenCaptureKit (macOS 14.2+), multi-monitor support
 - **Focus Context**: The assistant turn contract now carries cursor/focus context in addition to screenshots: active display, cursor position, recent trail, screenshot-relative cursor coordinates, screenshot freshness delta, frontmost app/window, and best-effort AX focused element metadata.
 - **Voice Input**: Push-to-talk via `AVAudioEngine` and a pluggable transcription-provider layer
-- **Assistant Response Contract**: Clicky still renders one canonical structured response object with `spokenText` plus ordered point targets. For OpenClaw, prefer arriving at that contract through plugin tools rather than prompt-only formatting whenever possible.
+- **Assistant Response Contract**: Clicky renders one canonical structured response object with `spokenText` plus ordered point targets. `ClickyAssistantPresentationPolicy` owns transcript pointing heuristics, point-target resolution, and managed pointing narration. Legacy `[POINT:...]` tags are onboarding-demo-only and must not be reintroduced into the main assistant flow. For OpenClaw, prefer arriving at the structured contract through plugin tools rather than prompt-only formatting whenever possible.
 - **Launch Commerce Model**: direct-download website, free download plus in-app taste, in-app paywall, Polar-hosted checkout launched from the Mac app, lightweight auth plus backend-backed entitlement restore
 
 ## Codex Workflow

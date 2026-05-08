@@ -49,7 +49,7 @@ enum ClickyAssistantResponseContract {
     - return exactly one json object and nothing else. no markdown, no prose outside json, no code fences.
     - this response contract overrides any conflicting formatting or prose-style instruction. the transport must be json. only spokenText should read like natural speech.
     - schema:
-      {"mode":"answer|point|walkthrough|tutorial","spokenText":"string","points":[{"x":741,"y":213,"label":"gearshift","bubbleText":"gearshift","explanation":"the gearshift is down in the lower middle of the cabin.","screenNumber":1}]}
+      {"mode":"answer|point|walkthrough|tutorial","spokenText":"string","points":[{"x":820,"y":460,"label":"Save button","bubbleText":"Save","explanation":"This saves your changes.","screenNumber":1}]}
     - this json object is only the transport envelope. spokenText is what clicky speaks aloud, so that field should stay natural, useful, and formatted for the ear.
     - mode is optional. when present, it tells clicky whether this is a plain answer, one pointed item, a multi-point walkthrough, or a tutorial-style sequence.
     - points is an ordered array of things clicky should point at after or while speaking.
@@ -57,14 +57,14 @@ enum ClickyAssistantResponseContract {
     - use an empty array for points when no pointing is needed.
     - every point object must use integer pixel coordinates in the screenshot's coordinate space.
     - label should be a short one to three word identifier.
-    - bubbleText should be a very short on-screen cue, ideally one to four words, but still human-friendly and concrete. prefer phrases like "center screen", "climate panel", or "panoramic roof" over generic words like "screen" or "controls". if it is omitted or empty, clicky will fall back to label.
+    - bubbleText should be a very short on-screen cue, ideally one to four words, but still human-friendly and concrete. prefer phrases like "Save", "Account", or "Voice input" over generic words like "screen" or "controls". if it is omitted or empty, clicky will fall back to label.
     - include screenNumber only when the point belongs to a different screen than the cursor's current screen.
     - if the user asks for a walkthrough, tour, breakdown, or overview of multiple visible things, include multiple ordered point objects and include explanation for each point so clicky can narrate in sync with the pointer.
     - if the user asks where a visible control, button, icon, or area is on screen, include at least one point object with real coordinates.
     - example with one point:
-      {"mode":"point","spokenText":"here’s the gearshift.","points":[{"x":741,"y":213,"label":"gearshift","bubbleText":"gearshift","explanation":"the gearshift is down in the lower middle of the cabin, between the two front seats."}]}
+      {"mode":"point","spokenText":"Use the Save button.","points":[{"x":820,"y":460,"label":"Save button","bubbleText":"Save","explanation":"This button saves your changes."}]}
     - example with multiple points:
-      {"mode":"walkthrough","spokenText":"here are the main interior highlights.","points":[{"x":793,"y":320,"label":"instrument cluster","bubbleText":"speedometer","explanation":"the speedometer is behind the wheel in the hooded driver display."},{"x":920,"y":360,"label":"center display","bubbleText":"maps and media","explanation":"the center display handles maps, media, and vehicle settings."},{"x":930,"y":500,"label":"climate controls","bubbleText":"climate","explanation":"the climate controls sit below the vents and handle ac, temperature, and defogging."}]}
+      {"mode":"walkthrough","spokenText":"Here are the main settings to check.","points":[{"x":260,"y":210,"label":"Account settings","bubbleText":"Account","explanation":"Start here to confirm the signed-in account."},{"x":260,"y":310,"label":"Voice input","bubbleText":"Voice input","explanation":"Use this section to choose the microphone and speech settings."},{"x":260,"y":410,"label":"Backend picker","bubbleText":"Backend","explanation":"This selects which assistant backend handles new turns."}]}
     """
 
     static func parse(

@@ -28,18 +28,12 @@ final class ClickyManagedPointingPlaybackCoordinator {
         responsePoints: [ClickyAssistantResponsePoint],
         resolvedTargets: [QueuedPointingTarget]
     ) async {
-        let narrationSteps = ClickyPointingCoordinator.managedPointNarrationSteps(from: responsePoints)
+        let narrationSteps = ClickyAssistantPresentationPolicy.managedPointNarrationSteps(from: responsePoints)
         guard !narrationSteps.isEmpty, narrationSteps.count == resolvedTargets.count else {
             return
         }
 
-        let hasExplicitPerPointNarration = responsePoints.allSatisfy { responsePoint in
-            let trimmedExplanation = responsePoint.explanation?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return !trimmedExplanation.isEmpty
-        }
-
-        if hasExplicitPerPointNarration,
-           !introText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !introText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let playbackOutcome = await playSpeech(introText, .assistantResponse)
             if playbackOutcome.finalProviderDisplayName == "Unavailable" {
                 return

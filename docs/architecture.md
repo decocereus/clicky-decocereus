@@ -382,8 +382,8 @@ sequenceDiagram
   App->>Capture: Capture screenshots + focus context
   Capture-->>App: Screen images + cursor/focus metadata
   App->>Provider: Execute canonical assistant turn
-  Provider-->>App: Text response with optional [POINT] tag
-  App->>App: Parse pointing target
+  Provider-->>App: Structured JSON response
+  App->>App: Validate response contract + resolve point targets
   App->>TTS: Speak response
   App->>App: Show cursor guidance if needed
 ```
@@ -399,9 +399,10 @@ Key steps:
 3. Screen and focus context are captured.
 4. A canonical assistant turn plan is built.
 5. The selected provider adapter executes the turn.
-6. Response text is parsed for pointing tags.
-7. Local TTS plays the response.
-8. Trial state is updated if the user is not yet unlocked.
+6. The structured assistant response contract is audited and repaired if needed.
+7. Point targets are resolved from screenshot pixels into display coordinates.
+8. Local TTS plays the response.
+9. Trial state is updated if the user is not yet unlocked.
 
 ### 2. OpenClaw shell registration flow
 
@@ -571,6 +572,9 @@ Current app behavior:
 - compiles a lesson draft through the selected assistant backend
 - starts inline YouTube playback near the cursor
 - enters tutorial mode for next-step / repeat / list / contextual help turns
+- routes contextual tutorial help through the shared assistant response
+  processor, so contract auditing, repair, parsing, and point-target resolution
+  stay aligned with normal assistant turns
 
 Key code:
 

@@ -12,7 +12,7 @@ final class ClickyTutorialModeCoordinator {
     private let tutorialController: ClickyTutorialController
     private let playbackCoordinator: ClickyTutorialPlaybackCoordinator
     private let assistantTurnExecutor: ClickyAssistantTurnExecutor
-    private let assistantResponseRepairer: ClickyAssistantResponseRepairer
+    private let assistantResponseProcessor: ClickyAssistantResponseProcessor
     private let focusContextProvider: ClickyAssistantFocusContextProvider
     private let selectedBackendProvider: @MainActor () -> CompanionAgentBackend
     private let setVoiceState: @MainActor (CompanionVoiceState) -> Void
@@ -20,13 +20,13 @@ final class ClickyTutorialModeCoordinator {
     private let queuePointingTargets: @MainActor ([QueuedPointingTarget]) -> Void
 
     private let assistantTurnBuilder = ClickyAssistantTurnBuilder()
-    private var conversationHistory: [(userTranscript: String, assistantResponse: String)] = []
+    private var conversationHistory = ClickyAssistantConversationHistory()
 
     init(
         tutorialController: ClickyTutorialController,
         playbackCoordinator: ClickyTutorialPlaybackCoordinator,
         assistantTurnExecutor: ClickyAssistantTurnExecutor,
-        assistantResponseRepairer: ClickyAssistantResponseRepairer,
+        assistantResponseProcessor: ClickyAssistantResponseProcessor,
         focusContextProvider: ClickyAssistantFocusContextProvider,
         selectedBackendProvider: @escaping @MainActor () -> CompanionAgentBackend,
         setVoiceState: @escaping @MainActor (CompanionVoiceState) -> Void,
@@ -36,7 +36,7 @@ final class ClickyTutorialModeCoordinator {
         self.tutorialController = tutorialController
         self.playbackCoordinator = playbackCoordinator
         self.assistantTurnExecutor = assistantTurnExecutor
-        self.assistantResponseRepairer = assistantResponseRepairer
+        self.assistantResponseProcessor = assistantResponseProcessor
         self.focusContextProvider = focusContextProvider
         self.selectedBackendProvider = selectedBackendProvider
         self.setVoiceState = setVoiceState
@@ -45,7 +45,7 @@ final class ClickyTutorialModeCoordinator {
     }
 
     func clearConversationHistory() {
-        conversationHistory = []
+        conversationHistory = ClickyAssistantConversationHistory()
     }
 
     func handleTurnIfNeeded(for transcript: String) async -> Bool {
@@ -164,13 +164,13 @@ final class ClickyTutorialModeCoordinator {
                 transcript: transcript,
                 tutorialSessionState: tutorialSessionState,
                 currentStep: currentStep,
-                conversationHistory: conversationHistory
+                conversationHistory: conversationHistory.exchanges
             )
             let systemPrompt = ClickyTutorialModePromptBuilder.systemPrompt()
             let request = assistantTurnBuilder.buildRequest(
                 systemPrompt: systemPrompt,
                 userPrompt: tutorialAwarePrompt,
-                conversationHistory: conversationHistory,
+                conversationHistory: conversationHistory.exchanges,
                 labeledImages: labeledImages,
                 focusContext: focusContext
             )
@@ -185,55 +185,25 @@ final class ClickyTutorialModeCoordinator {
                 onTextChunk: { _ in }
             )
 
-            ClickyAgentTurnDiagnostics.logRawResponse(
+            var processedResponse = try await assistantResponseProcessor.process(
+                rawResponseText: response.text,
                 backend: selectedBackend,
-                response: response.text
-            )
-
-            let audit = assistantResponseRepairer.audit(
-                responseText: response.text,
-                transcript: transcript
-            )
-            let structuredResponse: ClickyAssistantStructuredResponse
-
-            if audit.needsRepair {
-                let repairImages = screenCaptures.map { capture in
+                transcript: transcript,
+                baseSystemPrompt: systemPrompt,
+                labeledImages: screenCaptures.map { capture in
                     (data: capture.imageData, label: capture.label)
-                }
-                let repairedResponse = try await assistantResponseRepairer.repairIfNeeded(
-                    backend: selectedBackend,
-                    originalResponseText: response.text,
-                    transcript: transcript,
-                    baseSystemPrompt: systemPrompt,
-                    labeledImages: repairImages,
-                    focusContext: focusContext,
-                    conversationHistory: conversationHistory,
-                    audit: audit
-                )
-                structuredResponse = repairedResponse.structuredResponse
-                ClickyAgentTurnDiagnostics.logRawResponse(
-                    backend: selectedBackend,
-                    response: repairedResponse.rawText
-                )
-            } else {
-                structuredResponse = try ClickyAssistantResponseContract.parse(
-                    rawResponse: response.text,
-                    requiresPoints: ClickyAssistantResponseRepairer.transcriptRequiresVisiblePointing(transcript)
-                )
-            }
-
-            let spokenText = structuredResponse.spokenText
-            ClickyAgentTurnDiagnostics.logParsedResponse(
-                backend: selectedBackend,
-                mode: structuredResponse.mode,
-                spokenResponse: spokenText,
-                points: structuredResponse.points
+                },
+                focusContext: focusContext,
+                conversationHistory: conversationHistory.exchanges,
+                screenCaptures: screenCaptures
             )
+
+            let spokenText = processedResponse.spokenText
 
             appendConversationTurn(transcript: transcript, spokenText: spokenText)
             playbackCoordinator.updateBubble(spokenText)
 
-            if !structuredResponse.points.isEmpty {
+            if !processedResponse.structuredResponse.points.isEmpty {
                 let initialFocusContext = focusContextProvider.captureCurrentFocusContext()
                 let freshCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG(
                     cursorLocationOverride: CGPoint(
@@ -241,13 +211,11 @@ final class ClickyTutorialModeCoordinator {
                         y: initialFocusContext.cursorY
                     )
                 )
-                let resolvedTargets = ClickyPointingCoordinator.resolvedPointingTargets(
-                    from: ClickyPointingCoordinator.parsedPointingTargets(from: structuredResponse.points),
-                    screenCaptures: freshCaptures
-                )
-                if !resolvedTargets.isEmpty {
-                    queuePointingTargets(resolvedTargets)
-                }
+                processedResponse = processedResponse.resolvingPointTargets(with: freshCaptures)
+            }
+
+            if !processedResponse.resolvedTargets.isEmpty {
+                queuePointingTargets(processedResponse.resolvedTargets)
             }
 
             await playSpeech(spokenText, .assistantResponse)
@@ -261,12 +229,9 @@ final class ClickyTutorialModeCoordinator {
     }
 
     private func appendConversationTurn(transcript: String, spokenText: String) {
-        conversationHistory.append((
+        conversationHistory.append(
             userTranscript: transcript,
             assistantResponse: spokenText
-        ))
-        if conversationHistory.count > 10 {
-            conversationHistory.removeFirst(conversationHistory.count - 10)
-        }
+        )
     }
 }
